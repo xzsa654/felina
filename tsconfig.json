@@ -5,7 +5,7 @@
     "module": "ESNext",
     "resolveJsonModule": true,
     "allowJs": true,
-    "checkJs": true,
+    "checkJs": false,
     "isolatedModules": true,
     "moduleDetection": "force",
     "strict": true,
@@ -13,10 +13,12 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
     "moduleResolution": "bundler",
+    "jsx": "react-jsx",
     "paths": {
       "$lib/*": ["./src/lib/*"]
     },
     "verbatimModuleSyntax": true
   },
-  "include": ["src/**/*.ts", "src/**/*.svelte"]
+  "include": ["src/**/*.ts", "src/**/*.tsx"],
+  "exclude": ["src/**/*.svelte.ts"]
 }

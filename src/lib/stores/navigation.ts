@@ -1,0 +1,63 @@
+import { create } from "zustand";
+
+export type Page =
+  | "dashboard"
+  | "settings"
+  | "hooks"
+  | "instructions"
+  | "memory"
+  | "mcp"
+  | "skills"
+  | "rules"
+  | "plugins"
+  | "git"
+  | "terminal"
+  | "analytics"
+  | "templates"
+  | "sessions"
+  | "pipelines"
+  | "token-savings"
+  | "context-engine"
+  | "keybindings";
+
+export interface NavItem {
+  id: Page;
+  label: string;
+  icon: string;
+}
+
+export const NAV_ITEMS: NavItem[] = [
+  { id: "dashboard", label: "Dashboard", icon: "chart" },
+  { id: "settings", label: "Settings", icon: "gear" },
+  { id: "hooks", label: "Hooks", icon: "bolt" },
+  { id: "instructions", label: "Instructions", icon: "book" },
+  { id: "memory", label: "Memory", icon: "brain" },
+  { id: "mcp", label: "MCP Servers", icon: "server" },
+  { id: "skills", label: "Skills & Agents", icon: "sparkles" },
+  { id: "rules", label: "Rules", icon: "shield" },
+  { id: "plugins", label: "Plugins", icon: "puzzle" },
+  { id: "git", label: "Git", icon: "git" },
+  { id: "pipelines", label: "Pipelines", icon: "pipelines" },
+  { id: "sessions", label: "Sessions", icon: "sessions" },
+  { id: "templates", label: "Templates", icon: "templates" },
+  { id: "terminal", label: "Terminal", icon: "terminal" },
+  { id: "analytics", label: "Analytics", icon: "analytics" },
+  { id: "token-savings", label: "Token Savings", icon: "savings" },
+  { id: "context-engine", label: "Context Engine", icon: "network" },
+  { id: "keybindings", label: "Keybindings", icon: "keybindings" },
+];
+
+interface NavigationStore {
+  currentPage: Page;
+  navigateTo: (page: Page) => void;
+}
+
+export const useNavigationStore = create<NavigationStore>((set) => ({
+  currentPage: "dashboard",
+  navigateTo: (page) => set({ currentPage: page }),
+}));
+
+// Convenience shorthands for non-component callers
+export function navigateTo(page: Page) {
+  useNavigationStore.getState().navigateTo(page);
+}

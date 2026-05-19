@@ -1,20 +1,27 @@
-## Glyphic v0.16.0 — Context Engine polish + Windows fix
+## Glyphic v0.20.0 — React frontend + npm workflow
 
-A maintenance release focused on making v0.15.0's Context Engine reliable in practice, plus a long-standing Windows path bug.
+This release migrates the desktop frontend to React, TypeScript, and zustand, and switches the project tooling from Bun to npm.
 
-### Fixes
+### Changes
 
-- **Turn refs now expand.** The retrieval block advertised both tool-result (`tr_…`) and turn (`u_…`) refs, but the expand path only handled tool results — turn refs fell through to a real `glyphic-ctx expand` shell invocation and failed. Both the `PreToolUse` hook and the CLI now look up turns as a fallback, so every ref Claude sees is actually expandable.
-- **Reindex no longer freezes the UI.** `ctx_reindex_embeddings` was running the multi-second fastembed pass on Tauri's main thread, pinning every other invoke. It now dispatches to a worker thread — progress updates and other UI interactions stay responsive while rows embed.
-- **Windows project folders resolved correctly ([#2](https://github.com/caioricciuti/glyphic/issues/2)).** `project_hash_to_path` used to blindly convert every `-` in a Claude Code project folder name to `/`, which mangles Windows paths like `C--Development-convivo-invitation` into `C//Development/convivo/invitation`. It now reads the authoritative `cwd` from the first line of any session `.jsonl` and uses that; dash-decoding stays as the fallback. Thanks @mcbyte-it for the detailed report and the suggested approach.
+- Rebuilt the app entrypoint and page shell around React.
+- Added React implementations for the main app pages, including analytics, context engine, skills, rules, plugins, git, pipelines, sessions, templates, terminal, token savings, and keybindings.
+- Added shared React scaffolding for page headers, actions, stat cards, loading states, empty states, and error banners.
+- Switched development, Tauri, documentation, and release workflow commands from Bun to npm.
+- Replaced `bun.lock` with `package-lock.json`.
+
+### Verification
+
+- `npm run check`
+- `npm run build`
 
 ### Downloads
 
 | Platform | File |
 |----------|------|
-| macOS (Apple Silicon) | `Glyphic_0.16.0_aarch64.dmg` |
-| macOS (Intel) | `Glyphic_0.16.0_x64.dmg` |
+| macOS (Apple Silicon) | `.dmg` (aarch64) |
+| macOS (Intel) | `.dmg` (x86_64) |
 | Windows | `.msi` installer |
-| Linux | `.deb`, `.AppImage`, `.rpm` |
+| Linux | `.deb` package or `.AppImage` |
 
-macOS builds are signed and notarized. Auto-update will prompt existing users automatically.
+macOS builds are signed and notarized when the release workflow has the required signing secrets.

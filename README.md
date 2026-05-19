@@ -188,7 +188,7 @@ The app includes **auto-updates** — you'll be notified when a new version is a
 ### Requirements
 
 - [Rust](https://rustup.rs/) (1.70+)
-- [Bun](https://bun.sh/) (1.0+) or Node.js 18+
+- Node.js 18+ and npm
 - [Tauri CLI](https://v2.tauri.app/start/prerequisites/)
 
 ### Setup
@@ -199,23 +199,23 @@ git clone https://github.com/caioricciuti/glyphic.git
 cd glyphic
 
 # Install dependencies
-bun install
+npm install
 
 # Run in development
-bun run tauri dev
+npm run tauri dev
 
 # Build for production
-bun run tauri build
+npm run tauri build
 ```
 
 ### Project Structure
 
 ```
 glyphic/
-├── src/                    # Svelte 5 frontend
+├── src/                    # React + TypeScript frontend
 │   ├── lib/
-│   │   ├── components/     # 56 Svelte components (18 page modules)
-│   │   ├── stores/         # Reactive stores (navigation, project context, terminal)
+│   │   ├── components/     # React components and page modules
+│   │   ├── stores/         # Zustand stores (navigation, project context, terminal)
 │   │   ├── tauri/          # Typed Tauri command wrappers
 │   │   ├── types/          # TypeScript interfaces
 │   │   └── utils/          # Streaks, achievements, formatting
@@ -233,13 +233,13 @@ glyphic/
 | Layer | Technology |
 |-------|-----------|
 | Framework | [Tauri v2](https://v2.tauri.app/) |
-| Frontend | [Svelte 5](https://svelte.dev/) (runes) |
+| Frontend | [React](https://react.dev/) + [zustand](https://zustand-demo.pmnd.rs/) |
 | Styling | [Tailwind CSS v4](https://tailwindcss.com/) |
 | Icons | [Lucide](https://lucide.dev/) |
 | Terminal | [xterm.js](https://xtermjs.org/) + [portable-pty](https://docs.rs/portable-pty) |
 | Markdown | [Marked](https://marked.js.org/) |
 | Language | TypeScript (strict) + Rust |
-| Package Manager | [Bun](https://bun.sh/) |
+| Package Manager | npm |
 
 ## How It Works
 
