@@ -1,4 +1,5 @@
-import { useNavigationStore, type Page } from "$lib/stores/navigation";
+import { useMatch } from "react-router";
+import { type Page } from "$lib/stores/navigation";
 
 const PAGE_TITLES: Record<Page, string> = {
   dashboard: "Dashboard",
@@ -43,7 +44,8 @@ const PAGE_DESCRIPTIONS: Record<Page, string> = {
 };
 
 export default function Header() {
-  const currentPage = useNavigationStore((s) => s.currentPage);
+  const pageMatch = useMatch("/:pageId");
+  const currentPage = (pageMatch?.params.pageId as Page) ?? "dashboard";
 
   return (
     <header className="flex items-center justify-between px-6 py-[7px] border-b border-border bg-bg-secondary">

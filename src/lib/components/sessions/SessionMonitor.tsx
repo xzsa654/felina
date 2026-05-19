@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { api, type SessionSummary } from "$lib/tauri/commands";
-import { useNavigationStore } from "$lib/stores/navigation";
+import { useNavigate } from "react-router";
 import { History, DollarSign, MessageSquare, Wrench, RefreshCw } from "lucide-react";
 
 function formatTime(ts: string | null): string {
@@ -15,7 +15,7 @@ function formatTime(ts: string | null): string {
 }
 
 export default function SessionMonitor() {
-  const navigateTo = useNavigationStore((s) => s.navigateTo);
+  const navigate = useNavigate();
   const [activeSessions, setActiveSessions] = useState<SessionSummary[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -57,7 +57,7 @@ export default function SessionMonitor() {
           <button
             key={session.id}
             className="w-full text-left px-3 py-2 bg-bg-tertiary rounded-md hover:bg-bg-hover transition-colors"
-            onClick={() => navigateTo("sessions")}
+            onClick={() => navigate("/sessions")}
           >
             <div className="flex items-center justify-between">
               <span className="text-xs font-medium text-text-primary truncate">
