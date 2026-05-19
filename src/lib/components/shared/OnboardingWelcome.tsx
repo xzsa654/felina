@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
-import { useNavigationStore, type Page } from "$lib/stores/navigation";
+import { useNavigate } from "react-router";
+import { type Page } from "$lib/stores/navigation";
 import {
   Settings,
   BookOpen,
@@ -64,7 +65,7 @@ const steps: OnboardingStep[] = [
 ];
 
 export default function OnboardingWelcome() {
-  const navigateTo = useNavigationStore((s) => s.navigateTo);
+  const navigate = useNavigate();
   const [visible, setVisible] = useState(false);
   const [step, setStep] = useState(0);
 
@@ -80,7 +81,7 @@ export default function OnboardingWelcome() {
 
   function goTo(page: Page) {
     dismiss();
-    navigateTo(page);
+    navigate(`/${page}`);
   }
 
   if (!visible) return null;

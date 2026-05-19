@@ -1,5 +1,3 @@
-import { create } from "zustand";
-
 export type Page =
   | "dashboard"
   | "settings"
@@ -46,18 +44,3 @@ export const NAV_ITEMS: NavItem[] = [
   { id: "context-engine", label: "Context Engine", icon: "network" },
   { id: "keybindings", label: "Keybindings", icon: "keybindings" },
 ];
-
-interface NavigationStore {
-  currentPage: Page;
-  navigateTo: (page: Page) => void;
-}
-
-export const useNavigationStore = create<NavigationStore>((set) => ({
-  currentPage: "dashboard",
-  navigateTo: (page) => set({ currentPage: page }),
-}));
-
-// Convenience shorthands for non-component callers
-export function navigateTo(page: Page) {
-  useNavigationStore.getState().navigateTo(page);
-}

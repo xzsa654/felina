@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from "react";
-import { useNavigationStore, NAV_ITEMS, type Page } from "$lib/stores/navigation";
+import { useNavigate } from "react-router";
+import { NAV_ITEMS } from "$lib/stores/navigation";
 import { useThemeStore } from "$lib/stores/theme";
 import {
   BarChart3,
@@ -54,7 +55,7 @@ interface PaletteAction {
 }
 
 export default function CommandPalette() {
-  const navigateTo = useNavigationStore((s) => s.navigateTo);
+  const navigate = useNavigate();
   const theme = useThemeStore((s) => s.theme);
   const toggleTheme = useThemeStore((s) => s.toggleTheme);
 
@@ -71,7 +72,7 @@ export default function CommandPalette() {
         description: `Go to ${item.label}`,
         icon: item.icon,
         category: "navigate" as const,
-        handler: () => navigateTo(item.id),
+        handler: () => navigate(`/${item.id}`),
       })),
       {
         id: "action-theme",
@@ -82,7 +83,7 @@ export default function CommandPalette() {
         handler: toggleTheme,
       },
     ],
-    [navigateTo, toggleTheme],
+    [navigate, toggleTheme],
   );
 
   const filtered = useMemo(() => {
@@ -119,7 +120,7 @@ export default function CommandPalette() {
         const index = parseInt(e.key) - 1;
         if (index < NAV_ITEMS.length) {
           e.preventDefault();
-          navigateTo(NAV_ITEMS[index].id as Page);
+          navigate(`/${NAV_ITEMS[index].id}`);
         }
         return;
       }
@@ -146,7 +147,7 @@ export default function CommandPalette() {
 
     document.addEventListener("keydown", handleKeydown);
     return () => document.removeEventListener("keydown", handleKeydown);
-  }, [open, filtered, selectedIndex, navigateTo]);
+  }, [open, filtered, selectedIndex, navigate]);
 
   function handleSelect(action: PaletteAction) {
     action.handler();

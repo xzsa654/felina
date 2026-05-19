@@ -3,7 +3,7 @@ import { api, type CostSummary } from "$lib/tauri/commands";
 import { formatNumber } from "$lib/utils/format";
 import { calculateStreak, getDaysActive } from "$lib/utils/streaks";
 import { calculateXP, evaluateAchievements } from "$lib/utils/achievements";
-import { useNavigationStore } from "$lib/stores/navigation";
+import { useNavigate } from "react-router";
 import type { StatsCache, Settings, DailyActivity } from "$lib/types";
 import StatsOverview from "./StatsOverview";
 import StreakCard from "./StreakCard";
@@ -14,7 +14,7 @@ import SessionMonitor from "$lib/components/sessions/SessionMonitor";
 import { DollarSign, TrendingUp } from "lucide-react";
 
 export default function DashboardPage() {
-  const navigateTo = useNavigationStore((s) => s.navigateTo);
+  const navigate = useNavigate();
   const [stats, setStats] = useState<StatsCache | null>(null);
   const [settings, setSettings] = useState<Settings | null>(null);
   const [costSummary, setCostSummary] = useState<CostSummary | null>(null);
@@ -155,7 +155,7 @@ export default function DashboardPage() {
               </div>
               <button
                 className="w-full text-xs text-accent hover:text-accent-hover py-1 transition-colors"
-                onClick={() => navigateTo("analytics")}
+                onClick={() => navigate("/analytics")}
               >
                 View full analytics →
               </button>

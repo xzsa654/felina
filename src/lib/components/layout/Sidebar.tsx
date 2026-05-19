@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
+import { Link, useMatch } from "react-router";
 import { getVersion } from "@tauri-apps/api/app";
-import { useNavigationStore, NAV_ITEMS } from "$lib/stores/navigation";
+import { NAV_ITEMS } from "$lib/stores/navigation";
 import { useThemeStore } from "$lib/stores/theme";
 import { api, type CostSummary } from "$lib/tauri/commands";
 import { calculateXP } from "$lib/utils/achievements";
@@ -54,8 +55,6 @@ const ICON_MAP: Record<string, React.ComponentType<{ size?: number; className?: 
 };
 
 export default function Sidebar() {
-  const currentPage = useNavigationStore((s) => s.currentPage);
-  const navigateTo = useNavigationStore((s) => s.navigateTo);
   const theme = useThemeStore((s) => s.theme);
   const toggleTheme = useThemeStore((s) => s.toggleTheme);
 
@@ -105,21 +104,22 @@ export default function Sidebar() {
       <nav className="flex-1 py-2 overflow-y-auto">
         {NAV_ITEMS.map((item) => {
           const IconComponent = ICON_MAP[item.icon];
+          const isActive = useMatch(`/${item.id}`) !== null;
           return (
-            <button
+            <Link
               key={item.id}
+              to={`/${item.id}`}
               className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm transition-colors ${
-                currentPage === item.id
+                isActive
                   ? "bg-accent-dim text-accent border-r-2 border-accent"
                   : "text-text-secondary hover:bg-bg-hover hover:text-text-primary"
               }`}
-              onClick={() => navigateTo(item.id)}
             >
               <span className="w-5 h-5 flex items-center justify-center">
                 {IconComponent && <IconComponent size={18} />}
               </span>
               <span>{item.label}</span>
-            </button>
+            </Link>
           );
         })}
       </nav>
