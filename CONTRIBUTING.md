@@ -7,7 +7,7 @@ Thanks for your interest in contributing to Glyphic! This guide will help you ge
 ### Prerequisites
 
 - [Rust](https://rustup.rs/) 1.70+
-- [Bun](https://bun.sh/) 1.0+ (or Node.js 18+)
+- Node.js 18+ and npm
 - [Tauri CLI v2](https://v2.tauri.app/start/prerequisites/)
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) installed
 
@@ -16,23 +16,23 @@ Thanks for your interest in contributing to Glyphic! This guide will help you ge
 ```bash
 git clone https://github.com/caioricciuti/glyphic.git
 cd glyphic
-bun install
-bun run tauri dev
+npm install
+npm run tauri dev
 ```
 
 ### Verify your setup
 
 ```bash
-bun run check          # TypeScript + Svelte diagnostics
-bun run tauri build    # Full production build
+npm run check          # TypeScript diagnostics
+npm run tauri build    # Full production build
 ```
 
 ## Development Workflow
 
 1. **Fork** the repo and create a branch from `main`
 2. **Make changes** — follow the conventions below
-3. **Test manually** — run `bun run tauri dev` and verify your changes
-4. **Run checks** — `bun run check` must pass with zero errors
+3. **Test manually** — run `npm run tauri dev` and verify your changes
+4. **Run checks** — `npm run check` must pass with zero errors
 5. **Commit** — use [Conventional Commits](https://www.conventionalcommits.org/)
 6. **Open a PR** — fill in the PR template
 
@@ -41,7 +41,7 @@ bun run tauri build    # Full production build
 ### Code Style
 
 - **TypeScript strict mode** — no `any` types
-- **Svelte 5 runes** — use `$state`, `$derived`, `$effect`. No legacy `$:` or writable stores
+- **React + zustand** — keep UI state local when possible and shared app state in zustand stores
 - **Named exports** over default exports
 - **Tailwind CSS** for styling — no custom CSS unless necessary
 - **Lucide Svelte** for icons

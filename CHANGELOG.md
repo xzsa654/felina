@@ -4,6 +4,17 @@ All notable changes to Glyphic will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.20.0] - 2026-05-19
+
+### Changed
+- Rebuilt the frontend entrypoint and page shell on React, TypeScript, and zustand.
+- Migrated the project package manager workflow from Bun to npm, including local scripts, Tauri commands, docs, and release workflow.
+- Added npm lockfile support and removed the Bun lockfile.
+
+### Added
+- React page implementations for the primary app areas, including analytics, context engine, skills, rules, plugins, git, pipelines, sessions, templates, terminal, token savings, and keybindings.
+- Shared React page scaffolding components for headers, actions, stat cards, loading, empty, and error states.
+
 ## [0.16.0] - 2026-04-16
 
 ### Fixed
