@@ -8,4 +8,10 @@ src-tauri/target/
 
 CLAUDE.md
 
+.spectra/
+openspec/.vector-search.db*
 .claude/
+.agents/
+AGENTS.md
+.spectra.yaml
+openspec/config.yaml
