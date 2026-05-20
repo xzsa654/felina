@@ -3,9 +3,8 @@ import { useNavigate } from "react-router";
 import { type Page } from "$lib/stores/navigation";
 import {
   Settings,
-  BookOpen,
-  Server,
-  TerminalSquare,
+  LayoutTemplate,
+  Brain,
   Sparkles,
   ArrowRight,
   Check,
@@ -23,44 +22,36 @@ interface OnboardingStep {
 
 const steps: OnboardingStep[] = [
   {
-    icon: Settings,
-    title: "Configure Settings",
-    description:
-      "Set your preferred model, effort level, and permissions. Glyphic reads and writes the same settings.json Claude Code uses.",
-    action: "Open Settings",
-    page: "settings",
-  },
-  {
-    icon: BookOpen,
-    title: "Write Instructions",
-    description:
-      "Create CLAUDE.md files that guide Claude Code. Set global preferences and per-project rules.",
-    action: "Open Instructions",
-    page: "instructions",
-  },
-  {
-    icon: Server,
-    title: "Add MCP Servers",
-    description:
-      "Connect external tools via the Model Context Protocol. Add GitHub, Slack, databases, and more.",
-    action: "Open MCP Servers",
-    page: "mcp",
-  },
-  {
     icon: Sparkles,
-    title: "Create Skills",
+    title: "Manage Skills",
     description:
-      "Build reusable slash commands that extend Claude Code with custom workflows and templates.",
+      "Create and edit reusable skills, then sync them across the agents you use. Skills are the heart of the app.",
     action: "Open Skills",
     page: "skills",
   },
   {
-    icon: TerminalSquare,
-    title: "Launch Terminal",
+    icon: Settings,
+    title: "Configure Settings",
     description:
-      "Run Claude Code directly inside Glyphic with a fully embedded terminal. Multi-tab, persistent sessions.",
-    action: "Open Terminal",
-    page: "terminal",
+      "Set your preferred model, effort level, and permissions. Settings are read from and written to the same files your agents use.",
+    action: "Open Settings",
+    page: "settings",
+  },
+  {
+    icon: LayoutTemplate,
+    title: "Browse Templates",
+    description:
+      "Start from pre-built skill templates instead of writing from scratch. One click to add.",
+    action: "Open Templates",
+    page: "templates",
+  },
+  {
+    icon: Brain,
+    title: "Review Memory",
+    description:
+      "Browse and edit project memory files that give your agents persistent context.",
+    action: "Open Memory",
+    page: "memory",
   },
 ];
 
