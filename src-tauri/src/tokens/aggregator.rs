@@ -201,7 +201,7 @@ impl TokenAggregator {
         };
 
         let sql = format!(
-            "SELECT strftime('{}', datetime(timestamp, 'unixepoch')) as label,
+            "SELECT strftime('{}', datetime(timestamp, 'unixepoch', 'localtime')) as label,
                     COUNT(*),
                     COALESCE(SUM(input_tokens),0), COALESCE(SUM(output_tokens),0),
                     COALESCE(SUM(cache_read_tokens),0), COALESCE(SUM(cache_write_tokens),0),
@@ -253,7 +253,7 @@ impl TokenAggregator {
         };
 
         let sql = format!(
-            "SELECT strftime('{}', datetime(timestamp, 'unixepoch')) as label,
+            "SELECT strftime('{}', datetime(timestamp, 'unixepoch', 'localtime')) as label,
                     model,
                     COALESCE(SUM(input_tokens),0),
                     COALESCE(SUM(output_tokens),0),
@@ -441,8 +441,8 @@ impl TokenAggregator {
     ) -> Result<Vec<HourlyHeatmapEntry>, String> {
         // Group by day-of-week (0=Sun..6=Sat) + hour
         let sql = format!(
-            "SELECT CAST(strftime('%w', datetime(timestamp, 'unixepoch')) AS INTEGER) as dow,
-                    CAST(strftime('%H', datetime(timestamp, 'unixepoch')) AS INTEGER) as hour,
+            "SELECT CAST(strftime('%w', datetime(timestamp, 'unixepoch', 'localtime')) AS INTEGER) as dow,
+                    CAST(strftime('%H', datetime(timestamp, 'unixepoch', 'localtime')) AS INTEGER) as hour,
                     COALESCE(SUM(input_tokens + output_tokens),0) as total_tokens
              FROM token_events {}
              GROUP BY dow, hour ORDER BY dow, hour",
@@ -475,8 +475,8 @@ impl TokenAggregator {
 
         // Fill per day-of-week×hour costs via per-model pricing
         let cost_sql = format!(
-            "SELECT CAST(strftime('%w', datetime(timestamp, 'unixepoch')) AS INTEGER) as dow,
-                    CAST(strftime('%H', datetime(timestamp, 'unixepoch')) AS INTEGER) as hour,
+            "SELECT CAST(strftime('%w', datetime(timestamp, 'unixepoch', 'localtime')) AS INTEGER) as dow,
+                    CAST(strftime('%H', datetime(timestamp, 'unixepoch', 'localtime')) AS INTEGER) as hour,
                     model,
                     COALESCE(SUM(input_tokens),0),
                     COALESCE(SUM(output_tokens),0),
