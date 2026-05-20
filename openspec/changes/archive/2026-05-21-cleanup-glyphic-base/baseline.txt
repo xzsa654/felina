@@ -1,0 +1,53 @@
+=== npm run check ===
+
+> glyphic@0.20.0 check
+> tsc --noEmit
+
+src/lib/components/tokens/components/AgentDistribution.tsx(1,75): error TS2307: Cannot find module 'recharts' or its corresponding type declarations.
+src/lib/components/tokens/components/AgentDistribution.tsx(2,15): error TS2305: Module '"$lib/types"' has no exported member 'AgentBreakdown'.
+src/lib/components/tokens/components/AgentStatusPanel.tsx(1,15): error TS2305: Module '"$lib/types"' has no exported member 'AgentStatus'.
+src/lib/components/tokens/components/CacheEfficiencyCard.tsx(1,15): error TS2305: Module '"$lib/types"' has no exported member 'CacheEfficiency'.
+src/lib/components/tokens/components/CostBudgetCard.tsx(1,15): error TS2305: Module '"$lib/types"' has no exported member 'TokenAnalytics'.
+src/lib/components/tokens/components/CostBudgetCard.tsx(48,47): error TS7006: Parameter 's' implicitly has an 'any' type.
+src/lib/components/tokens/components/CostBudgetCard.tsx(48,50): error TS7006: Parameter 'b' implicitly has an 'any' type.
+src/lib/components/tokens/components/GranularityPicker.tsx(1,15): error TS2305: Module '"$lib/types"' has no exported member 'TimeGranularity'.
+src/lib/components/tokens/components/HourlyHeatmap.tsx(2,15): error TS2305: Module '"$lib/types"' has no exported member 'HourlyHeatmapEntry'.
+src/lib/components/tokens/components/ModelBreakdownChart.tsx(8,8): error TS2307: Cannot find module 'recharts' or its corresponding type declarations.
+src/lib/components/tokens/components/ModelBreakdownChart.tsx(9,15): error TS2305: Module '"$lib/types"' has no exported member 'ModelBreakdown'.
+src/lib/components/tokens/components/ModelBreakdownChart.tsx(61,25): error TS7006: Parameter 'value' implicitly has an 'any' type.
+src/lib/components/tokens/components/ModelBreakdownTable.tsx(2,15): error TS2305: Module '"$lib/types"' has no exported member 'ModelBreakdown'.
+src/lib/components/tokens/components/TokenCostTimeSeries.tsx(8,8): error TS2307: Cannot find module 'recharts' or its corresponding type declarations.
+src/lib/components/tokens/components/TokenCostTimeSeries.tsx(9,15): error TS2305: Module '"$lib/types"' has no exported member 'TokenBucket'.
+src/lib/components/tokens/components/TokenCostTimeSeries.tsx(50,25): error TS7006: Parameter 'value' implicitly has an 'any' type.
+src/lib/components/tokens/components/TokenStatCards.tsx(4,15): error TS2305: Module '"$lib/types"' has no exported member 'TokenAnalytics'.
+src/lib/components/tokens/components/TokenStatCards.tsx(4,31): error TS2305: Module '"$lib/types"' has no exported member 'CacheEfficiency'.
+src/lib/components/tokens/components/TokenStatCards.tsx(69,52): error TS7006: Parameter 'a' implicitly has an 'any' type.
+src/lib/components/tokens/components/TokenTimeSeries.tsx(9,8): error TS2307: Cannot find module 'recharts' or its corresponding type declarations.
+src/lib/components/tokens/components/TokenTimeSeries.tsx(10,15): error TS2305: Module '"$lib/types"' has no exported member 'TokenBucket'.
+src/lib/components/tokens/TokensPage.tsx(4,3): error TS2305: Module '"$lib/types"' has no exported member 'TokenAnalytics'.
+src/lib/components/tokens/TokensPage.tsx(5,3): error TS2305: Module '"$lib/types"' has no exported member 'CacheEfficiency'.
+src/lib/components/tokens/TokensPage.tsx(6,3): error TS2305: Module '"$lib/types"' has no exported member 'AgentStatus'.
+src/lib/components/tokens/TokensPage.tsx(7,3): error TS2305: Module '"$lib/types"' has no exported member 'TimeGranularity'.
+src/lib/components/tokens/TokensPage.tsx(49,13): error TS2339: Property 'tokenAnalytics' does not exist on type '{ readonly settings: { readonly read: (scope: SettingsScope, projectPath?: string | undefined) => Promise<Settings>; readonly write: (scope: SettingsScope, settings: Settings, projectPath?: string | undefined) => Promise<...>; }; ... 16 more ...; readonly contextEngine: { ...; }; }'.
+src/lib/components/tokens/TokensPage.tsx(54,13): error TS2339: Property 'tokenAnalytics' does not exist on type '{ readonly settings: { readonly read: (scope: SettingsScope, projectPath?: string | undefined) => Promise<Settings>; readonly write: (scope: SettingsScope, settings: Settings, projectPath?: string | undefined) => Promise<...>; }; ... 16 more ...; readonly contextEngine: { ...; }; }'.
+src/lib/components/tokens/TokensPage.tsx(55,13): error TS2339: Property 'tokenAnalytics' does not exist on type '{ readonly settings: { readonly read: (scope: SettingsScope, projectPath?: string | undefined) => Promise<Settings>; readonly write: (scope: SettingsScope, settings: Settings, projectPath?: string | undefined) => Promise<...>; }; ... 16 more ...; readonly contextEngine: { ...; }; }'.
+src/lib/components/tokens/TokensPage.tsx(71,17): error TS2339: Property 'tokenAnalytics' does not exist on type '{ readonly settings: { readonly read: (scope: SettingsScope, projectPath?: string | undefined) => Promise<Settings>; readonly write: (scope: SettingsScope, settings: Settings, projectPath?: string | undefined) => Promise<...>; }; ... 16 more ...; readonly contextEngine: { ...; }; }'.
+src/lib/components/tokens/TokensPage.tsx(88,29): error TS2339: Property 'tokenAnalytics' does not exist on type '{ readonly settings: { readonly read: (scope: SettingsScope, projectPath?: string | undefined) => Promise<Settings>; readonly write: (scope: SettingsScope, settings: Settings, projectPath?: string | undefined) => Promise<...>; }; ... 16 more ...; readonly contextEngine: { ...; }; }'.
+src/lib/components/tokens/TokensPage.tsx(92,21): error TS2339: Property 'tokenAnalytics' does not exist on type '{ readonly settings: { readonly read: (scope: SettingsScope, projectPath?: string | undefined) => Promise<Settings>; readonly write: (scope: SettingsScope, settings: Settings, projectPath?: string | undefined) => Promise<...>; }; ... 16 more ...; readonly contextEngine: { ...; }; }'.
+=== npm exit: 2 ===
+
+註:30 個 TS error 全部在 src/lib/components/tokens/(BillyXu WIP 孤兒程式碼),屬於 OOS pre-existing。task 7.1 diff 時應全部視為 baseline、不歸因於本 change。
+
+=== cargo build (src-tauri) ===
+
+執行環境:VS BuildTools 18 (C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools),MSVC 14.51.36231 x64 linker。
+指令:`cargo clean -p glyphic && cargo build --message-format=short`(在 Developer PowerShell 載入後執行)。
+
+   Compiling glyphic v0.20.0 (C:\MyProject\Pershing\felina\src-tauri)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 26s
+
+warnings: 0
+errors: 0
+=== cargo exit: 0 ===
+
+註:此 cargo 段於 2026-05-20 在 task 2.x 完成後、task 3.1 開始前重抓(取代原 MSVC 未裝時的 exit 101 假結果)。task 7.1 diff 時若 post-cleanup 出現新 warning(尤其 unused import / unused module),即為本 change 的清理疏漏。
