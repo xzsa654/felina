@@ -3,6 +3,7 @@ pub mod ctx;
 pub mod filter;
 mod paths;
 mod pty;
+pub mod tokens;
 
 use tauri::{
     image::Image,
@@ -34,6 +35,10 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_notification::init())
         .manage(pty::PtyState::default())
+        .manage({
+            crate::commands::tokens::TokenState::new()
+                .expect("failed to init token state")
+        })
         .setup(|app| {
             // Build tray menu
             let show = MenuItemBuilder::with_id("show", "Show Glyphic").build(app)?;
@@ -177,6 +182,12 @@ pub fn run() {
             pty::write_terminal,
             pty::resize_terminal,
             pty::kill_terminal,
+            // Token Analytics
+            commands::tokens::get_token_analytics,
+            commands::tokens::get_model_breakdown,
+            commands::tokens::get_cache_efficiency,
+            commands::tokens::get_available_agents,
+            commands::tokens::refresh_token_data,
             // Token Savings
             commands::token_savings::get_optimizer_status,
             commands::token_savings::enable_optimizer,
