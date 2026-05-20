@@ -1,0 +1,85 @@
+export type AgentId = 'claude-code' | 'codex-cli' | 'gemini-cli';
+
+export type TimeGranularity = 'hourly' | 'daily' | 'weekly' | 'monthly';
+
+export interface TokenBucket {
+  label: string;
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens: number;
+  cache_write_tokens: number;
+  reasoning_tokens: number;
+  cost_usd: number;
+  event_count: number;
+  agent_count: number;
+  model_count: number;
+}
+
+export interface ModelBreakdown {
+  model: string;
+  provider: string;
+  agent: AgentId;
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens: number;
+  cache_write_tokens: number;
+  reasoning_tokens: number;
+  cost_usd: number;
+  event_count: number;
+}
+
+export interface AgentBreakdown {
+  agent: AgentId;
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens: number;
+  cache_write_tokens: number;
+  cost_usd: number;
+  event_count: number;
+}
+
+export interface HourlyHeatmapEntry {
+  day: string;
+  hour: number;
+  total_tokens: number;
+  cost_usd: number;
+}
+
+export interface TokenAnalytics {
+  period_start: string;
+  period_end: string;
+  total_input_tokens: number;
+  total_output_tokens: number;
+  total_cache_read_tokens: number;
+  total_cache_write_tokens: number;
+  total_reasoning_tokens: number;
+  total_cost_usd: number;
+  event_count: number;
+  time_series: TokenBucket[];
+  model_breakdown: ModelBreakdown[];
+  agent_breakdown: AgentBreakdown[];
+  hourly_heatmap: HourlyHeatmapEntry[];
+}
+
+export interface CacheEfficiency {
+  total_input_tokens: number;
+  cache_read_tokens: number;
+  cache_write_tokens: number;
+  cache_hit_ratio: number;
+  cache_cost_saved: number;
+}
+
+export interface AgentStatus {
+  agent: AgentId;
+  name: string;
+  available: boolean;
+  last_scanned: string | null;
+  event_count: number;
+  total_cost_usd: number;
+}
+
+export interface RefreshResult {
+  agents_scanned: number;
+  events_parsed: number;
+  errors: string[];
+}

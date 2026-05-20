@@ -13,6 +13,11 @@ import type {
   SavingsData,
   DiscoverResult,
   FilterRules,
+  TokenAnalytics,
+  ModelBreakdown,
+  CacheEfficiency,
+  AgentStatus,
+  RefreshResult,
 } from "$lib/types";
 
 export const api = {
@@ -204,6 +209,35 @@ export const api = {
     reindex: (batch?: number) =>
       invoke<ReindexReport>("ctx_reindex_embeddings", { batch }),
     purgeLegacy: () => invoke<PurgeReport>("ctx_purge_legacy"),
+  },
+  tokenAnalytics: {
+    get: (params: {
+      granularity: string;
+      dateStart?: number;
+      dateEnd?: number;
+      filterAgent?: string;
+      filterModel?: string;
+    }) =>
+      invoke<TokenAnalytics>("get_token_analytics", {
+        granularity: params.granularity,
+        dateStart: params.dateStart ?? null,
+        dateEnd: params.dateEnd ?? null,
+        filterAgent: params.filterAgent ?? null,
+        filterModel: params.filterModel ?? null,
+      }),
+    getModelBreakdown: (dateStart?: number, dateEnd?: number) =>
+      invoke<ModelBreakdown[]>("get_model_breakdown", {
+        dateStart: dateStart ?? null,
+        dateEnd: dateEnd ?? null,
+      }),
+    getCacheEfficiency: (dateStart?: number, dateEnd?: number) =>
+      invoke<CacheEfficiency>("get_cache_efficiency", {
+        dateStart: dateStart ?? null,
+        dateEnd: dateEnd ?? null,
+      }),
+    getAvailableAgents: () =>
+      invoke<AgentStatus[]>("get_available_agents"),
+    refresh: () => invoke<RefreshResult>("refresh_token_data"),
   },
 } as const;
 

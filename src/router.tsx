@@ -19,6 +19,7 @@ const PluginsPage = lazy(() => import("$lib/components/plugins/PluginsPage"));
 const GitPage = lazy(() => import("$lib/components/git/GitPage"));
 const TerminalPage = lazy(() => import("$lib/components/terminal/TerminalPage"));
 const AnalyticsPage = lazy(() => import("$lib/components/analytics/AnalyticsPage"));
+const TokensPage = lazy(() => import("$lib/components/tokens/TokensPage"));
 const TemplatesPage = lazy(() => import("$lib/components/templates/TemplatesPage"));
 const SessionsPage = lazy(() => import("$lib/components/sessions/SessionsPage"));
 const PipelinesPage = lazy(() => import("$lib/components/pipelines/PipelinesPage"));
@@ -71,6 +72,7 @@ const routes = [
       { path: "git", element: <LazyPage Component={GitPage} /> },
       { path: "terminal", element: <LazyPage Component={TerminalPage} /> },
       { path: "analytics", element: <LazyPage Component={AnalyticsPage} /> },
+      { path: "tokens", element: <LazyPage Component={TokensPage} /> },
       { path: "templates", element: <LazyPage Component={TemplatesPage} /> },
       { path: "sessions", element: <LazyPage Component={SessionsPage} /> },
       { path: "pipelines", element: <LazyPage Component={PipelinesPage} /> },
