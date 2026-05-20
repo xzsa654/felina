@@ -1,0 +1,75 @@
+import type { CacheEfficiency } from "$lib/types";
+import type { Locale } from "$lib/i18n";
+import { t } from "$lib/i18n";
+import { formatNumberFull, formatCostFull } from "$lib/utils/format";
+
+export default function CacheEfficiencyCard({
+  data,
+  locale,
+}: {
+  data: CacheEfficiency | null;
+  locale: Locale;
+}) {
+  if (!data) {
+    return (
+      <div className="bg-bg-secondary border border-border rounded-lg p-4">
+        <h3 className="text-sm font-medium text-text-secondary mb-3">
+          {t(locale, "tokens.cacheEfficiency.title")}
+        </h3>
+        <p className="text-xs text-text-muted">{t(locale, "common.noData")}</p>
+      </div>
+    );
+  }
+
+  const ratioPct = (data.cache_hit_ratio * 100).toFixed(1);
+
+  return (
+    <div className="bg-bg-secondary border border-border rounded-lg p-4">
+      <h3 className="text-sm font-medium text-text-secondary mb-3">
+        {t(locale, "tokens.cacheEfficiency.title")}
+      </h3>
+      <div className="space-y-3">
+        <div>
+          <div className="flex items-center justify-between text-xs mb-1">
+            <span className="text-text-muted">
+              {t(locale, "tokens.cacheEfficiency.hitRatio")}
+            </span>
+            <span className="text-text-primary font-medium">{ratioPct}%</span>
+          </div>
+          <div className="h-2 bg-bg-tertiary rounded-full overflow-hidden">
+            <div
+              className="h-full bg-purple-500 rounded-full transition-all"
+              style={{ width: `${Math.min(data.cache_hit_ratio * 100, 100)}%` }}
+            />
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-2 text-xs">
+          <div>
+            <span className="text-text-muted">
+              {t(locale, "tokens.cacheEfficiency.cacheReads")}
+            </span>
+            <p className="text-text-primary font-medium">
+              {formatNumberFull(data.cache_read_tokens, locale)}
+            </p>
+          </div>
+          <div>
+            <span className="text-text-muted">
+              {t(locale, "tokens.cacheEfficiency.cacheWrites")}
+            </span>
+            <p className="text-text-primary font-medium">
+              {formatNumberFull(data.cache_write_tokens, locale)}
+            </p>
+          </div>
+          <div className="col-span-2">
+            <span className="text-text-muted">
+              {t(locale, "tokens.cacheEfficiency.estimatedSavings")}
+            </span>
+            <p className="text-green-500 font-medium">
+              {formatCostFull(data.cache_cost_saved, locale)}
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
