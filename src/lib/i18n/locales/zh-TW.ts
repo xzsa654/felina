@@ -1,0 +1,108 @@
+import type { TranslationDict } from "./en";
+
+const zhTW: TranslationDict = {
+  common: {
+    language: "語言",
+    loading: "載入中...",
+    error: "錯誤",
+    noData: "尚無資料",
+    na: "N/A",
+    saved: "已節省",
+    less: "較少",
+    more: "較多",
+    last: "上次",
+    today: "今天",
+    yesterday: "昨天",
+    daysAgo: "{n} 天前",
+    weeksAgo: "{n} 週前",
+    monthsAgo: "{n} 個月前",
+  },
+  tokens: {
+    title: "Tokens",
+    loading: "正在載入 token 分析...",
+    refresh: "重新整理",
+    granularity: {
+      hourly: "時",
+      daily: "日",
+      weekly: "週",
+      monthly: "月",
+    },
+    dateRange: {
+      days7: "7天",
+      days30: "30天",
+      days90: "90天",
+      all: "全部",
+    },
+    agents: {
+      title: "代理程式",
+      events: "{n} 個事件",
+      notInstalled: "未安裝",
+      lastScanned: "上次掃描：{date}",
+    },
+    statCards: {
+      totalTokens: "總 Tokens",
+      totalCost: "總費用",
+      events: "事件數",
+      activeAgents: "活躍代理",
+      cacheHitRatio: "快取命中率",
+      eventsCount: "{n} 個事件",
+      savedCost: "已節省 ${cost}",
+    },
+    tokenTimeSeries: {
+      title: "Token 使用趨勢",
+      empty: "尚無 token 資料",
+      input: "輸入",
+      output: "輸出",
+      cacheRead: "快取讀取",
+      cacheWrite: "快取寫入",
+    },
+    costTimeSeries: {
+      title: "每日費用 (USD)",
+      empty: "尚無費用資料",
+      cost: "費用",
+    },
+    modelBreakdown: {
+      chartTitle: "各模型費用",
+      chartEmpty: "尚無模型資料",
+      tableTitle: "模型明細",
+      colModel: "模型",
+      colInputTokens: "輸入 Tokens",
+      colOutputTokens: "輸出 Tokens",
+      colCost: "費用",
+      tooltipCost: "費用",
+    },
+    hourlyHeatmap: {
+      title: "每小時活動",
+      days: {
+        mon: "週一",
+        tue: "週二",
+        wed: "週三",
+        thu: "週四",
+        fri: "週五",
+        sat: "週六",
+        sun: "週日",
+      },
+      tooltipTokens: "{n} tokens",
+    },
+    cacheEfficiency: {
+      title: "快取效率",
+      hitRatio: "命中率",
+      cacheReads: "快取讀取",
+      cacheWrites: "快取寫入",
+      estimatedSavings: "預估節省",
+    },
+    agentDistribution: {
+      title: "代理分佈",
+      empty: "尚無代理資料",
+    },
+    costBudget: {
+      title: "費用概覽",
+      totalCost: "總費用",
+      events: "事件數",
+      avgDailyCost: "平均每日費用（{n} 天）",
+      perDay: "/ 天",
+    },
+  },
+};
+
+export default zhTW;
