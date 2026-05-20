@@ -19,6 +19,8 @@ struct CodexEntry {
     response: Option<CodexResponse>,
     #[serde(default)]
     choices: Option<Vec<CodexChoice>>,
+    #[serde(default)]
+    timestamp: Option<String>,
 }
 
 #[derive(Deserialize, Clone)]
@@ -157,11 +159,17 @@ impl CodexCliParser {
                     (input, output)
                 };
 
+                let timestamp = entry
+                    .timestamp
+                    .as_deref()
+                    .and_then(crate::tokens::parse_iso8601_to_epoch)
+                    .unwrap_or(0);
+
                 events.push(TokenEvent {
                     agent: AgentId::CodexCli,
                     provider: "openai".to_string(),
                     model,
-                    timestamp: 0,
+                    timestamp,
                     input_tokens,
                     output_tokens,
                     cache_read_tokens: u.cache_read_tokens.unwrap_or(0),
@@ -243,11 +251,17 @@ impl CodexCliParser {
                 (input, output)
             };
 
+            let timestamp = entry
+                .timestamp
+                .as_deref()
+                .and_then(crate::tokens::parse_iso8601_to_epoch)
+                .unwrap_or(0);
+
             Ok(vec![TokenEvent {
                 agent: AgentId::CodexCli,
                 provider: "openai".to_string(),
                 model,
-                timestamp: 0,
+                timestamp,
                 input_tokens,
                 output_tokens,
                 cache_read_tokens: u.cache_read_tokens.unwrap_or(0),
@@ -320,11 +334,17 @@ impl CodexCliParser {
                 .and_then(|v| v.as_u64())
                 .unwrap_or(0);
 
+            let timestamp = value
+                .get("timestamp")
+                .and_then(|v| v.as_str())
+                .and_then(crate::tokens::parse_iso8601_to_epoch)
+                .unwrap_or(0);
+
             vec![TokenEvent {
                 agent: AgentId::CodexCli,
                 provider: "openai".to_string(),
                 model,
-                timestamp: 0,
+                timestamp,
                 input_tokens,
                 output_tokens,
                 cache_read_tokens: cr,
