@@ -588,6 +588,12 @@ impl TokenAggregator {
             r.register(Box::new(
                 crate::tokens::parsers::claude_code::ClaudeCodeParser::new(),
             ));
+            r.register(Box::new(
+                crate::tokens::parsers::codex_cli::CodexCliParser,
+            ));
+            r.register(Box::new(
+                crate::tokens::parsers::gemini_cli::GeminiCliParser,
+            ));
             r
         };
 
@@ -608,6 +614,12 @@ impl TokenAggregator {
             let mut r = crate::tokens::parsers::ParserRegistry::new();
             r.register(Box::new(
                 crate::tokens::parsers::claude_code::ClaudeCodeParser::new(),
+            ));
+            r.register(Box::new(
+                crate::tokens::parsers::codex_cli::CodexCliParser,
+            ));
+            r.register(Box::new(
+                crate::tokens::parsers::gemini_cli::GeminiCliParser,
             ));
             r
         };
