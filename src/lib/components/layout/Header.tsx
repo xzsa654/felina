@@ -2,50 +2,22 @@ import { useMatch } from "react-router";
 import { type Page } from "$lib/stores/navigation";
 
 const PAGE_TITLES: Record<Page, string> = {
-  dashboard: "Dashboard",
-  settings: "Settings",
-  hooks: "Hooks",
-  instructions: "Instructions",
-  memory: "Memory",
-  mcp: "MCP Servers",
   skills: "Skills & Agents",
-  rules: "Rules",
-  plugins: "Plugins",
-  git: "Git",
-  terminal: "Terminal",
-  analytics: "Analytics",
-  pipelines: "Pipelines",
-  sessions: "Sessions",
+  settings: "Settings",
   templates: "Templates",
-  "token-savings": "Token Savings",
-  "context-engine": "Context Engine",
-  keybindings: "Keybindings",
+  memory: "Memory",
 };
 
 const PAGE_DESCRIPTIONS: Record<Page, string> = {
-  dashboard: "Your Claude Code overview and stats",
-  settings: "Global and project configuration",
-  hooks: "Event-driven automation hooks",
-  instructions: "CLAUDE.md instruction files",
-  memory: "Project memory and context",
-  mcp: "Model Context Protocol servers",
   skills: "Custom skills and agent definitions",
-  rules: "Contextual rules for Claude",
-  plugins: "Browse and manage plugins",
-  git: "Version control for your projects",
-  terminal: "Interactive Claude Code session",
-  analytics: "Token usage, costs, and session traces",
-  pipelines: "Visual workflow builder with Claude Code",
-  sessions: "Replay and review past Claude Code sessions",
+  settings: "Global and project configuration",
   templates: "Browse and add pre-built configurations",
-  "token-savings": "Optimize token usage with automatic command output filtering",
-  "context-engine": "Structured retrieval and tool-output virtualization for 10x better context",
-  keybindings: "Customize Claude Code keyboard shortcuts",
+  memory: "Project memory and context",
 };
 
 export default function Header() {
   const pageMatch = useMatch("/:pageId");
-  const currentPage = (pageMatch?.params.pageId as Page) ?? "dashboard";
+  const currentPage = (pageMatch?.params.pageId as Page) ?? "skills";
 
   return (
     <header className="flex items-center justify-between px-6 py-[7px] border-b border-border bg-bg-secondary">

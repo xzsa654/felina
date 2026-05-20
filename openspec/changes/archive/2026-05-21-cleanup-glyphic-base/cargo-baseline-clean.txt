@@ -1,0 +1,9 @@
+﻿cargo :    Compiling glyphic v0.20.0 (C:\MyProject\Pershing\felina\src-tauri)
+At line:1 char:421
++ ... &1 | Out-Null; $out = cargo build --message-format=short 2>&1 | Out-S ...
++                           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (   Compiling gl...lina\src-tauri):String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 26s
+
