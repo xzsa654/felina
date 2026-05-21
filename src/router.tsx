@@ -9,6 +9,7 @@ import OnboardingWelcome from "$lib/components/shared/OnboardingWelcome";
 
 const SkillsPage = lazy(() => import("$lib/components/skills/SkillsPage"));
 const SettingsPage = lazy(() => import("$lib/components/settings/SettingsPage"));
+const TokensPage = lazy(() => import("$lib/components/tokens/TokensPage"));
 const TemplatesPage = lazy(() => import("$lib/components/templates/TemplatesPage"));
 const MemoryPage = lazy(() => import("$lib/components/memory/MemoryPage"));
 
@@ -47,6 +48,7 @@ const routes = [
       { index: true, element: <Navigate to="/skills" replace /> },
       { path: "skills", element: <LazyPage Component={SkillsPage} /> },
       { path: "settings", element: <LazyPage Component={SettingsPage} /> },
+      { path: "tokens", element: <LazyPage Component={TokensPage} /> },
       { path: "templates", element: <LazyPage Component={TemplatesPage} /> },
       { path: "memory", element: <LazyPage Component={MemoryPage} /> },
     ],

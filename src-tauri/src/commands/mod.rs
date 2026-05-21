@@ -18,3 +18,4 @@ pub mod memory;
 pub mod projects;
 pub mod settings;
 pub mod skills;
+pub mod tokens;

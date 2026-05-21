@@ -13,6 +13,7 @@ import {
   ExternalLink,
   GitBranch as GithubIcon,
   X as XIcon,
+  Coins,
 } from "lucide-react";
 import logoUrl from "$lib/assets/logo.png";
 
@@ -20,6 +21,7 @@ const ICON_MAP: Record<string, React.ComponentType<{ size?: number; className?: 
   sparkles: Sparkles,
   gear: SettingsIcon,
   templates: LayoutGrid,
+  tokens: Coins,
   brain: Brain,
 };
 

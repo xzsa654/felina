@@ -29,6 +29,8 @@ regex = "1"
 toml = "0.8"
 # kept for upcoming skill index work in agent-skills-schema-reference change
 rusqlite = { version = "0.31", features = ["bundled"] }
+rayon = "1"
+walkdir = "2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 cocoa = "0.26"

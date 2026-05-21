@@ -1,5 +1,6 @@
 mod commands;
 mod paths;
+pub mod tokens;
 
 use tauri::{
     image::Image,
@@ -30,6 +31,10 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_notification::init())
+        .manage({
+            crate::commands::tokens::TokenState::new()
+                .expect("failed to init token state")
+        })
         .setup(|app| {
             // Build tray menu
             let show = MenuItemBuilder::with_id("show", "Show Glyphic").build(app)?;
@@ -106,6 +111,12 @@ pub fn run() {
             // Maintenance
             commands::maintenance::get_disk_usage,
             commands::maintenance::cleanup_directory,
+            // Token Analytics
+            commands::tokens::get_token_analytics,
+            commands::tokens::get_model_breakdown,
+            commands::tokens::get_cache_efficiency,
+            commands::tokens::get_available_agents,
+            commands::tokens::refresh_token_data,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
