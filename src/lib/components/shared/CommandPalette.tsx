@@ -3,46 +3,21 @@ import { useNavigate } from "react-router";
 import { NAV_ITEMS } from "$lib/stores/navigation";
 import { useThemeStore } from "$lib/stores/theme";
 import {
-  BarChart3,
   Settings,
-  Zap,
-  BookOpen,
   Brain,
-  Server,
   Sparkles,
-  Shield,
-  Puzzle,
-  GitBranch,
-  TerminalSquare,
-  Activity,
   LayoutGrid,
-  History,
-  Gauge,
   Sun,
   Moon,
   Search,
-  Keyboard,
   Command as CommandIcon,
 } from "lucide-react";
 
 const ICON_MAP: Record<string, React.ComponentType<{ size?: number }>> = {
-  chart: BarChart3,
-  gear: Settings,
-  bolt: Zap,
-  book: BookOpen,
-  brain: Brain,
-  server: Server,
   sparkles: Sparkles,
-  shield: Shield,
-  puzzle: Puzzle,
-  git: GitBranch,
-  pipelines: Activity,
-  sessions: History,
+  gear: Settings,
   templates: LayoutGrid,
-  terminal: TerminalSquare,
-  analytics: Activity,
-  savings: Gauge,
-  keybindings: Keyboard,
+  brain: Brain,
 };
 
 interface PaletteAction {

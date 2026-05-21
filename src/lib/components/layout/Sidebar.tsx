@@ -3,55 +3,26 @@ import { Link, useMatch } from "react-router";
 import { getVersion } from "@tauri-apps/api/app";
 import { NAV_ITEMS } from "$lib/stores/navigation";
 import { useThemeStore } from "$lib/stores/theme";
-import { api, type CostSummary } from "$lib/tauri/commands";
-import { calculateXP } from "$lib/utils/achievements";
-import { formatNumber } from "$lib/utils/format";
-import type { StatsCache, Settings } from "$lib/types";
 import {
-  BarChart3,
   Settings as SettingsIcon,
-  Zap,
-  BookOpen,
   Brain,
-  Server,
   Sparkles,
-  Shield,
-  Puzzle,
-  GitBranch,
-  TerminalSquare,
-  Activity,
   LayoutGrid,
   Sun,
   Moon,
-  History,
-  Gauge,
-  Keyboard,
-  Network,
   ExternalLink,
   GitBranch as GithubIcon,
   X as XIcon,
+  Coins,
 } from "lucide-react";
 import logoUrl from "$lib/assets/logo.png";
 
 const ICON_MAP: Record<string, React.ComponentType<{ size?: number; className?: string }>> = {
-  chart: BarChart3,
-  gear: SettingsIcon,
-  bolt: Zap,
-  book: BookOpen,
-  brain: Brain,
-  server: Server,
   sparkles: Sparkles,
-  shield: Shield,
-  puzzle: Puzzle,
-  git: GitBranch,
-  pipelines: Activity,
-  sessions: History,
+  gear: SettingsIcon,
   templates: LayoutGrid,
-  terminal: TerminalSquare,
-  analytics: Activity,
-  savings: Gauge,
-  keybindings: Keyboard,
-  network: Network,
+  tokens: Coins,
+  brain: Brain,
 };
 
 export default function Sidebar() {
@@ -60,31 +31,16 @@ export default function Sidebar() {
 
   const [showAbout, setShowAbout] = useState(false);
   const [appVersion, setAppVersion] = useState("...");
-  const [stats, setStats] = useState<StatsCache | null>(null);
-  const [settings, setSettings] = useState<Settings | null>(null);
-  const [costSummary, setCostSummary] = useState<CostSummary | null>(null);
 
   useEffect(() => {
     (async () => {
       try {
-        const [s, set, cost, ver] = await Promise.all([
-          api.stats.computeLive(),
-          api.settings.read("global"),
-          api.budget.getCostSummary(),
-          getVersion(),
-        ]);
-        setStats(s as StatsCache);
-        setSettings(set);
-        setCostSummary(cost);
-        setAppVersion(ver);
+        setAppVersion(await getVersion());
       } catch {
-        // Silently fail — sidebar XP is non-critical
+        // Silently fail — version display is non-critical
       }
     })();
   }, []);
-
-  const xp = calculateXP(stats, settings);
-  const xpPct = Math.min((xp.currentXP / xp.nextLevelXP) * 100, 100);
 
   return (
     <aside className="flex flex-col h-full w-60 bg-bg-secondary border-r border-border shrink-0">
@@ -124,43 +80,6 @@ export default function Sidebar() {
         })}
       </nav>
 
-      {/* Cost Widget */}
-      {costSummary && (
-        <div className="px-4 py-2 border-t border-border">
-          <div className="flex items-center justify-between text-xs mb-1">
-            <span className="text-text-muted">Today</span>
-            <span
-              className={`font-medium ${costSummary.daily_exceeded ? "text-danger" : "text-text-primary"}`}
-            >
-              ${costSummary.today.toFixed(2)}
-            </span>
-          </div>
-          <div className="flex items-center justify-between text-xs mb-1.5">
-            <span className="text-text-muted">This month</span>
-            <span className="font-medium text-text-primary">
-              ${costSummary.this_month.toFixed(2)}
-            </span>
-          </div>
-          {costSummary.last_7_days.length > 0 && (() => {
-            const max = Math.max(...costSummary.last_7_days, 0.01);
-            return (
-              <div className="flex items-end gap-px h-4">
-                {costSummary.last_7_days.map((val, i) => (
-                  <div
-                    key={i}
-                    className="flex-1 bg-accent/40 rounded-t-sm"
-                    style={{ height: `${Math.max((val / max) * 100, 5)}%` }}
-                  />
-                ))}
-              </div>
-            );
-          })()}
-          {(costSummary.daily_exceeded || costSummary.monthly_exceeded) && (
-            <p className="text-[10px] text-danger mt-1">Budget exceeded!</p>
-          )}
-        </div>
-      )}
-
       {/* Theme toggle */}
       <div className="px-4 py-2 border-t border-border">
         <button
@@ -179,22 +98,6 @@ export default function Sidebar() {
             </>
           )}
         </button>
-      </div>
-
-      {/* XP Bar */}
-      <div className="px-4 py-3 border-t border-border">
-        <div className="flex items-center justify-between text-xs text-text-muted mb-1">
-          <span>
-            Level {xp.level} — {xp.levelName}
-          </span>
-          <span>{formatNumber(xp.currentXP)} XP</span>
-        </div>
-        <div className="w-full h-2 bg-bg-tertiary rounded-full overflow-hidden">
-          <div
-            className="h-full bg-accent rounded-full transition-all duration-500"
-            style={{ width: `${xpPct}%` }}
-          />
-        </div>
       </div>
 
       {/* About Dialog */}
