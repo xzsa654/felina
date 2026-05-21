@@ -1904,6 +1904,7 @@ dependencies = [
  "fastembed",
  "glob",
  "portable-pty",
+ "rayon",
  "regex",
  "rusqlite",
  "serde",
@@ -1918,6 +1919,7 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "toml 0.8.2",
+ "walkdir",
 ]
 
 [[package]]
