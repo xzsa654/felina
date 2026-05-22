@@ -67,39 +67,25 @@ Expansion path:
 
 ## Phase 1.5 — Target freedom sequence after path-bug-and-target-model
 
+原本規劃為單一 `unified-skill-target-control` change,2026-05-22 discuss 後拆成 (a) → (b) → (c) 三 sub-change(見各 entry blocked-by)。
+
 ### path-bug-and-target-model
 
 | Field | Value |
 |---|---|
 | type | spectra-change |
-| status | in-progress-nearly-complete |
+| status | archived |
 | flagged | 2026-05-22 |
 | last-seen | 2026-05-22 |
-| progress | 17/18 tasks complete; artifacts complete per `spectra status` |
-| description | Foundation for path reverse-resolution, sync-meta v2, agents-derived initial targets, and fan-out switching. |
+| archived | 2026-05-22 |
+| archive-path | `openspec/changes/archive/2026-05-22-path-bug-and-target-model` |
+| description | Foundation for Windows path reverse-resolution, sync-meta v2 per-skill target model, and fan-out switch to targets-driven. Synced 1 modified + 2 added requirements into `multi-agent-skills` capability spec. |
 
 Notes:
-- Was previously proposed/parked; now unparked and in progress.
-- Remaining follow-up items should wait for completion confirmation and archive before depending on it as stable foundation.
+- Keep as historical roadmap context; do not treat as claimable backlog work.
+- Confirmed-stable foundation for sub-changes (a)/(b)/(c) below.
 
-### known-projects-and-multi-target
-
-| Field | Value |
-|---|---|
-| type | planned-change |
-| status | planned |
-| flagged | 2026-05-22 |
-| last-seen | 2026-05-22 |
-| blocked-by | `path-bug-and-target-model` completion confirmation / archive |
-| description | Known Projects, per-skill target editor, cross-project push, coverage view, and push dry-run. |
-
-Scope:
-- Known Projects three-source model: current cwd, detected Claude project paths, and explicit user-added projects persisted to `~/.felina/known-projects.json`.
-- Per-skill target editor for per-agent selection across scopes/projects; replace agents-derived targets with explicit targets after the foundation lands.
-- Cross-project push and coverage view using sync-meta v2 `targets` and `last_sync`.
-- Push dry-run that previews write paths and overwrite impact before execution.
-
-### skill-sync-lifecycle
+### known-projects-and-multi-target — Phase 1.5 (a)
 
 | Field | Value |
 |---|---|
@@ -107,16 +93,65 @@ Scope:
 | status | planned |
 | flagged | 2026-05-22 |
 | last-seen | 2026-05-22 |
-| blocked-by | `known-projects-and-multi-target` apply / archive |
-| description | Import source selection, target detach/prune, push-time drift checks, canonical delete cascade/detach, arbitrary-folder import, and global/project scope moves. |
+| blocked-by | — (foundation `path-bug-and-target-model` archived) |
+| description | Known Projects three-source model + per-skill target editor + explicit orphan-prune button. Replaces agents-derived targets with explicitly-edited target list. |
+
+Scope (after 2026-05-22 discuss):
+- **Known Projects** three-source model with minimal storage: `~/.felina/known-projects.json` shape `{ projects: [path] }` (L3 explicit user-added). L1=current cwd, L2=auto-detect from `~/.claude/projects/<hash>` (using path-bug-and-target-model's resolver). Merge by normalized path with dedupe; UI shows source chip(s) per project entry.
+- **Per-skill target editor**: list + `[+ Add target]` dialog (style matches `SkillImportWizard`). Empty default for new skills. Each row has segmented control `Tracked / Detached / Disabled / Forked (disabled, tooltip "Phase 2")`. Add target dialog picks agent + scope + project (project constrained to current project; cross-project locked behind (b)'s `[Add cross-project target]`).
+- **SkillEditor `agents` checkbox retires**: target list becomes the sole driver. `canonical_skills_write::align_v2_targets_to_agents` is removed (new skills write empty-targets sidecar). `read_sync_meta_v2`'s "v2 + empty targets → backfill from agents" heuristic is dismantled. v1 backfill stays as one-shot legacy migration on first read.
+- **Orphan prune (explicit, button-driven)**: `[Prune orphans]` action scans agent dirs for SKILL.md files whose target row no longer exists in canonical (or whose mode is now Detached); user-confirm before delete. No auto-prune on Detached toggle. Cascade/detach/cancel prompt on canonical delete stays in (c).
+- **Sync info bar adaptation**: existing per-target last_sync display continues; hides for skills with empty targets.
+
+Out of scope (defer):
+- `[Add cross-project target]` button + actually pushing to cross-project agent dirs → (b).
+- Coverage matrix view → (b).
+- Push dry-run, push-time drift, cascade-delete prompt → (c).
+
+### cross-project-push-and-coverage — Phase 1.5 (b)
+
+| Field | Value |
+|---|---|
+| type | planned-change |
+| status | planned |
+| flagged | 2026-05-22 |
+| last-seen | 2026-05-22 |
+| blocked-by | `known-projects-and-multi-target` (a) apply / archive |
+| description | Enable cross-project target rows in fan-out + coverage matrix view. Source-of-truth stays in origin project; cross-project targets render only the per-agent SKILL.md at the destination. |
 
 Scope:
-- Multi-source import resolution from deferred skill import work; wizard should support choosing source content and deriving initial targets from detected agents.
-- De-select / disable target should default to detach and offer explicit orphan prune.
-- Push-time drift check compares target hash with `last_sync.pushed_hash` and offers override/detach.
-- Canonical delete should prompt Cascade / Detach / Cancel and remember per-skill preference.
-- Arbitrary folder import through staging preview.
-- Global/project scope move with optional cleanup of original-scope targets.
+- **Cross-project target source-of-truth**: canonical lives only in origin project's `.felina/skills/`. Cross-project target row points at `{ scope: project, project: <other path> }`; push writes the agent SKILL.md into `<other path>/.claude/skills/` (or per-agent equivalent) without copying canonical to the destination. sync-meta `last_sync` keyed per-target unchanged.
+- **Activate `[Add cross-project target]` button** in (a)'s add target dialog. Project picker uses Known Projects list (L1/L2/L3 from (a)).
+- **Coverage matrix view**: new Skills page view-mode (or sub-page) showing skill × target matrix; cell shows sync state (synced / dirty / not synced / disabled / detached). Filter by agent / project.
+- **Origin-project move semantics** when a target's destination project disappears from Known Projects (gracefully degrade to detached; no auto-delete).
+
+Out of scope (defer to (c)):
+- Push dry-run.
+- Push-time drift check.
+- Cascade/detach/cancel prompt on canonical delete.
+- Multi-source import resolution.
+
+### skill-sync-lifecycle — Phase 1.5 (c)
+
+| Field | Value |
+|---|---|
+| type | planned-change |
+| status | planned |
+| flagged | 2026-05-22 |
+| last-seen | 2026-05-22 |
+| blocked-by | `cross-project-push-and-coverage` (b) apply / archive |
+| description | Lifecycle safety: push dry-run, drift detection, cascade-vs-detach prompts on destructive actions, multi-source import resolution, arbitrary-folder import, scope moves. |
+
+Scope:
+- **Push dry-run**: preview-before-execute showing write paths + create/overwrite/no-op counts; user confirms to commit. UX form (modal vs inline, one-step vs two-step) decided during (c) propose.
+- **Push-time drift check**: compare target's current SKILL.md hash with `last_sync.pushed_hash`; if drift detected (agent-side modified externally), prompt override / detach / cancel.
+- **Canonical delete prompt**: when user deletes a canonical skill, prompt `Cascade (delete agent-side files too) / Detach (leave agent files orphaned) / Cancel`. Remember per-skill preference.
+- **Multi-source import resolution**: extend SkillImportWizard's deferred multi-source row from S3 H — let user pick which agent folder is the authoritative source when same skill name exists in multiple agent dirs.
+- **Arbitrary-folder import**: import a SKILL.md from any folder (not just the three known agent dirs) via staging preview.
+- **Scope move**: convert a project skill to global (or vice versa) with optional cleanup of original-scope targets.
+
+Notes:
+- Bug 3 orphan prune (de-select target → orphan handling): the explicit `[Prune orphans]` button lives in (a). (c) adds the destructive-action consistency layer (cascade prompts) on top.
 
 ## Phase 2 — Skill sync advanced features
 
