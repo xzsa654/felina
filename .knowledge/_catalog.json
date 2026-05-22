@@ -1,0 +1,29 @@
+{
+  "lastUpdated": "2026-05-22",
+  "entries": [
+    {
+      "id": "kb-react-pagebody-layout",
+      "title": "Page layout scaffold height contract (PageHeader + PageBody)",
+      "type": "knowledge",
+      "status": "active",
+      "confidence": "confirmed",
+      "keywords": ["layout", "flexbox", "h-full", "flex-1", "min-h-0", "overflow-hidden", "PageBody", "PageScaffold", "scroll", "clipping", "tailwind"],
+      "appliesWhen": "Building or debugging routed pages using PageScaffold or any full-height internal-scroll layout",
+      "file": "knowledge-base/dev-docs.md",
+      "anchor": "page-layout-scaffold-height-contract-pageheader--pagebody",
+      "updated": "2026-05-22"
+    },
+    {
+      "id": "kb-ui-consistency-design",
+      "title": "UI consistency design-time checklist",
+      "type": "knowledge",
+      "status": "active",
+      "confidence": "confirmed",
+      "keywords": ["ui consistency", "design review", "ConfirmDialog", "window.confirm", "modal", "inline error", "w-full", "component reuse", "design.md"],
+      "appliesWhen": "Designing any change that adds or modifies UI pages/components",
+      "file": "knowledge-base/dev-docs.md",
+      "anchor": "ui-consistency-design-time-checklist",
+      "updated": "2026-05-22"
+    }
+  ]
+}
