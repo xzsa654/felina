@@ -49,9 +49,9 @@ export default function Sidebar() {
         className="flex items-center gap-2 px-4 py-[13.5px] border-b border-border w-full hover:bg-bg-hover transition-colors text-left"
         onClick={() => setShowAbout(true)}
       >
-        <img src={logoUrl} alt="Glyphic" className="w-8 h-8 rounded-lg" />
+        <img src={logoUrl} alt="Felina" className="w-8 h-8 rounded-lg" />
         <div>
-          <h1 className="text-sm font-semibold text-text-primary">Glyphic</h1>
+          <h1 className="text-sm font-semibold text-text-primary">Felina</h1>
           <p className="text-xs text-text-muted">AI Config Manager</p>
         </div>
       </button>
@@ -119,10 +119,10 @@ export default function Sidebar() {
 
             <img
               src={logoUrl}
-              alt="Glyphic"
+              alt="Felina"
               className="w-20 h-20 rounded-2xl mx-auto mb-4"
             />
-            <h2 className="text-xl font-bold text-text-primary">Glyphic</h2>
+            <h2 className="text-xl font-bold text-text-primary">Felina</h2>
             <p className="text-sm text-text-muted mt-1">
               AI Config Manager for Claude Code
             </p>
@@ -139,13 +139,13 @@ export default function Sidebar() {
                 caioricciuti.com
               </a>
               <a
-                href="https://github.com/caioricciuti/glyphic"
+                href="https://github.com/xzsa654/felina"
                 target="_blank"
                 rel="noopener"
                 className="flex items-center justify-center gap-2 text-sm text-text-secondary hover:text-text-primary transition-colors"
               >
                 <GithubIcon size={14} />
-                github.com/caioricciuti/glyphic
+                github.com/xzsa654/felina
               </a>
             </div>
 

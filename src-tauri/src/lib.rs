@@ -37,7 +37,7 @@ pub fn run() {
         })
         .setup(|app| {
             // Build tray menu
-            let show = MenuItemBuilder::with_id("show", "Show Glyphic").build(app)?;
+            let show = MenuItemBuilder::with_id("show", "Show Felina").build(app)?;
             let quit = MenuItemBuilder::with_id("quit", "Quit").build(app)?;
             let menu = MenuBuilder::new(app).item(&show).separator().item(&quit).build()?;
 
@@ -49,7 +49,7 @@ pub fn run() {
             TrayIconBuilder::new()
                 .icon(icon)
                 .menu(&menu)
-                .tooltip("Glyphic")
+                .tooltip("Felina")
                 .on_menu_event(|app, event| match event.id().as_ref() {
                     "show" => {
                         if let Some(window) = app.get_webview_window("main") {
@@ -101,13 +101,26 @@ pub fn run() {
             commands::memory::read_memory_file,
             commands::memory::write_memory_file,
             commands::memory::delete_memory_file,
-            // Skills & Agents
-            commands::skills::list_skills,
+            // Agents (AGENT.md subsystem retained; multi-agent skill rewrite
+            // does NOT touch subagent definitions — see design.md decision 7).
             commands::skills::list_agents,
-            commands::skills::write_skill,
             commands::skills::write_agent,
-            commands::skills::delete_skill,
             commands::skills::delete_agent,
+            // Multi-agent skills foundation: canonical storage.
+            commands::canonical_skills::canonical_skills_list,
+            commands::canonical_skills::canonical_skills_read,
+            commands::canonical_skills::canonical_skills_write,
+            commands::canonical_skills::canonical_skills_delete,
+            // Fan-out push.
+            commands::fan_out::skill_sync_one,
+            commands::fan_out::skill_sync_all,
+            // Initial skill import.
+            commands::skill_import::skill_import_scan_quick,
+            commands::skill_import::skill_import_scan,
+            commands::skill_import::skill_import_apply,
+            // Settings → Agent Paths.
+            commands::agent_paths::agent_paths_get,
+            commands::agent_paths::agent_paths_set,
             // Maintenance
             commands::maintenance::get_disk_usage,
             commands::maintenance::cleanup_directory,

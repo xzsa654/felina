@@ -66,9 +66,40 @@
   flagged: 2026-05-20 / last-seen: 2026-05-20
   同步前比對 target agent schema,主檔有 target 不認識的欄位時提示使用者:過濾掉 / 保留原樣 / 對應到其他欄位,選擇記為 per-skill per-agent mapping rule 持久化。
 
-- **Per-agent override**
-  flagged: 2026-05-20 / last-seen: 2026-05-20
-  同一 skill 同步給多 agent 時,允許各 agent 端內容微調。資料模型需擴充(主檔 + agent override patch)。
+- **移除 target 時的孤兒 prune(de-select agent → 舊檔處理)**
+  flagged: 2026-05-22 / last-seen: 2026-05-22
+  問題(S3 smoke 2026-05-22 發現):變更 skill 的 agents tag、取消某 agent 後 push,被取消 agent 資料夾(如 `.gemini/skills/<name>`)的舊檔**不會被刪除**,留成孤兒。根因:fan-out(`skill_sync_one`)只寫 `skill.agents` 列出的 target,從不 prune;S3 fan-out 規格本就是單向 render、未規範刪除。
+  歸屬:刻意不在 S3 修——這是「移除一個 target 時舊檔要不要 prune」的破壞性語意,屬下一個 change(target 模型 + detach/cascade)領域,與 [[Forked-target 客製化]] 的 target list 模型一起做才不丟棄性。
+  **待 discuss 的決策**:de-select agent / 移除 target 時,舊檔 → (a) 自動刪除(cascade prune) / (b) 留孤兒(detach,預設) / (c) 每次 prompt。與「刪整個 canonical 的 C7 prompt 三選一(Cascade/Detach/Cancel)」是同族,粒度不同(移除單一 target vs 移除整個 skill),收斂時應一致處理。傾向預設 (b) detach + 提供顯式「prune orphans」動作(在 tag 編輯時自動刪 agent 資料夾的檔太突兀)。
+
+- **Forked-target 客製化(per-target overlay,Route 2)**
+  flagged: 2026-05-20 / last-seen: 2026-05-22
+  使用情境:canonical 推到 `claude-project:Foo` 後,使用者進該目標檔手改一小部分(例:加 project-specific path、example、注意事項),希望此客製化保留;但 canonical 後續更新的其他部分仍能套用。等同於 git 的「tracking branch + local commits」概念套到 skill 檔。
+
+  **設計路線(於 2026-05-22 discuss 會敲定 Route 2 overlay,捨棄 Route 1 3-way merge 與 Route 3 區段標註)**:
+  - Canonical 主檔保持純淨,客製內容以**獨立 overlay 檔**儲存在 canonical sidecar:
+    ```
+    ~/.felina/skills/<skill-name>/
+      SKILL.md                                ← canonical
+      .felina-sync-meta.json                  ← targets + last_sync(Phase 1 已建立)
+      overlays/
+        claude-project-Foo.patch.md           ← Foo 專案的客製覆蓋
+        claude-project-Bar.patch.md           ← Bar 專案的客製覆蓋
+    ```
+  - Overlay 格式 MVP 採「**整段替換**」(明確、好顯示);未來可延伸支援 unified diff 行級覆蓋。
+  - Render flow:`fan_out(canonical) → apply overlay(target) → 寫入 target SKILL.md`。Canonical 改了等於自動套新 base + 老 overlay。
+  - 三家 agent 不認識 overlay 概念,渲染後輸出仍是純 SKILL.md,對 agent 透明。
+
+  **Phase 1 已預留的鉤子(於 `skill-tab-target-freedom` change 落地)**:
+  - sync-meta sidecar schema v2 `targets[].mode` enum 已含 `forked` 值(Phase 1 只實作 `tracked`/`detached`,`forked` 留 placeholder)。
+  - sync-meta `last_sync[target].base_snapshot` 欄位已預留,Phase 2 啟用(存 fork 那一刻的 canonical 內容,作為 overlay 的 base)。
+  - Phase 1 reverse drift 對話框只給「override / detach」兩選一;Phase 2 加上「fork(保留客製,Phase 2 啟動)」第三選項。
+
+  **Phase 2 要實作的工作**:
+  - Overlay 編輯 UI:不能讓使用者寫 unified diff,需提供「對照原 canonical 顯示客製段落、編輯整段替換」的介面。
+  - Overlay 與 canonical 結構漂移處理:canonical 把某段砍了、overlay 還想改那段時的降級策略(警告 + 落為 detached?)。
+  - Push 時的 conflict surface:overlay 套用失敗時的使用者提示流。
+  - Overlay 進 git 的策略(project canonical 的 overlay 進、global 的不進,同 sync-meta)。
 
 ## Phase 3 — Skill 社群化
 

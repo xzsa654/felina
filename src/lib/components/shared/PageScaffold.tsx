@@ -37,7 +37,7 @@ export function PageHeader({
 }
 
 export function PageBody({ children }: { children: ReactNode }) {
-  return <div className="p-6 overflow-y-auto h-full">{children}</div>;
+  return <div className="p-6 overflow-y-auto flex-1 min-h-0">{children}</div>;
 }
 
 export function EmptyState({

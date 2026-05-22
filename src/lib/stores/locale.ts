@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import type { Locale } from "$lib/i18n";
 
-const STORAGE_KEY = "glyphic-locale";
+const STORAGE_KEY = "felina-locale";
 const ALLOWED: Locale[] = ["en", "zh-TW"];
 
 function isValidLocale(v: string): v is Locale {

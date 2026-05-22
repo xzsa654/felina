@@ -49,12 +49,33 @@ pub fn global_instructions_path() -> PathBuf {
     claude_home().join("CLAUDE.md")
 }
 
-pub fn global_skills_dir() -> PathBuf {
-    claude_home().join("skills")
-}
+// `global_skills_dir()` was removed in `multi-agent-skills-foundation`:
+// canonical skills live under `~/.felina/skills/` now and Anthropic's
+// `~/.claude/skills/` is reached via `agent_paths_get()`'s configurable
+// `AgentPathPair.global` instead. See `felina_global_skills_dir` below.
 
 pub fn global_agents_dir() -> PathBuf {
     claude_home().join("agents")
+}
+
+/// Felina's canonical skills home. Source of truth for skills the user
+/// edits and (optionally) git-tracks; agent-native skill dirs are fan-out
+/// outputs derived from here. See multi-agent-skills-foundation design
+/// decision 1.
+pub fn felina_home() -> PathBuf {
+    dirs::home_dir()
+        .expect("could not resolve home directory")
+        .join(".felina")
+}
+
+pub fn felina_global_skills_dir() -> PathBuf {
+    felina_home().join("skills")
+}
+
+pub fn felina_project_skills_dir(project_path: &str) -> PathBuf {
+    PathBuf::from(project_path)
+        .join(".felina")
+        .join("skills")
 }
 
 pub fn global_rules_dir() -> PathBuf {
@@ -135,4 +156,35 @@ fn resolve_segments(segments: &[&str], idx: usize, current: &str) -> Option<Stri
     }
 
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn felina_global_skills_dir_ends_with_dot_felina_skills() {
+        let p = felina_global_skills_dir();
+        // Must terminate with the canonical segments regardless of OS separator.
+        assert_eq!(p.file_name().and_then(|s| s.to_str()), Some("skills"));
+        assert_eq!(
+            p.parent().and_then(|p| p.file_name()).and_then(|s| s.to_str()),
+            Some(".felina"),
+        );
+        // Anchored under the user's home directory.
+        assert!(p.starts_with(dirs::home_dir().expect("home dir")));
+    }
+
+    #[test]
+    fn felina_project_skills_dir_under_project_root() {
+        // Use a fixed string; PathBuf normalises separators per-OS at display time.
+        let project = if cfg!(windows) { r"C:\proj" } else { "/proj" };
+        let p = felina_project_skills_dir(project);
+        assert!(p.starts_with(project));
+        assert_eq!(p.file_name().and_then(|s| s.to_str()), Some("skills"));
+        assert_eq!(
+            p.parent().and_then(|p| p.file_name()).and_then(|s| s.to_str()),
+            Some(".felina"),
+        );
+    }
 }

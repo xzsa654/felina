@@ -45,7 +45,7 @@ export default function UpdateBanner() {
       <div className="flex items-center gap-2 text-xs">
         <Download size={14} className="text-accent" />
         <span className="text-text-primary">
-          Glyphic <strong>{updateVersion}</strong> is available
+          Felina <strong>{updateVersion}</strong> is available
         </span>
       </div>
       <div className="flex items-center gap-2">
