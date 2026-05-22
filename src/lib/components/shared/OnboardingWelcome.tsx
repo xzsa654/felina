@@ -61,13 +61,13 @@ export default function OnboardingWelcome() {
   const [step, setStep] = useState(0);
 
   useEffect(() => {
-    const onboarded = localStorage.getItem("glyphic-onboarded");
+    const onboarded = localStorage.getItem("felina-onboarded");
     if (!onboarded) setVisible(true);
   }, []);
 
   function dismiss() {
     setVisible(false);
-    localStorage.setItem("glyphic-onboarded", "true");
+    localStorage.setItem("felina-onboarded", "true");
   }
 
   function goTo(page: Page) {
@@ -92,11 +92,11 @@ export default function OnboardingWelcome() {
 
           <img
             src={logoUrl}
-            alt="Glyphic"
+            alt="Felina"
             className="w-16 h-16 rounded-2xl mx-auto mb-4"
           />
           <h1 className="text-2xl font-bold text-text-primary">
-            Welcome to Glyphic
+            Welcome to Felina
           </h1>
           <p className="text-sm text-text-muted mt-2 max-w-md mx-auto">
             The desktop app for managing Claude Code. Everything runs locally —

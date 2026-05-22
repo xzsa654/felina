@@ -1,215 +1,308 @@
 import { useEffect, useMemo, useState } from "react";
-import { Plus, RefreshCw, Save, Trash2, Users, WandSparkles } from "lucide-react";
+import { Loader2, Plus, RefreshCw, Sparkles, Undo2 } from "lucide-react";
 import ProjectPicker from "$lib/components/shared/ProjectPicker";
-import {
-  ActionButton,
-  EmptyState,
-  ErrorBanner,
-  LoadingLine,
-  PageBody,
-  PageHeader,
-} from "$lib/components/shared/PageScaffold";
-import { api } from "$lib/tauri/commands";
+import ConfirmDialog from "$lib/components/shared/ConfirmDialog";
+import { PageBody, PageHeader } from "$lib/components/shared/PageScaffold";
 import { useProjectContextStore } from "$lib/stores/project-context";
-import type { SkillInfo } from "$lib/types";
+import { useSkillsStore } from "$lib/stores/skills-store";
+import { api } from "$lib/tauri/commands";
+import type { CanonicalSkill, SkillScope } from "$lib/types";
+import SkillList from "./SkillList";
+import SkillEditor from "./SkillEditor";
+import PendingPushBar from "./PendingPushBar";
+import SkillImportBanner from "./SkillImportBanner";
+import SkillImportWizard from "./SkillImportWizard";
 
-type Scope = "global" | "project";
-type Kind = "skills" | "agents";
-
-const DEFAULT_CONTENT = "# New Skill\n\nDescribe when to use this skill and the workflow to follow.\n";
-
+/**
+ * Skills page — composes the multi-agent-skills-foundation pieces:
+ *
+ *   ┌─ scope toggle ─┬─ refresh / new / restore-banner ─┐
+ *   │ SkillImportBanner (conditional)                   │
+ *   │ PendingPushBar    (conditional)                   │
+ *   ├─────────────────┬───────────────────────────────────┤
+ *   │ SkillList       │ SkillEditor (or empty state)     │
+ *   └─────────────────┴───────────────────────────────────┘
+ */
 export default function SkillsPage() {
   const projectPath = useProjectContextStore((s) => s.selectedProjectPath);
-  const [scope, setScope] = useState<Scope>("global");
-  const [kind, setKind] = useState<Kind>("skills");
-  const [items, setItems] = useState<SkillInfo[]>([]);
+  const {
+    scope,
+    entries,
+    loaded,
+    error,
+    bannerDismissed,
+    detectedImportCount,
+    lastSyncResults,
+    setScope,
+    setProjectPath,
+    loadEntries,
+    refreshImportCount,
+    resetBannerDismissed,
+    removeEntry,
+  } = useSkillsStore();
+
   const [selectedName, setSelectedName] = useState<string | null>(null);
-  const [draftName, setDraftName] = useState("");
-  const [content, setContent] = useState("");
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [activeSkill, setActiveSkill] = useState<CanonicalSkill | null>(null);
+  const [creatingNew, setCreatingNew] = useState(false);
+  const [wizardOpen, setWizardOpen] = useState(false);
+  const [reloading, setReloading] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<string | null>(null);
 
-  const selected = useMemo(
-    () => items.find((item) => item.name === selectedName) ?? null,
-    [items, selectedName],
-  );
-
-  async function load() {
-    setLoading(true);
-    setError(null);
+  async function handleReload() {
+    setReloading(true);
     try {
-      const list =
-        kind === "skills"
-          ? await api.skills.list(scope, projectPath ?? undefined)
-          : await api.agents.list(scope, projectPath ?? undefined);
-      setItems(list);
-      const next = list.find((item) => item.name === selectedName) ?? list[0] ?? null;
-      setSelectedName(next?.name ?? null);
-      setDraftName(next?.name ?? "");
-      setContent(next?.content ?? "");
-    } catch (e) {
-      setError(String(e));
+      await Promise.all([loadEntries(), refreshImportCount()]);
     } finally {
-      setLoading(false);
+      // Brief residual delay so users see the spinner spin at least once,
+      // even when the underlying calls return in <50ms.
+      setTimeout(() => setReloading(false), 250);
     }
   }
 
+  // Push the project path into the store whenever it changes upstream.
   useEffect(() => {
-    void load();
-  }, [scope, kind, projectPath]);
+    setProjectPath(projectPath ?? null);
+  }, [projectPath, setProjectPath]);
 
-  function startNew() {
-    setSelectedName(null);
-    setDraftName(kind === "skills" ? "new-skill" : "new-agent");
-    setContent(DEFAULT_CONTENT);
-  }
+  // Initial load + reload when scope/project changes.
+  useEffect(() => {
+    void loadEntries();
+    void refreshImportCount();
+  }, [loadEntries, refreshImportCount, scope, projectPath]);
 
-  function choose(item: SkillInfo) {
-    setSelectedName(item.name);
-    setDraftName(item.name);
-    setContent(item.content);
-  }
-
-  async function save() {
-    const name = draftName.trim();
-    if (!name) return;
-    setSaving(true);
-    setError(null);
-    try {
-      if (kind === "skills") {
-        await api.skills.write(scope, name, content, projectPath ?? undefined);
-      } else {
-        await api.agents.write(scope, name, content, projectPath ?? undefined);
-      }
-      setSelectedName(name);
-      await load();
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setSaving(false);
+  // When the selected name changes, fetch the full skill (list entries
+  // already include the data we need, but read keeps the path canonical).
+  useEffect(() => {
+    if (!selectedName) {
+      setActiveSkill(null);
+      return;
     }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const skill = await api.canonicalSkills.read(
+          scope,
+          selectedName,
+          projectPath ?? undefined,
+        );
+        if (!cancelled) setActiveSkill(skill);
+      } catch {
+        if (!cancelled) setActiveSkill(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedName, scope, projectPath]);
+
+  const isCanonicalEmpty = useMemo(() => {
+    return entries.filter((e) => e.kind === "ok").length === 0;
+  }, [entries]);
+
+  const showBanner =
+    !bannerDismissed && detectedImportCount > 0 && isCanonicalEmpty;
+
+  function handleDelete() {
+    if (!selectedName) return;
+    setPendingDelete(selectedName);
   }
 
-  async function remove() {
-    const name = selected?.name;
+  async function confirmDelete() {
+    const name = pendingDelete;
     if (!name) return;
-    setSaving(true);
-    setError(null);
+    setPendingDelete(null);
     try {
-      if (kind === "skills") {
-        await api.skills.delete(scope, name, projectPath ?? undefined);
-      } else {
-        await api.agents.delete(scope, name, projectPath ?? undefined);
-      }
-      setSelectedName(null);
-      setDraftName("");
-      setContent("");
-      await load();
+      await api.canonicalSkills.delete(scope, name, projectPath ?? undefined);
+      removeEntry(name);
+      setSelectedName((cur) => (cur === name ? null : cur));
+      setActiveSkill((cur) => (cur?.name === name ? null : cur));
     } catch (e) {
-      setError(String(e));
-    } finally {
-      setSaving(false);
+      window.alert(`Delete failed: ${e}`);
     }
   }
 
   return (
-    <div className="flex flex-col h-full overflow-hidden">
+    <>
       <PageHeader
-        title="Skills & Agents"
-        subtitle="Manage reusable Codex skills and agent instructions"
-        icon={WandSparkles}
+        title="Skills"
+        subtitle="Canonical multi-agent skill manager."
+        icon={Sparkles}
         actions={
           <>
-            <ProjectPicker />
-            <ActionButton onClick={load} disabled={loading}>
-              <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
-              Refresh
-            </ActionButton>
-            <ActionButton onClick={startNew} variant="primary">
-              <Plus size={14} />
-              New
-            </ActionButton>
+            <ScopeToggle value={scope} onChange={setScope} />
+            {scope === "project" && <ProjectPicker />}
+            {bannerDismissed && (
+              <button
+                type="button"
+                onClick={resetBannerDismissed}
+                title="Show import banner again"
+                className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded border border-border text-text-secondary hover:text-text-primary"
+              >
+                <Undo2 size={12} /> Banner
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => void handleReload()}
+              disabled={reloading}
+              className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded border border-border text-text-secondary hover:text-text-primary disabled:opacity-60"
+            >
+              {reloading ? (
+                <Loader2 size={12} className="animate-spin" />
+              ) : (
+                <RefreshCw size={12} />
+              )}
+              {reloading ? "Reloading…" : "Reload"}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setCreatingNew(true);
+                setSelectedName(null);
+              }}
+              className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded bg-accent text-white hover:bg-accent-hover"
+            >
+              <Plus size={12} /> New skill
+            </button>
           </>
         }
       />
       <PageBody>
-        {error && <ErrorBanner error={error} />}
-        <div className="flex items-center gap-2 mb-4">
-          {(["skills", "agents"] as Kind[]).map((value) => (
-            <button
-              key={value}
-              className={`px-3 py-1.5 rounded-md text-sm capitalize ${
-                kind === value ? "bg-accent text-white" : "bg-bg-secondary text-text-secondary"
-              }`}
-              onClick={() => setKind(value)}
-            >
-              {value}
-            </button>
-          ))}
-          {(["global", "project"] as Scope[]).map((value) => (
-            <button
-              key={value}
-              className={`px-3 py-1.5 rounded-md text-sm capitalize ${
-                scope === value ? "bg-bg-tertiary text-text-primary" : "text-text-muted"
-              }`}
-              onClick={() => setScope(value)}
-            >
-              {value}
-            </button>
-          ))}
-        </div>
-        <div className="grid grid-cols-[280px_minmax(0,1fr)] gap-4 min-h-[560px]">
-          <aside className="bg-bg-secondary border border-border rounded-lg overflow-hidden">
-            {loading ? (
-              <div className="p-4">
-                <LoadingLine />
-              </div>
-            ) : items.length === 0 ? (
-              <div className="p-4">
-                <EmptyState title="No entries" detail="Create one to get started." />
-              </div>
-            ) : (
-              items.map((item) => (
-                <button
-                  key={item.path}
-                  className={`w-full flex items-center gap-2 px-3 py-2 text-left border-b border-border last:border-b-0 hover:bg-bg-hover ${
-                    selectedName === item.name ? "bg-accent/10 text-accent" : "text-text-secondary"
-                  }`}
-                  onClick={() => choose(item)}
+        <div className="h-full flex flex-col min-h-0">
+        {showBanner && <SkillImportBanner onImport={() => setWizardOpen(true)} />}
+        <PendingPushBar />
+
+        {error && (
+          <div className="text-xs text-red-400 bg-red-500/10 border border-red-500/30 rounded px-3 py-2 mb-4">
+            {error}
+          </div>
+        )}
+
+        {lastSyncResults.length > 0 && (
+          <div className="mb-4 text-xs rounded border border-border bg-bg-secondary px-3 py-2">
+            <div className="text-text-secondary mb-1">Last push results:</div>
+            <ul className="flex flex-col gap-0.5">
+              {lastSyncResults.map((r, i) => (
+                <li
+                  key={`${r.agent}-${r.scope}-${i}`}
+                  className="flex items-start gap-2"
                 >
-                  <Users size={14} className="shrink-0" />
-                  <span className="truncate text-sm">{item.name}</span>
-                </button>
-              ))
-            )}
-          </aside>
-          <section className="bg-bg-secondary border border-border rounded-lg overflow-hidden flex flex-col">
-            <div className="flex items-center gap-2 p-3 border-b border-border">
-              <input
-                className="flex-1 px-3 py-2 bg-bg-tertiary border border-border rounded-md text-sm text-text-primary focus:outline-none focus:border-accent"
-                value={draftName}
-                onChange={(e) => setDraftName(e.target.value)}
-                placeholder="Name"
+                  <span
+                    className={
+                      r.success ? "text-emerald-400" : "text-red-400"
+                    }
+                  >
+                    {r.success ? "✓" : "✗"}
+                  </span>
+                  <span className="capitalize w-16 shrink-0">{r.agent}</span>
+                  <span className="font-mono text-[10px] text-text-secondary truncate">
+                    {r.targetPath || "(no target)"}
+                  </span>
+                  {r.error && (
+                    <span className="text-red-400 truncate">— {r.error}</span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        <div className="grid grid-cols-[320px_minmax(0,1fr)] gap-4 flex-1 min-h-0">
+          <div className="border border-border rounded overflow-y-auto">
+            {loaded ? (
+              <SkillList
+                entries={entries}
+                selectedName={selectedName}
+                onSelect={(n) => {
+                  setCreatingNew(false);
+                  setSelectedName(n);
+                }}
               />
-              <ActionButton onClick={save} disabled={saving || !draftName.trim()} variant="primary">
-                <Save size={14} />
-                Save
-              </ActionButton>
-              <ActionButton onClick={remove} disabled={saving || !selected} variant="danger">
-                <Trash2 size={14} />
-                Delete
-              </ActionButton>
-            </div>
-            <textarea
-              className="flex-1 min-h-[500px] resize-none bg-bg-primary p-4 font-mono text-sm text-text-primary focus:outline-none"
-              value={content}
-              onChange={(e) => setContent(e.target.value)}
-              placeholder="Write instructions..."
-            />
-          </section>
+            ) : (
+              <div className="text-sm text-text-secondary p-4">Loading…</div>
+            )}
+          </div>
+
+          <div className="border border-border rounded overflow-y-auto">
+            {creatingNew ? (
+              <SkillEditor
+                skill={null}
+                scope={scope}
+                projectPath={projectPath ?? null}
+                onSaved={(name) => {
+                  setCreatingNew(false);
+                  setSelectedName(name);
+                }}
+                onCancel={() => setCreatingNew(false)}
+              />
+            ) : activeSkill ? (
+              <SkillEditor
+                skill={activeSkill}
+                scope={scope}
+                projectPath={projectPath ?? null}
+                onSaved={() => {
+                  // After save, reload entry list to refresh dirty flags.
+                  void loadEntries();
+                }}
+                onDelete={handleDelete}
+              />
+            ) : (
+              <div className="flex items-center justify-center h-full text-sm text-text-secondary p-8">
+                Select a skill or create a new one.
+              </div>
+            )}
+          </div>
+        </div>
         </div>
       </PageBody>
+
+      {wizardOpen && (
+        <SkillImportWizard
+          scope={scope}
+          projectPath={projectPath ?? null}
+          onClose={() => setWizardOpen(false)}
+        />
+      )}
+
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        title="Delete canonical skill"
+        message={
+          pendingDelete
+            ? `"${pendingDelete}" will be removed from canonical storage. Existing agent-side copies (e.g. .claude/skills/, .agents/skills/) are NOT touched.`
+            : ""
+        }
+        confirmLabel="Delete"
+        onconfirm={confirmDelete}
+        oncancel={() => setPendingDelete(null)}
+      />
+    </>
+  );
+}
+
+function ScopeToggle({
+  value,
+  onChange,
+}: {
+  value: SkillScope;
+  onChange: (v: SkillScope) => void;
+}) {
+  return (
+    <div className="inline-flex rounded border border-border overflow-hidden text-xs">
+      {(["global", "project"] as const).map((opt) => (
+        <button
+          key={opt}
+          type="button"
+          onClick={() => onChange(opt)}
+          className={`px-3 py-1 ${
+            value === opt
+              ? "bg-accent text-white"
+              : "bg-bg-primary text-text-secondary hover:text-text-primary"
+          }`}
+        >
+          {opt === "global" ? "Global" : "Project"}
+        </button>
+      ))}
     </div>
   );
 }

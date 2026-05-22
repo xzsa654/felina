@@ -5,7 +5,7 @@ export type Theme = "dark" | "light";
 function applyTheme(theme: Theme) {
   if (typeof document !== "undefined") {
     document.documentElement.setAttribute("data-theme", theme);
-    localStorage.setItem("glyphic-theme", theme);
+    localStorage.setItem("felina-theme", theme);
   }
 }
 
@@ -18,7 +18,7 @@ interface ThemeStore {
 export const useThemeStore = create<ThemeStore>((set) => {
   const initial: Theme =
     (typeof localStorage !== "undefined" &&
-      (localStorage.getItem("glyphic-theme") as Theme)) ||
+      (localStorage.getItem("felina-theme") as Theme)) ||
     "dark";
 
   if (typeof document !== "undefined") {
