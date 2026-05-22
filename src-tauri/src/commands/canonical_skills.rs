@@ -13,6 +13,7 @@
 
 use crate::paths;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -53,8 +54,17 @@ pub struct CanonicalSkill {
     pub body: String,
     /// True when canonical content changed since the last successful push.
     pub dirty: bool,
-    /// ISO-8601 timestamp of the last successful push, if any.
+    /// ISO-8601 timestamp of the last successful push, if any (display only;
+    /// derived from sync-meta v1 legacy field or newest `last_sync[*].at`).
     pub last_synced: Option<String>,
+    /// Per-skill target list (sync-meta v2). Empty for new skills before
+    /// the first push, or for skills whose sidecar is still v1 and has not
+    /// been touched by a target-editor commit yet.
+    #[serde(default)]
+    pub targets: Vec<SkillTarget>,
+    /// Per-target push provenance (sync-meta v2). Keyed by `target_key()`.
+    #[serde(default)]
+    pub last_sync: BTreeMap<String, LastSyncEntry>,
 }
 
 /// Resolve the canonical skills directory for a scope.
@@ -146,6 +156,8 @@ pub fn parse_skill_md(raw: &str) -> Result<CanonicalSkill, String> {
         body,
         dirty: false,
         last_synced: None,
+        targets: Vec::new(),
+        last_sync: BTreeMap::new(),
     })
 }
 
@@ -220,41 +232,305 @@ pub enum SkillListEntry {
     },
 }
 
-/// Sidecar JSON that persists `dirty` + `last_synced` across app restarts.
-/// Stored at `<skill_dir>/.felina-sync-meta.json`. Filename is intentionally
-/// dot-prefixed so casual `ls` and `git add` don't pick it up.
+/// Sidecar JSON that persists `dirty` + `last_synced` across app restarts —
+/// schema v1, retained only for reading existing sidecars before backfill.
+/// New writes use `SyncMetaV2`.
 #[derive(Debug, Default, Serialize, Deserialize)]
-struct SyncMeta {
+struct SyncMetaV1 {
     #[serde(default)]
     dirty: bool,
     #[serde(default)]
     last_synced: Option<String>,
 }
 
-const SYNC_META_FILENAME: &str = ".felina-sync-meta.json";
-
-fn read_sync_meta(skill_dir: &Path) -> SyncMeta {
-    let path = skill_dir.join(SYNC_META_FILENAME);
-    fs::read_to_string(&path)
-        .ok()
-        .and_then(|s| serde_json::from_str(&s).ok())
-        .unwrap_or_default()
+/// Per-skill target list mode. See design.md Decision "sync-meta schema v2".
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TargetMode {
+    /// Push overwrites the agent-side file.
+    Tracked,
+    /// Target skipped by push (kept in list for visibility / re-enable).
+    Detached,
+    /// Reserved for Phase 2 overlay customization. NOT rendered by this capability.
+    Forked,
 }
 
-/// Mark the skill dirty in its sync-meta sidecar while preserving the
-/// existing `last_synced` timestamp (if any). Called after every successful
-/// `canonical_skills_write` so a freshly-created or freshly-edited canonical
-/// surfaces as `dirty=true` to the UI without depending on optimistic
-/// frontend state. Best-effort: a write failure here does NOT abort the
-/// canonical write that already succeeded.
-fn mark_sync_meta_dirty(skill_dir: &Path) {
-    let existing = read_sync_meta(skill_dir);
-    let meta = SyncMeta {
-        dirty: true,
-        last_synced: existing.last_synced,
+/// A single fan-out target entry in the per-skill target list.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillTarget {
+    pub agent: AgentId,
+    pub scope: SkillScope,
+    /// Required when `scope == Project`; absolute project root path.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project: Option<String>,
+    pub enabled: bool,
+    pub mode: TargetMode,
+}
+
+/// Per-target push provenance, recorded after a successful render+write.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct LastSyncEntry {
+    /// SHA-256 hex of the rendered SKILL.md content at last successful push.
+    pub pushed_hash: String,
+    /// Reserved for Phase 2 fork resolution; unset in this capability.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base_snapshot: Option<String>,
+    /// ISO-8601 timestamp of the last successful push for this target.
+    pub at: String,
+}
+
+/// Sidecar schema v2. Stored at `<skill_dir>/.felina-sync-meta.json`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncMetaV2 {
+    /// Schema version. Always `2` when written by this code.
+    pub version: u32,
+    #[serde(default)]
+    pub targets: Vec<SkillTarget>,
+    /// Per-target push state, keyed by `target_key()`.
+    #[serde(default)]
+    pub last_sync: BTreeMap<String, LastSyncEntry>,
+    #[serde(default)]
+    pub dirty: bool,
+}
+
+impl Default for SyncMetaV2 {
+    fn default() -> Self {
+        Self {
+            version: 2,
+            targets: Vec::new(),
+            last_sync: BTreeMap::new(),
+            dirty: false,
+        }
+    }
+}
+
+const SYNC_META_FILENAME: &str = ".felina-sync-meta.json";
+
+fn agent_str(a: AgentId) -> &'static str {
+    match a {
+        AgentId::Anthropic => "anthropic",
+        AgentId::Codex => "codex",
+        AgentId::Gemini => "gemini",
+    }
+}
+
+/// Stable per-target identifier for keying `SyncMetaV2.last_sync`.
+/// Format: `<agent>:<global|project>:<project_path>` (project path omitted
+/// for global scope).
+pub fn target_key(t: &SkillTarget) -> String {
+    match t.scope {
+        SkillScope::Global => format!("{}:global", agent_str(t.agent)),
+        SkillScope::Project => format!(
+            "{}:project:{}",
+            agent_str(t.agent),
+            t.project.as_deref().unwrap_or(""),
+        ),
+    }
+}
+
+/// Build a v2 sync-meta whose target list is derived from a canonical skill's
+/// `agents` frontmatter field (one tracked enabled target per agent at the
+/// skill's own scope/project). Used both for v1 backfill and for the
+/// "no sidecar yet" case.
+fn backfill_from_skill(
+    skill: &CanonicalSkill,
+    scope: SkillScope,
+    project_path: Option<&str>,
+    dirty: bool,
+) -> SyncMetaV2 {
+    let project = match scope {
+        SkillScope::Project => project_path.map(|s| s.to_string()),
+        SkillScope::Global => None,
     };
-    let Ok(json) = serde_json::to_string_pretty(&meta) else { return };
-    let _ = fs::write(skill_dir.join(SYNC_META_FILENAME), json);
+    let targets = skill
+        .agents
+        .iter()
+        .map(|&agent| SkillTarget {
+            agent,
+            scope,
+            project: project.clone(),
+            enabled: true,
+            mode: TargetMode::Tracked,
+        })
+        .collect();
+    SyncMetaV2 {
+        version: 2,
+        targets,
+        last_sync: BTreeMap::new(),
+        dirty,
+    }
+}
+
+/// Read the sync-meta sidecar in canonical v2 shape. Transparently backfills
+/// v1 sidecars (lacking `version` / `targets`) so callers never see a v1
+/// shape.
+///
+/// Returns `(SyncMetaV2, legacy_last_synced)`. `legacy_last_synced` carries
+/// the v1 sidecar's `last_synced` value (so `CanonicalSkill.last_synced` can
+/// still be displayed) and is `None` for native v2 sidecars.
+pub(crate) fn read_sync_meta_v2(
+    skill_dir: &Path,
+    skill: &CanonicalSkill,
+    scope: SkillScope,
+    project_path: Option<&str>,
+) -> (SyncMetaV2, Option<String>) {
+    let path = skill_dir.join(SYNC_META_FILENAME);
+    let raw = match fs::read_to_string(&path) {
+        Ok(s) => s,
+        // No sidecar yet → treat as a fresh skill that has never been pushed.
+        Err(_) => return (backfill_from_skill(skill, scope, project_path, false), None),
+    };
+
+    // Probe the JSON: native v2 is identified by `version: 2`. Anything
+    // missing `version` / `targets` is v1 (or corrupt — same fallback).
+    let probe: serde_json::Value = match serde_json::from_str(&raw) {
+        Ok(v) => v,
+        Err(_) => return (backfill_from_skill(skill, scope, project_path, false), None),
+    };
+
+    if probe.get("version").and_then(|v| v.as_u64()) == Some(2)
+        && probe.get("targets").is_some()
+    {
+        if let Ok(meta) = serde_json::from_str::<SyncMetaV2>(&raw) {
+            // v2 + non-empty targets → use as-is.
+            if !meta.targets.is_empty() {
+                return (meta, None);
+            }
+            // v2 + empty targets is the "fresh sidecar / not yet backfilled"
+            // state produced by mark_sync_meta_dirty without skill context.
+            // Backfill from the canonical's agents but preserve any
+            // already-recorded last_sync entries and dirty flag.
+            let mut result = backfill_from_skill(skill, scope, project_path, meta.dirty);
+            result.last_sync = meta.last_sync;
+            return (result, None);
+        }
+        // v2 markers present but parse failed → fall through to v1/backfill
+        // rather than panicking the UI list.
+    }
+
+    // v1 sidecar: backfill targets, preserve dirty + last_synced.
+    let v1: SyncMetaV1 = serde_json::from_str(&raw).unwrap_or_default();
+    let meta = backfill_from_skill(skill, scope, project_path, v1.dirty);
+    (meta, v1.last_synced)
+}
+
+/// Write a v2 sync-meta sidecar. Overwrites the existing file completely
+/// (no field-level merge — callers compose the desired SyncMetaV2 first).
+pub(crate) fn write_sync_meta_v2(skill_dir: &Path, meta: &SyncMetaV2) -> Result<(), String> {
+    let path = skill_dir.join(SYNC_META_FILENAME);
+    let json = serde_json::to_string_pretty(meta)
+        .map_err(|e| format!("failed to serialize sync-meta v2: {e}"))?;
+    fs::write(&path, json).map_err(|e| format!("failed to write sync-meta v2: {e}"))
+}
+
+/// Mark the skill dirty in its sync-meta sidecar. Flips dirty=true while preserving the on-disk
+/// sidecar's shape: a v2 sidecar stays v2 (targets + last_sync survive),
+/// a v1 sidecar stays v1 (last_synced survives — v1→v2 upgrade is deferred
+/// to fan-out push), and a missing sidecar produces a fresh v2 default.
+fn mark_sync_meta_dirty(skill_dir: &Path) {
+    let path = skill_dir.join(SYNC_META_FILENAME);
+    let raw = match fs::read_to_string(&path) {
+        Ok(s) => s,
+        Err(_) => {
+            let meta = SyncMetaV2 { dirty: true, ..SyncMetaV2::default() };
+            let _ = write_sync_meta_v2(skill_dir, &meta);
+            return;
+        }
+    };
+
+    let is_v2 = serde_json::from_str::<serde_json::Value>(&raw)
+        .ok()
+        .and_then(|v| {
+            v.get("version")
+                .and_then(|n| n.as_u64())
+                .map(|n| n == 2 && v.get("targets").is_some())
+        })
+        .unwrap_or(false);
+
+    if is_v2 {
+        let mut meta: SyncMetaV2 = serde_json::from_str(&raw).unwrap_or_default();
+        meta.dirty = true;
+        let _ = write_sync_meta_v2(skill_dir, &meta);
+    } else {
+        // v1 or corrupt — preserve v1 shape (last_synced lives on) and
+        // just flip dirty=true. Full v2 upgrade happens at the next push.
+        let v1: SyncMetaV1 = serde_json::from_str(&raw).unwrap_or_default();
+        let updated = SyncMetaV1 { dirty: true, last_synced: v1.last_synced };
+        if let Ok(json) = serde_json::to_string_pretty(&updated) {
+            let _ = fs::write(&path, json);
+        }
+    }
+}
+
+/// Regenerate the v2 sidecar's `targets` to mirror the canonical skill's
+/// current `agents` frontmatter list. Preserves `last_sync` entries whose
+/// `target_key()` still maps to a target in the new list (so unchanged
+/// agents keep their push provenance) and drops orphaned ones. No-op for
+/// missing sidecars and for v1 sidecars (the next push backfills v1 → v2
+/// from the current agents anyway, so realignment there is redundant).
+///
+/// This is what enforces the design decision "target 來源等同 agents 欄位"
+/// on the write path: without it, ticking a new agent in SkillEditor would
+/// be silently ignored by fan-out because the existing v2 targets list
+/// remains the old one.
+fn align_v2_targets_to_agents(
+    skill_dir: &Path,
+    agents: &[AgentId],
+    scope: SkillScope,
+    project_path: Option<&str>,
+) {
+    let path = skill_dir.join(SYNC_META_FILENAME);
+    let raw = match fs::read_to_string(&path) {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+    let is_v2 = serde_json::from_str::<serde_json::Value>(&raw)
+        .ok()
+        .and_then(|v| {
+            v.get("version")
+                .and_then(|n| n.as_u64())
+                .map(|n| n == 2 && v.get("targets").is_some())
+        })
+        .unwrap_or(false);
+    if !is_v2 {
+        return;
+    }
+    let mut meta: SyncMetaV2 = match serde_json::from_str(&raw) {
+        Ok(m) => m,
+        Err(_) => return,
+    };
+    let project = match scope {
+        SkillScope::Project => project_path.map(|s| s.to_string()),
+        SkillScope::Global => None,
+    };
+    let new_targets: Vec<SkillTarget> = agents
+        .iter()
+        .map(|&a| SkillTarget {
+            agent: a,
+            scope,
+            project: project.clone(),
+            enabled: true,
+            mode: TargetMode::Tracked,
+        })
+        .collect();
+    let valid_keys: std::collections::HashSet<String> =
+        new_targets.iter().map(target_key).collect();
+    meta.last_sync.retain(|k, _| valid_keys.contains(k));
+    meta.targets = new_targets;
+    let _ = write_sync_meta_v2(skill_dir, &meta);
+}
+
+/// Pick the most-recent `at` timestamp across a per-target last_sync map,
+/// for surfacing a single `CanonicalSkill.last_synced` value to the UI.
+/// ISO-8601 UTC strings (`...Z`) compare lexicographically as time order.
+fn pick_latest_at(last_sync: &BTreeMap<String, LastSyncEntry>) -> Option<String> {
+    last_sync
+        .values()
+        .map(|e| e.at.clone())
+        .max()
 }
 
 /// List canonical skills under the given scope. A missing canonical
@@ -305,9 +581,12 @@ pub fn canonical_skills_list(
 
         match parse_skill_md(&raw) {
             Ok(mut skill) => {
-                let meta = read_sync_meta(&skill_dir);
+                let (meta, legacy_last) =
+                    read_sync_meta_v2(&skill_dir, &skill, scope, project_path.as_deref());
                 skill.dirty = meta.dirty;
-                skill.last_synced = meta.last_synced;
+                skill.last_synced = legacy_last.or_else(|| pick_latest_at(&meta.last_sync));
+                skill.targets = meta.targets;
+                skill.last_sync = meta.last_sync;
                 out.push(SkillListEntry::Ok { skill });
             }
             Err(e) => {
@@ -349,9 +628,12 @@ pub fn canonical_skills_read(
     let raw = fs::read_to_string(&skill_md)
         .map_err(|e| format!("failed to read SKILL.md: {e}"))?;
     let mut skill = parse_skill_md(&raw)?;
-    let meta = read_sync_meta(&skill_dir);
+    let (meta, legacy_last) =
+        read_sync_meta_v2(&skill_dir, &skill, scope, project_path.as_deref());
     skill.dirty = meta.dirty;
-    skill.last_synced = meta.last_synced;
+    skill.last_synced = legacy_last.or_else(|| pick_latest_at(&meta.last_sync));
+    skill.targets = meta.targets;
+    skill.last_sync = meta.last_sync;
     Ok(skill)
 }
 
@@ -414,6 +696,16 @@ pub fn canonical_skills_write(
     // agent target. Flip sync-meta dirty=true (preserving last_synced) so
     // the per-skill Push button surfaces as "Push" rather than "Re-push".
     mark_sync_meta_dirty(&skill_dir);
+    // Keep v2 sidecar targets in lock-step with the canonical's agents
+    // frontmatter (design: target 來源等同 agents 欄位). Without this,
+    // adding/removing an agent in SkillEditor would not change what
+    // fan-out pushes until the next manual sidecar edit.
+    let agents: Vec<AgentId> = frontmatter
+        .get("agents")
+        .cloned()
+        .and_then(|v| serde_yaml::from_value::<Vec<AgentId>>(v).ok())
+        .unwrap_or_default();
+    align_v2_targets_to_agents(&skill_dir, &agents, scope, project_path.as_deref());
     Ok(())
 }
 
@@ -725,6 +1017,290 @@ Hello.\n";
         )
         .unwrap_err();
         assert!(err.contains("not found"), "err was: {err}");
+    }
+
+    // ---------------------------------------------------------------------
+    // sync-meta schema v2 tests (path-bug-and-target-model change)
+    // ---------------------------------------------------------------------
+
+    fn skill_with_agents(name: &str, agents: Vec<AgentId>) -> CanonicalSkill {
+        CanonicalSkill {
+            name: name.to_string(),
+            description: "x".into(),
+            agents,
+            frontmatter_extras: serde_yaml::Value::Mapping(Default::default()),
+            body: String::new(),
+            dirty: false,
+            last_synced: None,
+            targets: Vec::new(),
+            last_sync: BTreeMap::new(),
+        }
+    }
+
+    #[test]
+    fn v2_sidecar_round_trips() {
+        let tmp = tempdir();
+        let skill_dir = tmp.join("foo");
+        fs::create_dir_all(&skill_dir).unwrap();
+
+        let mut last_sync = std::collections::BTreeMap::new();
+        last_sync.insert(
+            "anthropic:project:C:/proj".to_string(),
+            LastSyncEntry {
+                pushed_hash: "abc123".into(),
+                base_snapshot: None,
+                at: "2026-05-22T05:00:00Z".into(),
+            },
+        );
+        last_sync.insert(
+            "codex:project:C:/proj".to_string(),
+            LastSyncEntry {
+                pushed_hash: "def456".into(),
+                base_snapshot: None,
+                at: "2026-05-22T05:01:00Z".into(),
+            },
+        );
+
+        let original = SyncMetaV2 {
+            version: 2,
+            targets: vec![
+                SkillTarget {
+                    agent: AgentId::Anthropic,
+                    scope: SkillScope::Project,
+                    project: Some("C:/proj".into()),
+                    enabled: true,
+                    mode: TargetMode::Tracked,
+                },
+                SkillTarget {
+                    agent: AgentId::Codex,
+                    scope: SkillScope::Project,
+                    project: Some("C:/proj".into()),
+                    enabled: true,
+                    mode: TargetMode::Tracked,
+                },
+            ],
+            last_sync,
+            dirty: false,
+        };
+
+        write_sync_meta_v2(&skill_dir, &original).expect("write v2");
+
+        // Sidecar JSON is on disk with version: 2.
+        let on_disk = fs::read_to_string(skill_dir.join(SYNC_META_FILENAME)).unwrap();
+        assert!(on_disk.contains("\"version\": 2"), "JSON: {on_disk}");
+
+        // Read back via the v2 reader (no v1 sidecar → not a backfill).
+        let skill = skill_with_agents("foo", vec![AgentId::Anthropic, AgentId::Codex]);
+        let (round, legacy) = read_sync_meta_v2(
+            &skill_dir,
+            &skill,
+            SkillScope::Project,
+            Some("C:/proj"),
+        );
+        assert_eq!(round.version, 2);
+        assert_eq!(round.targets.len(), 2);
+        assert_eq!(round.last_sync.len(), 2);
+        assert_eq!(
+            round.last_sync.get("anthropic:project:C:/proj").map(|e| e.pushed_hash.as_str()),
+            Some("abc123"),
+        );
+        assert_eq!(round.dirty, false);
+        assert!(legacy.is_none(), "native v2 read MUST NOT report a legacy last_synced");
+    }
+
+    #[test]
+    fn legacy_v1_sidecar_backfilled_at_read_time() {
+        let tmp = tempdir();
+        let skill_dir = tmp.join("legacy");
+        fs::create_dir_all(&skill_dir).unwrap();
+
+        // Pre-existing v1 sidecar: no `version`, no `targets`, dirty=false,
+        // last_synced from a prior push.
+        fs::write(
+            skill_dir.join(SYNC_META_FILENAME),
+            r#"{"dirty":false,"last_synced":"2026-05-22T01:00:00Z"}"#,
+        )
+        .unwrap();
+
+        let skill = skill_with_agents("legacy", vec![AgentId::Anthropic, AgentId::Codex]);
+        let (meta, legacy) = read_sync_meta_v2(
+            &skill_dir,
+            &skill,
+            SkillScope::Project,
+            Some("C:/proj-root"),
+        );
+
+        assert_eq!(meta.version, 2);
+        assert_eq!(meta.dirty, false, "v1 dirty preserved");
+        assert_eq!(
+            legacy.as_deref(),
+            Some("2026-05-22T01:00:00Z"),
+            "v1 last_synced surfaced for caller (CanonicalSkill.last_synced display)",
+        );
+
+        // Backfilled targets: one per agent × scope/project, tracked + enabled.
+        assert_eq!(meta.targets.len(), 2, "two backfilled targets");
+        let agents: Vec<AgentId> = meta.targets.iter().map(|t| t.agent).collect();
+        assert!(agents.contains(&AgentId::Anthropic));
+        assert!(agents.contains(&AgentId::Codex));
+        for t in &meta.targets {
+            assert_eq!(t.scope, SkillScope::Project);
+            assert_eq!(t.project.as_deref(), Some("C:/proj-root"));
+            assert!(t.enabled);
+            assert!(matches!(t.mode, TargetMode::Tracked));
+        }
+
+        // last_sync is empty on backfill (no real per-target push history).
+        assert!(meta.last_sync.is_empty());
+    }
+
+    #[test]
+    fn mark_dirty_preserves_v2_targets() {
+        let tmp = tempdir();
+        let skill_dir = tmp.join("preserve");
+        fs::create_dir_all(&skill_dir).unwrap();
+
+        let mut last_sync = std::collections::BTreeMap::new();
+        last_sync.insert(
+            "gemini:global".to_string(),
+            LastSyncEntry {
+                pushed_hash: "preserved-hash".into(),
+                base_snapshot: None,
+                at: "2026-05-22T06:00:00Z".into(),
+            },
+        );
+
+        write_sync_meta_v2(
+            &skill_dir,
+            &SyncMetaV2 {
+                version: 2,
+                targets: vec![SkillTarget {
+                    agent: AgentId::Gemini,
+                    scope: SkillScope::Global,
+                    project: None,
+                    enabled: true,
+                    mode: TargetMode::Tracked,
+                }],
+                last_sync,
+                dirty: false,
+            },
+        )
+        .unwrap();
+
+        // Flip dirty via the existing helper.
+        mark_sync_meta_dirty(&skill_dir);
+
+        // Read back: dirty=true, but targets and last_sync survive.
+        let skill = skill_with_agents("preserve", vec![AgentId::Gemini]);
+        let (meta, _legacy) = read_sync_meta_v2(
+            &skill_dir,
+            &skill,
+            SkillScope::Global,
+            None,
+        );
+        assert!(meta.dirty, "mark_sync_meta_dirty must flip dirty=true");
+        assert_eq!(meta.targets.len(), 1, "targets must survive mark_dirty");
+        assert_eq!(meta.targets[0].agent, AgentId::Gemini);
+        assert_eq!(
+            meta.last_sync.get("gemini:global").map(|e| e.pushed_hash.as_str()),
+            Some("preserved-hash"),
+            "last_sync must survive mark_dirty",
+        );
+    }
+
+    /// Regression for the agents/targets drift bug: when a user adds an
+    /// agent in SkillEditor and saves, the sidecar's `targets` must
+    /// regenerate to match the new `agents` list (preserving any existing
+    /// `last_sync` entries for unchanged targets). Without this, fan-out
+    /// continues pushing only the old target set and the newly-checked
+    /// agent silently never gets a SKILL.md.
+    #[test]
+    fn write_aligns_v2_targets_when_agents_change() {
+        let tmp = tempdir();
+        let project = tmp.to_string_lossy().to_string();
+
+        // First write with agents=[anthropic].
+        let mut fm = serde_yaml::Mapping::new();
+        fm.insert("name".into(), "aligned".into());
+        fm.insert("description".into(), "x".into());
+        fm.insert(
+            "agents".into(),
+            serde_yaml::Value::Sequence(vec!["anthropic".into()]),
+        );
+        canonical_skills_write(
+            SkillScope::Project,
+            Some(project.clone()),
+            "aligned".into(),
+            serde_yaml::Value::Mapping(fm),
+            "body".into(),
+        )
+        .unwrap();
+
+        // Simulate a successful push: rewrite sidecar with v2 + lastSync.
+        let skill_dir = tmp.join(".felina").join("skills").join("aligned");
+        let mut last_sync = BTreeMap::new();
+        last_sync.insert(
+            format!("anthropic:project:{project}"),
+            LastSyncEntry {
+                pushed_hash: "hash-anthropic".into(),
+                base_snapshot: None,
+                at: "2026-05-22T01:00:00Z".into(),
+            },
+        );
+        write_sync_meta_v2(
+            &skill_dir,
+            &SyncMetaV2 {
+                version: 2,
+                targets: vec![SkillTarget {
+                    agent: AgentId::Anthropic,
+                    scope: SkillScope::Project,
+                    project: Some(project.clone()),
+                    enabled: true,
+                    mode: TargetMode::Tracked,
+                }],
+                last_sync,
+                dirty: false,
+            },
+        )
+        .unwrap();
+
+        // Second write: user ticks codex in SkillEditor.
+        let mut fm2 = serde_yaml::Mapping::new();
+        fm2.insert("name".into(), "aligned".into());
+        fm2.insert("description".into(), "x".into());
+        fm2.insert(
+            "agents".into(),
+            serde_yaml::Value::Sequence(vec!["anthropic".into(), "codex".into()]),
+        );
+        canonical_skills_write(
+            SkillScope::Project,
+            Some(project.clone()),
+            "aligned".into(),
+            serde_yaml::Value::Mapping(fm2),
+            "edited".into(),
+        )
+        .unwrap();
+
+        let raw = fs::read_to_string(skill_dir.join(SYNC_META_FILENAME)).unwrap();
+        let meta: SyncMetaV2 = serde_json::from_str(&raw).unwrap();
+        assert_eq!(meta.version, 2);
+        assert_eq!(
+            meta.targets.len(),
+            2,
+            "targets must regenerate to match new agents list, got: {:?}",
+            meta.targets,
+        );
+        let in_targets: Vec<AgentId> = meta.targets.iter().map(|t| t.agent).collect();
+        assert!(in_targets.contains(&AgentId::Anthropic));
+        assert!(in_targets.contains(&AgentId::Codex));
+
+        let anthropic_key = format!("anthropic:project:{project}");
+        assert!(
+            meta.last_sync.contains_key(&anthropic_key),
+            "lastSync entry for the unchanged anthropic target must be preserved",
+        );
+
+        assert!(meta.dirty, "edited canonical must be dirty=true");
     }
 
     /// Smoke regression (task 8.4 / handoff UI #3a): a freshly-written

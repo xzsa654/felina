@@ -132,6 +132,8 @@ mod tests {
             body: "body".into(),
             dirty: false,
             last_synced: None,
+            targets: Vec::new(),
+            last_sync: std::collections::BTreeMap::new(),
         }
     }
 
@@ -185,6 +187,8 @@ mod tests {
             body: "x".into(),
             dirty: false,
             last_synced: None,
+            targets: Vec::new(),
+            last_sync: std::collections::BTreeMap::new(),
         };
         CodexRenderer.render(&skill, &tmp).unwrap();
         assert!(!tmp.join("bare").join("agents").exists());

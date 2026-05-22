@@ -82,6 +82,8 @@ mod tests {
             body: "body\n".into(),
             dirty: false,
             last_synced: None,
+            targets: Vec::new(),
+            last_sync: std::collections::BTreeMap::new(),
         };
         GeminiRenderer.render(&skill, &tmp).unwrap();
 

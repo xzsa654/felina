@@ -13,9 +13,11 @@
 //!     gemini.rs     — SKILL.md (name + description only)
 
 use crate::commands::canonical_skills::{
-    canonical_skills_dir_for_scope, parse_skill_md, AgentId, CanonicalSkill, SkillScope,
+    canonical_skills_dir_for_scope, parse_skill_md, read_sync_meta_v2, target_key,
+    write_sync_meta_v2, AgentId, CanonicalSkill, LastSyncEntry, SkillScope, TargetMode,
 };
 use serde::Serialize;
+use sha2::{Digest, Sha256};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -35,6 +37,10 @@ pub struct SyncResult {
     pub success: bool,
     /// Populated iff `success == false`.
     pub error: Option<String>,
+    /// ISO-8601 UTC timestamp of the push attempt. Same value persisted to
+    /// `lastSync[targetKey].at` on success. Always set (success or failure)
+    /// so the UI can display when the most recent attempt happened.
+    pub at: String,
 }
 
 /// One render-and-write pass for a single agent.
@@ -81,9 +87,11 @@ fn renderer_for(agent: AgentId) -> Box<dyn FanOutRenderer> {
     }
 }
 
-/// Sync one canonical skill to every agent in its `agents` field.
-/// Returns a `SyncResult` per target. A failure on one target does NOT
-/// abort the others.
+/// Sync one canonical skill to every enabled tracked target in its
+/// sync-meta v2 target list (or v1 backfill, derived from the `agents`
+/// frontmatter field). Returns a `SyncResult` per *written* target.
+/// Disabled / detached / forked targets are skipped silently.
+/// A failure on one target does NOT abort the others.
 #[tauri::command]
 pub fn skill_sync_one(
     scope: SkillScope,
@@ -91,7 +99,8 @@ pub fn skill_sync_one(
     name: String,
 ) -> Result<Vec<SyncResult>, String> {
     let canonical_dir = canonical_skills_dir_for_scope(scope, project_path.as_deref())?;
-    let skill_md = canonical_dir.join(&name).join("SKILL.md");
+    let canonical_skill_dir = canonical_dir.join(&name);
+    let skill_md = canonical_skill_dir.join("SKILL.md");
     if !skill_md.is_file() {
         return Err(format!("canonical skill not found: {name}"));
     }
@@ -99,66 +108,105 @@ pub fn skill_sync_one(
         .map_err(|e| format!("failed to read canonical SKILL.md: {e}"))?;
     let skill = parse_skill_md(&raw)?;
 
+    // Driver of fan-out is the per-skill target list (sync-meta v2). v1
+    // sidecars are backfilled at read time from skill.agents × scope/project.
+    let (mut meta, _legacy) =
+        read_sync_meta_v2(&canonical_skill_dir, &skill, scope, project_path.as_deref());
+
     let cfg = super::agent_paths::agent_paths_get()?;
-    let mut results = Vec::with_capacity(skill.agents.len());
-    for agent in &skill.agents {
-        let renderer = renderer_for(*agent);
-        let pair = pair_for(&cfg, *agent);
-        let target_dir = match renderer.resolve_target_dir(scope, project_path.as_deref(), pair) {
+    let mut results = Vec::new();
+    let mut written_keys: Vec<String> = Vec::new();
+    let attempted_at = current_iso8601();
+
+    for target in meta.targets.clone() {
+        if !target.enabled {
+            continue;
+        }
+        // forked targets are reserved for Phase 2 overlay rendering; this
+        // capability treats them as detached.
+        if matches!(target.mode, TargetMode::Detached | TargetMode::Forked) {
+            continue;
+        }
+
+        let renderer = renderer_for(target.agent);
+        let pair = pair_for(&cfg, target.agent);
+        let target_dir = match renderer.resolve_target_dir(
+            target.scope,
+            target.project.as_deref(),
+            pair,
+        ) {
             Ok(d) => d,
             Err(e) => {
                 results.push(SyncResult {
-                    agent: *agent,
-                    scope,
+                    agent: target.agent,
+                    scope: target.scope,
                     target_path: String::new(),
                     success: false,
                     error: Some(e),
+                    at: attempted_at.clone(),
                 });
                 continue;
             }
         };
-        let target_path_for_report = target_dir.join(&skill.name);
+        let target_skill_dir = target_dir.join(&skill.name);
         let render_result = renderer.render(&skill, &target_dir);
-        // On successful frontmatter render, also copy bundled siblings
-        // (scripts/, references/, assets/, examples/, etc.) from the
-        // canonical skill dir. We DON'T copy SKILL.md (renderer wrote it
-        // with the right mapping) or the sync-meta sidecar.
         let final_result = match render_result {
-            Ok(()) => {
-                let canonical_skill_dir = canonical_dir.join(&skill.name);
-                let target_skill_dir = target_dir.join(&skill.name);
-                copy_bundled_siblings(&canonical_skill_dir, &target_skill_dir)
-            }
+            Ok(()) => copy_bundled_siblings(&canonical_skill_dir, &target_skill_dir),
             Err(e) => Err(e),
         };
+
         match final_result {
-            Ok(()) => results.push(SyncResult {
-                agent: *agent,
-                scope,
-                target_path: target_path_for_report.to_string_lossy().to_string(),
-                success: true,
-                error: None,
-            }),
+            Ok(()) => {
+                // Record per-target last_sync entry: hash the rendered
+                // SKILL.md so future drift checks can compare hash equality.
+                let rendered = fs::read_to_string(target_skill_dir.join("SKILL.md"))
+                    .unwrap_or_default();
+                let key = target_key(&target);
+                meta.last_sync.insert(
+                    key.clone(),
+                    LastSyncEntry {
+                        pushed_hash: sha256_hex(&rendered),
+                        base_snapshot: None,
+                        at: attempted_at.clone(),
+                    },
+                );
+                written_keys.push(key);
+                results.push(SyncResult {
+                    agent: target.agent,
+                    scope: target.scope,
+                    target_path: target_skill_dir.to_string_lossy().to_string(),
+                    success: true,
+                    error: None,
+                    at: attempted_at.clone(),
+                });
+            }
             Err(e) => results.push(SyncResult {
-                agent: *agent,
-                scope,
-                target_path: target_path_for_report.to_string_lossy().to_string(),
+                agent: target.agent,
+                scope: target.scope,
+                target_path: target_skill_dir.to_string_lossy().to_string(),
                 success: false,
                 error: Some(e),
+                at: attempted_at.clone(),
             }),
         }
-        // After a successful push, update sidecar sync-meta. (skill_sync_one
-        // operates on one skill at a time, so we apply the meta after the
-        // per-agent loop based on whether every target succeeded.)
     }
 
-    // Apply sync-meta if every target succeeded — partial success leaves dirty=true
-    // so the user re-pushes after fixing the failing target.
-    let all_ok = results.iter().all(|r| r.success);
+    // Partial success keeps dirty=true so the user can re-push after fixing
+    // the failing target. last_sync entries for successful targets are still
+    // persisted so the next push knows what changed.
+    let all_ok = !results.is_empty() && results.iter().all(|r| r.success);
     if all_ok {
-        let _ = write_sync_meta_success(&canonical_dir.join(&skill.name));
+        meta.dirty = false;
     }
+    let _ = write_sync_meta_v2(&canonical_skill_dir, &meta);
+
     Ok(results)
+}
+
+fn sha256_hex(data: &str) -> String {
+    let mut h = Sha256::new();
+    h.update(data.as_bytes());
+    format!("{:x}", h.finalize())
 }
 
 /// Sync every canonical skill in `scope`. Skips broken skills.
@@ -186,33 +234,13 @@ pub fn skill_sync_all(
                         target_path: String::new(),
                         success: false,
                         error: Some(e),
+                        at: current_iso8601(),
                     });
                 }
             }
         }
     }
     Ok(out)
-}
-
-/// Write an updated sync-meta sidecar that records `dirty=false` and a fresh
-/// `last_synced` timestamp. Stored next to the canonical SKILL.md.
-fn write_sync_meta_success(skill_dir: &Path) -> Result<(), String> {
-    #[derive(Serialize)]
-    struct Meta<'a> {
-        dirty: bool,
-        last_synced: &'a str,
-    }
-    let now = current_iso8601();
-    let meta = Meta {
-        dirty: false,
-        last_synced: &now,
-    };
-    let json = serde_json::to_string_pretty(&meta)
-        .map_err(|e| format!("failed to serialize sync meta: {e}"))?;
-    let path = skill_dir.join(".felina-sync-meta.json");
-    fs::write(&path, json)
-        .map_err(|e| format!("failed to write sync meta: {e}"))?;
-    Ok(())
 }
 
 /// Best-effort ISO-8601 UTC timestamp without pulling chrono. Format:
@@ -497,8 +525,112 @@ mod tests {
         assert!(meta_path.is_file(), "sync-meta sidecar not written");
         let meta: serde_json::Value =
             serde_json::from_str(&fs::read_to_string(&meta_path).unwrap()).unwrap();
+        // After path-bug-and-target-model, sidecars are upgraded to v2 on push.
+        assert_eq!(meta["version"], 2);
         assert_eq!(meta["dirty"], serde_json::Value::Bool(false));
-        assert!(meta["last_synced"].is_string());
+        let last_sync = meta["lastSync"].as_object().expect("lastSync object");
+        assert_eq!(last_sync.len(), 3, "expected one lastSync entry per target");
+    }
+
+    #[test]
+    fn disabled_and_detached_targets_are_skipped() {
+        // Construct a canonical (agents = [anthropic]) so backfill gives one
+        // tracked target. Then manually overwrite the sidecar with three
+        // targets: one disabled (anthropic), one detached (codex), one
+        // tracked enabled (gemini). Only gemini should be written.
+        let tmp = smoke_tempdir("skip");
+        make_canonical(&tmp, "skip-targets", &["anthropic"]);
+
+        let canonical_skill_dir = tmp.join(".felina").join("skills").join("skip-targets");
+        let project = tmp.to_string_lossy().to_string();
+
+        let sidecar = serde_json::json!({
+            "version": 2,
+            "targets": [
+                { "agent": "anthropic", "scope": "project", "project": project, "enabled": false, "mode": "tracked" },
+                { "agent": "codex",     "scope": "project", "project": project, "enabled": true,  "mode": "detached" },
+                { "agent": "gemini",    "scope": "project", "project": project, "enabled": true,  "mode": "tracked" }
+            ],
+            "lastSync": {},
+            "dirty": true
+        });
+        fs::write(
+            canonical_skill_dir.join(".felina-sync-meta.json"),
+            serde_json::to_string_pretty(&sidecar).unwrap(),
+        )
+        .unwrap();
+
+        let results = skill_sync_one(
+            SkillScope::Project,
+            Some(project.clone()),
+            "skip-targets".into(),
+        )
+        .expect("sync");
+
+        // Only gemini should produce a SyncResult.
+        assert_eq!(results.len(), 1, "expected one result, got {results:#?}");
+        assert_eq!(results[0].agent, AgentId::Gemini);
+        assert!(results[0].success, "gemini push failed: {:?}", results[0].error);
+
+        // Target dirs: anthropic + codex must NOT exist on disk.
+        assert!(
+            !tmp.join(".claude").join("skills").join("skip-targets").exists(),
+            "anthropic (disabled) target was written",
+        );
+        assert!(
+            !tmp.join(".agents").join("skills").join("skip-targets").exists(),
+            "codex (detached) target was written",
+        );
+        assert!(
+            tmp.join(".gemini").join("skills").join("skip-targets").join("SKILL.md").is_file(),
+            "gemini (tracked enabled) target NOT written",
+        );
+
+        // last_sync should ONLY have the gemini entry.
+        let after_meta: serde_json::Value = serde_json::from_str(
+            &fs::read_to_string(canonical_skill_dir.join(".felina-sync-meta.json")).unwrap()
+        )
+        .unwrap();
+        let last_sync = after_meta["lastSync"].as_object().unwrap();
+        assert_eq!(last_sync.len(), 1, "expected 1 last_sync entry, got {last_sync:?}");
+        let gemini_key = format!("gemini:project:{}", project);
+        assert!(last_sync.contains_key(&gemini_key), "missing key {gemini_key} in {last_sync:?}");
+    }
+
+    #[test]
+    fn per_target_pushed_hash_and_at_recorded() {
+        // After a successful push, last_sync[<key>] contains a SHA-256 hex
+        // pushed_hash and an ISO-8601 timestamp.
+        let tmp = smoke_tempdir("hashat");
+        make_canonical(&tmp, "hash-skill", &["anthropic", "gemini"]);
+
+        let project = tmp.to_string_lossy().to_string();
+        let results = skill_sync_one(
+            SkillScope::Project,
+            Some(project.clone()),
+            "hash-skill".into(),
+        )
+        .expect("sync");
+        assert!(results.iter().all(|r| r.success), "{results:#?}");
+
+        let canonical_skill_dir = tmp.join(".felina").join("skills").join("hash-skill");
+        let after_meta: serde_json::Value = serde_json::from_str(
+            &fs::read_to_string(canonical_skill_dir.join(".felina-sync-meta.json")).unwrap()
+        )
+        .unwrap();
+
+        let last_sync = after_meta["lastSync"].as_object().expect("lastSync object");
+        assert_eq!(last_sync.len(), 2, "two targets pushed, got {last_sync:?}");
+
+        for (key, entry) in last_sync {
+            let hash = entry["pushedHash"].as_str().expect("pushedHash string");
+            assert_eq!(hash.len(), 64, "SHA-256 hex must be 64 chars, key={key} got {hash:?}");
+            assert!(hash.chars().all(|c| c.is_ascii_hexdigit()), "non-hex pushedHash {hash}");
+
+            let at = entry["at"].as_str().expect("at string");
+            assert_eq!(at.len(), 20, "ISO-8601 'YYYY-MM-DDTHH:MM:SSZ' length, key={key} got {at}");
+            assert!(at.ends_with('Z'));
+        }
     }
 
     #[test]
@@ -528,8 +660,10 @@ mod tests {
 
         let after_meta: serde_json::Value =
             serde_json::from_str(&fs::read_to_string(&meta_path).unwrap()).unwrap();
+        assert_eq!(after_meta["version"], 2);
         assert_eq!(after_meta["dirty"], serde_json::Value::Bool(false));
-        assert!(after_meta["last_synced"].is_string());
+        let last_sync = after_meta["lastSync"].as_object().expect("lastSync object");
+        assert_eq!(last_sync.len(), 1, "anthropic-only skill: one lastSync entry");
 
         let after = canonical_skills_list(SkillScope::Project, Some(project)).expect("list after");
         match &after[0] {

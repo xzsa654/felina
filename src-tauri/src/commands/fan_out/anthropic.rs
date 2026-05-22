@@ -115,6 +115,8 @@ mod tests {
             body: "# Demo\n\nHello.\n".into(),
             dirty: false,
             last_synced: None,
+            targets: Vec::new(),
+            last_sync: std::collections::BTreeMap::new(),
         }
     }
 
