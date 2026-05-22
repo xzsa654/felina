@@ -8,6 +8,9 @@ export type {
   CacheEfficiency,
   AgentStatus,
   RefreshResult,
+  DayHourlyBucket,
+  DayProjectBreakdown,
+  DaySessionBreakdown,
 } from "./token-analytics";
 
 export type {

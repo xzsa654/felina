@@ -34,6 +34,7 @@ export interface AgentBreakdown {
   output_tokens: number;
   cache_read_tokens: number;
   cache_write_tokens: number;
+  reasoning_tokens: number;
   cost_usd: number;
   event_count: number;
 }
@@ -61,6 +62,28 @@ export interface TokenAnalytics {
   hourly_heatmap: HourlyHeatmapEntry[];
 }
 
+export interface DayHourlyBucket {
+  hour: number;
+  tokens: number;
+  messages: number;
+}
+
+export interface DayProjectBreakdown {
+  project: string;
+  tokens: number;
+  messages: number;
+  cost_usd: number;
+}
+
+export interface DaySessionBreakdown {
+  session_id: string;
+  project: string | null;
+  model: string;
+  tokens: number;
+  messages: number;
+  cost_usd: number;
+}
+
 export interface CacheEfficiency {
   total_input_tokens: number;
   cache_read_tokens: number;
@@ -76,10 +99,24 @@ export interface AgentStatus {
   last_scanned: string | null;
   event_count: number;
   total_cost_usd: number;
+  last_error: string | null;
+}
+
+export interface ScanError {
+  agent: AgentId;
+  source: string;
+  message: string;
 }
 
 export interface RefreshResult {
   agents_scanned: number;
+  files_scanned: number;
+  files_skipped: number;
   events_parsed: number;
-  errors: string[];
+  events_inserted: number;
+  errors: ScanError[];
+  active_source: string;
+  status: string;
+  last_successful_source: string | null;
+  fallback_used: boolean;
 }

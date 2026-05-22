@@ -1,6 +1,8 @@
 import {
   AreaChart,
   Area,
+  BarChart,
+  Bar,
   XAxis,
   YAxis,
   Tooltip,
@@ -20,19 +22,70 @@ export default function TokenTimeSeries({
 }) {
   if (data.length === 0) {
     return (
-      <div className="flex items-center justify-center h-64 text-text-muted text-sm">
-        {t(locale, "tokens.tokenTimeSeries.empty")}
+      <div className="bg-bg-secondary border border-border rounded-lg p-4">
+        <h3 className="text-sm font-medium text-text-secondary mb-3">
+          {t(locale, "tokens.tokenTimeSeries.title")}
+        </h3>
+        <div className="flex items-center justify-center h-64 text-text-muted text-sm">
+          {t(locale, "tokens.tokenTimeSeries.empty")}
+        </div>
       </div>
     );
   }
+
+  const allScopeOnly = data.length === 1 && data[0].label === "all";
 
   return (
     <div className="bg-bg-secondary border border-border rounded-lg p-4">
       <h3 className="text-sm font-medium text-text-secondary mb-3">
         {t(locale, "tokens.tokenTimeSeries.title")}
       </h3>
+      {allScopeOnly && (
+        <p className="text-xs text-text-muted mb-2">
+          {t(locale, "tokens.tokenTimeSeries.aggregateOnly")}
+        </p>
+      )}
       <ResponsiveContainer width="100%" height={240}>
-        <AreaChart data={data}>
+        {allScopeOnly ? (
+          <BarChart data={data}>
+            <XAxis dataKey="label" tick={{ fontSize: 10 }} stroke="#71717a" />
+            <YAxis tick={{ fontSize: 10 }} stroke="#71717a" />
+            <Tooltip
+              contentStyle={{
+                background: "#18181b",
+                border: "1px solid #3f3f46",
+                borderRadius: "8px",
+                fontSize: "12px",
+              }}
+            />
+            <Legend />
+            <Bar
+              dataKey="input_tokens"
+              name={t(locale, "tokens.tokenTimeSeries.input")}
+              stackId="tokens"
+              fill="#3b82f6"
+            />
+            <Bar
+              dataKey="output_tokens"
+              name={t(locale, "tokens.tokenTimeSeries.output")}
+              stackId="tokens"
+              fill="#22c55e"
+            />
+            <Bar
+              dataKey="cache_read_tokens"
+              name={t(locale, "tokens.tokenTimeSeries.cacheRead")}
+              stackId="tokens"
+              fill="#a855f7"
+            />
+            <Bar
+              dataKey="cache_write_tokens"
+              name={t(locale, "tokens.tokenTimeSeries.cacheWrite")}
+              stackId="tokens"
+              fill="#f59e0b"
+            />
+          </BarChart>
+        ) : (
+          <AreaChart data={data}>
           <XAxis dataKey="label" tick={{ fontSize: 10 }} stroke="#71717a" />
           <YAxis tick={{ fontSize: 10 }} stroke="#71717a" />
           <Tooltip
@@ -80,7 +133,8 @@ export default function TokenTimeSeries({
             fill="#f59e0b"
             fillOpacity={0.3}
           />
-        </AreaChart>
+          </AreaChart>
+        )}
       </ResponsiveContainer>
     </div>
   );

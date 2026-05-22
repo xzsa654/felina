@@ -2,9 +2,10 @@ import { useState } from "react";
 import type { ModelBreakdown } from "$lib/types";
 import type { Locale } from "$lib/i18n";
 import { t } from "$lib/i18n";
-import { formatNumber } from "$lib/utils/format";
+import { formatCostFull, formatNumber } from "$lib/utils/format";
+import { totalTokensForModel } from "../token-insights";
 
-type SortField = "model" | "cost_usd" | "input_tokens" | "output_tokens";
+type SortField = "model" | "cost_usd" | "input_tokens" | "output_tokens" | "total_tokens";
 
 export default function ModelBreakdownTable({
   data,
@@ -13,12 +14,12 @@ export default function ModelBreakdownTable({
   data: ModelBreakdown[];
   locale: Locale;
 }) {
-  const [sortField, setSortField] = useState<SortField>("cost_usd");
+  const [sortField, setSortField] = useState<SortField>("total_tokens");
   const [sortAsc, setSortAsc] = useState(false);
 
   const sorted = [...data].sort((a, b) => {
-    const av = a[sortField];
-    const bv = b[sortField];
+    const av = sortField === "total_tokens" ? totalTokensForModel(a) : a[sortField];
+    const bv = sortField === "total_tokens" ? totalTokensForModel(b) : b[sortField];
     const cmp = typeof av === "string" ? (av as string).localeCompare(bv as string) : (av as number) - (bv as number);
     return sortAsc ? cmp : -cmp;
   });
@@ -50,6 +51,7 @@ export default function ModelBreakdownTable({
           <thead>
             <tr className="border-b border-border">
               <SortHeader field="model" label={t(locale, "tokens.modelBreakdown.colModel")} />
+              <SortHeader field="total_tokens" label={t(locale, "tokens.topModels.colTotal")} />
               <SortHeader field="input_tokens" label={t(locale, "tokens.modelBreakdown.colInputTokens")} />
               <SortHeader field="output_tokens" label={t(locale, "tokens.modelBreakdown.colOutputTokens")} />
               <SortHeader field="cost_usd" label={t(locale, "tokens.modelBreakdown.colCost")} />
@@ -61,6 +63,9 @@ export default function ModelBreakdownTable({
                 <td className="px-3 py-2 text-text-primary max-w-[200px] truncate">
                   {m.model}
                 </td>
+                <td className="px-3 py-2 text-text-primary font-medium">
+                  {formatNumber(totalTokensForModel(m), locale)}
+                </td>
                 <td className="px-3 py-2 text-text-secondary">
                   {formatNumber(m.input_tokens, locale)}
                 </td>
@@ -68,7 +73,7 @@ export default function ModelBreakdownTable({
                   {formatNumber(m.output_tokens, locale)}
                 </td>
                 <td className="px-3 py-2 text-text-primary font-medium">
-                  ${m.cost_usd.toFixed(4)}
+                  {formatCostFull(m.cost_usd, locale)}
                 </td>
               </tr>
             ))}

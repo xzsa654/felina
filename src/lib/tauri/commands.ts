@@ -139,6 +139,7 @@ export const api = {
       dateEnd?: number;
       filterAgent?: string;
       filterModel?: string;
+      sourceOverride?: string;
     }) =>
       invoke<TokenAnalytics>("get_token_analytics", {
         granularity: params.granularity,
@@ -146,6 +147,7 @@ export const api = {
         dateEnd: params.dateEnd ?? null,
         filterAgent: params.filterAgent ?? null,
         filterModel: params.filterModel ?? null,
+        sourceOverride: params.sourceOverride ?? null,
       }),
     getModelBreakdown: (dateStart?: number, dateEnd?: number) =>
       invoke<ModelBreakdown[]>("get_model_breakdown", {
@@ -159,6 +161,27 @@ export const api = {
       }),
     getAvailableAgents: () =>
       invoke<AgentStatus[]>("get_available_agents"),
+    getDayModelBreakdown: (date: string, sourceOverride?: string) =>
+      invoke<ModelBreakdown[]>("get_day_model_breakdown", {
+        date,
+        sourceOverride: sourceOverride ?? null,
+      }),
+    getDayHourly: (date: string, sourceOverride?: string) =>
+      invoke<import("$lib/types").DayHourlyBucket[]>("get_day_hourly", {
+        date,
+        sourceOverride: sourceOverride ?? null,
+      }),
+    getDayProjectBreakdown: (date: string, sourceOverride?: string) =>
+      invoke<import("$lib/types").DayProjectBreakdown[]>("get_day_project_breakdown", {
+        date,
+        sourceOverride: sourceOverride ?? null,
+      }),
+    getDayTopSessions: (date: string, limit: number, sourceOverride?: string) =>
+      invoke<import("$lib/types").DaySessionBreakdown[]>("get_day_top_sessions", {
+        date,
+        limit,
+        sourceOverride: sourceOverride ?? null,
+      }),
     refresh: () => invoke<RefreshResult>("refresh_token_data"),
   },
 } as const;

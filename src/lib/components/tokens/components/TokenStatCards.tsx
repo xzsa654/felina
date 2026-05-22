@@ -2,6 +2,7 @@ import { formatNumber, formatCostFull } from "$lib/utils/format";
 import { t } from "$lib/i18n";
 import type { Locale } from "$lib/i18n";
 import type { TokenAnalytics, CacheEfficiency } from "$lib/types";
+import { cacheReadRatio, getTokenComposition } from "../token-insights";
 
 function StatCard({
   label,
@@ -32,16 +33,11 @@ export default function TokenStatCards({
 }) {
   if (!analytics) return null;
 
-  const totalTokens =
-    analytics.total_input_tokens +
-    analytics.total_output_tokens +
-    analytics.total_cache_read_tokens +
-    analytics.total_cache_write_tokens +
-    analytics.total_reasoning_tokens;
+  const composition = getTokenComposition(analytics);
 
   const cacheRatio = cacheEfficiency
     ? `${(cacheEfficiency.cache_hit_ratio * 100).toFixed(0)}%`
-    : t(locale, "common.na");
+    : `${(cacheReadRatio(composition) * 100).toFixed(0)}%`;
 
   const cacheSubtitle = cacheEfficiency
     ? t(locale, "tokens.statCards.savedCost", {
@@ -50,18 +46,19 @@ export default function TokenStatCards({
     : undefined;
 
   return (
-    <div className="grid grid-cols-5 gap-3">
+    <div className="grid sm:grid-cols-2 xl:grid-cols-5 gap-3">
       <StatCard
         label={t(locale, "tokens.statCards.totalTokens")}
-        value={formatNumber(totalTokens, locale)}
+        value={formatNumber(composition.total, locale)}
         subtitle={t(locale, "tokens.statCards.eventsCount", { n: analytics.event_count.toLocaleString() })}
       />
       <StatCard
-        label={t(locale, "tokens.statCards.totalCost")}
+        label={t(locale, "tokens.statCards.estimatedCost")}
         value={formatCostFull(analytics.total_cost_usd, locale)}
+        subtitle={t(locale, "tokens.statCards.estimatedCostSubtitle")}
       />
       <StatCard
-        label={t(locale, "tokens.statCards.events")}
+        label={t(locale, "tokens.statCards.messages")}
         value={formatNumber(analytics.event_count, locale)}
       />
       <StatCard
@@ -69,7 +66,7 @@ export default function TokenStatCards({
         value={`${analytics.agent_breakdown.filter(a => a.event_count > 0).length}`}
       />
       <StatCard
-        label={t(locale, "tokens.statCards.cacheHitRatio")}
+        label={t(locale, "tokens.statCards.cacheReadShare")}
         value={cacheRatio}
         subtitle={cacheSubtitle}
       />

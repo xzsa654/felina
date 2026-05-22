@@ -9,6 +9,7 @@ import {
 import type { ModelBreakdown } from "$lib/types";
 import type { Locale } from "$lib/i18n";
 import { t } from "$lib/i18n";
+import { totalTokensForModel } from "../token-insights";
 
 export default function ModelBreakdownChart({
   data,
@@ -32,7 +33,7 @@ export default function ModelBreakdownChart({
     .map((m) => ({
       name: m.model.length > 25 ? m.model.slice(0, 25) + "..." : m.model,
       cost: +m.cost_usd.toFixed(4),
-      tokens: m.input_tokens + m.output_tokens,
+      tokens: totalTokensForModel(m),
     }))
     .reverse();
 

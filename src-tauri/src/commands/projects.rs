@@ -41,9 +41,7 @@ pub fn list_projects() -> Result<Vec<ProjectInfo>, String> {
     }
 
     // Sort: existing projects first, then alphabetically
-    projects.sort_by(|a, b| {
-        b.exists.cmp(&a.exists).then(a.path.cmp(&b.path))
-    });
+    projects.sort_by(|a, b| b.exists.cmp(&a.exists).then(a.path.cmp(&b.path)));
 
     Ok(projects)
 }

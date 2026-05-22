@@ -2,7 +2,6 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
-use std::time::SystemTime;
 
 use crate::tokens::types::TokenEvent;
 
@@ -24,13 +23,31 @@ fn static_pricing_map() -> HashMap<String, ModelPricing> {
     // Anthropic Claude models (prices per 1M tokens in USD)
     let claude_models = vec![
         ("claude-opus-4-6", 15.0, 75.0, Some(1.5), Some(18.75)),
-        ("claude-opus-4-5-20251101", 15.0, 75.0, Some(1.5), Some(18.75)),
+        (
+            "claude-opus-4-5-20251101",
+            15.0,
+            75.0,
+            Some(1.5),
+            Some(18.75),
+        ),
         ("claude-sonnet-4-6", 3.0, 15.0, Some(0.3), Some(3.75)),
-        ("claude-sonnet-4-5-20250929", 3.0, 15.0, Some(0.3), Some(3.75)),
+        (
+            "claude-sonnet-4-5-20250929",
+            3.0,
+            15.0,
+            Some(0.3),
+            Some(3.75),
+        ),
         ("claude-haiku-3-5", 1.0, 5.0, Some(0.1), Some(1.25)),
         ("claude-opus-4-20250514", 15.0, 75.0, Some(1.5), Some(18.75)),
         ("claude-sonnet-4-20250514", 3.0, 15.0, Some(0.3), Some(3.75)),
-        ("claude-3-5-sonnet-20241022", 3.0, 15.0, Some(0.3), Some(3.75)),
+        (
+            "claude-3-5-sonnet-20241022",
+            3.0,
+            15.0,
+            Some(0.3),
+            Some(3.75),
+        ),
         ("claude-3-5-haiku-20241022", 1.0, 5.0, Some(0.1), Some(1.25)),
     ];
 
@@ -145,9 +162,7 @@ impl PricingService {
 
         // 3. Try partial match (model name starts with known prefix)
         for (known, pricing) in &self.static_map {
-            if model.starts_with(known.as_str())
-                || known.starts_with(model)
-            {
+            if model.starts_with(known.as_str()) || known.starts_with(model) {
                 let matched = ModelPricing {
                     model: model.to_string(),
                     ..pricing.clone()
@@ -166,7 +181,8 @@ impl PricingService {
             Ok(pricing) => {
                 let mut cost = 0.0;
                 cost += (event.input_tokens as f64 / 1_000_000.0) * pricing.input_cost_per_1m;
-                cost += (event.output_tokens as f64 / 1_000_000.0) * pricing.output_cost_per_1m;
+                cost += ((event.output_tokens + event.reasoning_tokens) as f64 / 1_000_000.0)
+                    * pricing.output_cost_per_1m;
                 if let Some(cr) = pricing.cache_read_cost_per_1m {
                     cost += (event.cache_read_tokens as f64 / 1_000_000.0) * cr;
                 }
@@ -176,10 +192,14 @@ impl PricingService {
                 cost
             }
             Err(_) => {
-                // Fallback: simple heuristic: $3/1M input, $15/1M output
+                // Fallback estimate for unknown models. Keep cache/reasoning
+                // visible so cache-heavy tokscale rows are not priced near zero.
                 let input_cost = event.input_tokens as f64 / 1_000_000.0 * 3.0;
-                let output_cost = event.output_tokens as f64 / 1_000_000.0 * 15.0;
-                input_cost + output_cost
+                let output_cost =
+                    (event.output_tokens + event.reasoning_tokens) as f64 / 1_000_000.0 * 15.0;
+                let cache_read_cost = event.cache_read_tokens as f64 / 1_000_000.0 * 0.3;
+                let cache_write_cost = event.cache_write_tokens as f64 / 1_000_000.0 * 3.75;
+                input_cost + output_cost + cache_read_cost + cache_write_cost
             }
         }
     }
@@ -196,7 +216,9 @@ impl PricingService {
 
     fn load_cache(&mut self) {
         if let Ok(content) = fs::read_to_string(&self.cache_path) {
-            if let Ok(cached_prices) = serde_json::from_str::<HashMap<String, ModelPricing>>(&content) {
+            if let Ok(cached_prices) =
+                serde_json::from_str::<HashMap<String, ModelPricing>>(&content)
+            {
                 for (model, pricing) in cached_prices {
                     self.prices.entry(model).or_insert(pricing);
                 }

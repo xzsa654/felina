@@ -18,7 +18,9 @@ fn extract_imports(content: &str) -> Vec<String> {
             if word.starts_with('@') && word.len() > 1 {
                 let rest = &word[1..];
                 // Skip if it looks like an email (contains @) or is a mention
-                if !rest.contains('@') && (rest.contains('/') || rest.contains('.') || rest.ends_with(".md")) {
+                if !rest.contains('@')
+                    && (rest.contains('/') || rest.contains('.') || rest.ends_with(".md"))
+                {
                     imports.push(rest.to_string());
                 }
             }
@@ -28,7 +30,10 @@ fn extract_imports(content: &str) -> Vec<String> {
 }
 
 #[tauri::command]
-pub fn read_instructions(scope: String, project_path: Option<String>) -> Result<InstructionFile, String> {
+pub fn read_instructions(
+    scope: String,
+    project_path: Option<String>,
+) -> Result<InstructionFile, String> {
     let path = match scope.as_str() {
         "global" => paths::global_instructions_path(),
         "project" => {
@@ -37,7 +42,9 @@ pub fn read_instructions(scope: String, project_path: Option<String>) -> Result<
         }
         "project-dot" => {
             let pp = project_path.ok_or("project_path required")?;
-            std::path::PathBuf::from(&pp).join(".claude").join("CLAUDE.md")
+            std::path::PathBuf::from(&pp)
+                .join(".claude")
+                .join("CLAUDE.md")
         }
         "local" => {
             let pp = project_path.ok_or("project_path required")?;
@@ -55,8 +62,7 @@ pub fn read_instructions(scope: String, project_path: Option<String>) -> Result<
         });
     }
 
-    let content = fs::read_to_string(&path)
-        .map_err(|e| format!("failed to read: {e}"))?;
+    let content = fs::read_to_string(&path).map_err(|e| format!("failed to read: {e}"))?;
 
     let imports = extract_imports(&content);
 
@@ -69,7 +75,11 @@ pub fn read_instructions(scope: String, project_path: Option<String>) -> Result<
 }
 
 #[tauri::command]
-pub fn write_instructions(scope: String, project_path: Option<String>, content: String) -> Result<(), String> {
+pub fn write_instructions(
+    scope: String,
+    project_path: Option<String>,
+    content: String,
+) -> Result<(), String> {
     let path = match scope.as_str() {
         "global" => paths::global_instructions_path(),
         "project" => {
@@ -78,10 +88,11 @@ pub fn write_instructions(scope: String, project_path: Option<String>, content: 
         }
         "project-dot" => {
             let pp = project_path.ok_or("project_path required")?;
-            let p = std::path::PathBuf::from(&pp).join(".claude").join("CLAUDE.md");
+            let p = std::path::PathBuf::from(&pp)
+                .join(".claude")
+                .join("CLAUDE.md");
             if let Some(parent) = p.parent() {
-                fs::create_dir_all(parent)
-                    .map_err(|e| format!("failed to create dir: {e}"))?;
+                fs::create_dir_all(parent).map_err(|e| format!("failed to create dir: {e}"))?;
             }
             p
         }
@@ -92,8 +103,7 @@ pub fn write_instructions(scope: String, project_path: Option<String>, content: 
         _ => return Err(format!("invalid scope: {scope}")),
     };
 
-    fs::write(&path, content)
-        .map_err(|e| format!("failed to write: {e}"))
+    fs::write(&path, content).map_err(|e| format!("failed to write: {e}"))
 }
 
 #[tauri::command]
@@ -114,6 +124,5 @@ pub fn read_referenced_file(base_path: String, reference: String) -> Result<Stri
         return Err(format!("file not found: {}", ref_path.display()));
     }
 
-    fs::read_to_string(&ref_path)
-        .map_err(|e| format!("failed to read: {e}"))
+    fs::read_to_string(&ref_path).map_err(|e| format!("failed to read: {e}"))
 }

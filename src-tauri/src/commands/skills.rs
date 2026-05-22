@@ -40,8 +40,7 @@ fn list_definitions(dir: &PathBuf, scope: &str, marker: &str) -> Result<Vec<Skil
 
     let mut items = Vec::new();
 
-    let entries = fs::read_dir(dir)
-        .map_err(|e| format!("failed to read dir: {e}"))?;
+    let entries = fs::read_dir(dir).map_err(|e| format!("failed to read dir: {e}"))?;
 
     for entry in entries {
         let entry = entry.map_err(|e| format!("failed to read entry: {e}"))?;
@@ -89,8 +88,7 @@ pub fn write_skill(
 ) -> Result<(), String> {
     let dir = skills_dir_for_scope(&scope, project_path.as_deref())?;
     let skill_dir = dir.join(&name);
-    fs::create_dir_all(&skill_dir)
-        .map_err(|e| format!("failed to create skill dir: {e}"))?;
+    fs::create_dir_all(&skill_dir).map_err(|e| format!("failed to create skill dir: {e}"))?;
 
     fs::write(skill_dir.join("SKILL.md"), content)
         .map_err(|e| format!("failed to write skill: {e}"))
@@ -105,8 +103,7 @@ pub fn write_agent(
 ) -> Result<(), String> {
     let dir = agents_dir_for_scope(&scope, project_path.as_deref())?;
     let agent_dir = dir.join(&name);
-    fs::create_dir_all(&agent_dir)
-        .map_err(|e| format!("failed to create agent dir: {e}"))?;
+    fs::create_dir_all(&agent_dir).map_err(|e| format!("failed to create agent dir: {e}"))?;
 
     fs::write(agent_dir.join("AGENT.md"), content)
         .map_err(|e| format!("failed to write agent: {e}"))
@@ -121,8 +118,7 @@ pub fn delete_skill(
     let dir = skills_dir_for_scope(&scope, project_path.as_deref())?;
     let skill_dir = dir.join(&name);
     if skill_dir.exists() {
-        fs::remove_dir_all(&skill_dir)
-            .map_err(|e| format!("failed to delete skill: {e}"))?;
+        fs::remove_dir_all(&skill_dir).map_err(|e| format!("failed to delete skill: {e}"))?;
     }
     Ok(())
 }
@@ -136,8 +132,7 @@ pub fn delete_agent(
     let dir = agents_dir_for_scope(&scope, project_path.as_deref())?;
     let agent_dir = dir.join(&name);
     if agent_dir.exists() {
-        fs::remove_dir_all(&agent_dir)
-            .map_err(|e| format!("failed to delete agent: {e}"))?;
+        fs::remove_dir_all(&agent_dir).map_err(|e| format!("failed to delete agent: {e}"))?;
     }
     Ok(())
 }

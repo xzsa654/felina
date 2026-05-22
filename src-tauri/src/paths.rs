@@ -97,9 +97,15 @@ fn cwd_from_session_file(hash: &str) -> Option<String> {
         if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
             continue;
         }
-        let Ok(content) = std::fs::read_to_string(&path) else { continue };
-        let Some(first_line) = content.lines().next() else { continue };
-        let Ok(json) = serde_json::from_str::<serde_json::Value>(first_line) else { continue };
+        let Ok(content) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        let Some(first_line) = content.lines().next() else {
+            continue;
+        };
+        let Ok(json) = serde_json::from_str::<serde_json::Value>(first_line) else {
+            continue;
+        };
         if let Some(cwd) = json.get("cwd").and_then(|v| v.as_str()) {
             if !cwd.is_empty() {
                 return Some(cwd.to_string());

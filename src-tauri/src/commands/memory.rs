@@ -52,8 +52,7 @@ pub fn list_memory_files(project_hash: String) -> Result<Vec<MemoryFile>, String
 
     let mut files = Vec::new();
 
-    let entries = fs::read_dir(&dir)
-        .map_err(|e| format!("failed to read memory dir: {e}"))?;
+    let entries = fs::read_dir(&dir).map_err(|e| format!("failed to read memory dir: {e}"))?;
 
     for entry in entries {
         let entry = entry.map_err(|e| format!("failed to read entry: {e}"))?;
@@ -89,8 +88,7 @@ pub fn read_memory_file(project_hash: String, filename: String) -> Result<Memory
         return Err(format!("file not found: {}", path.display()));
     }
 
-    let content = fs::read_to_string(&path)
-        .map_err(|e| format!("failed to read: {e}"))?;
+    let content = fs::read_to_string(&path).map_err(|e| format!("failed to read: {e}"))?;
 
     let (name, description, memory_type, body) = parse_frontmatter(&content);
 
@@ -114,8 +112,7 @@ pub fn write_memory_file(
     content: String,
 ) -> Result<(), String> {
     let dir = paths::memory_dir(&project_hash);
-    fs::create_dir_all(&dir)
-        .map_err(|e| format!("failed to create memory dir: {e}"))?;
+    fs::create_dir_all(&dir).map_err(|e| format!("failed to create memory dir: {e}"))?;
 
     let path = dir.join(&filename);
 
@@ -137,8 +134,7 @@ pub fn write_memory_file(
 
     output.push_str(&content);
 
-    fs::write(&path, output)
-        .map_err(|e| format!("failed to write: {e}"))
+    fs::write(&path, output).map_err(|e| format!("failed to write: {e}"))
 }
 
 #[tauri::command]
@@ -146,8 +142,7 @@ pub fn delete_memory_file(project_hash: String, filename: String) -> Result<(), 
     let path = paths::memory_dir(&project_hash).join(&filename);
 
     if path.exists() {
-        fs::remove_file(&path)
-            .map_err(|e| format!("failed to delete: {e}"))?;
+        fs::remove_file(&path).map_err(|e| format!("failed to delete: {e}"))?;
     }
 
     Ok(())

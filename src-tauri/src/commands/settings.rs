@@ -30,8 +30,7 @@ pub fn read_settings(
     let content = std::fs::read_to_string(&path)
         .map_err(|e| format!("failed to read {}: {e}", path.display()))?;
 
-    serde_json::from_str(&content)
-        .map_err(|e| format!("failed to parse {}: {e}", path.display()))
+    serde_json::from_str(&content).map_err(|e| format!("failed to parse {}: {e}", path.display()))
 }
 
 #[tauri::command]
@@ -43,13 +42,11 @@ pub fn write_settings(
     let path = resolve_settings_path(&scope, project_path.as_deref())?;
 
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|e| format!("failed to create directory: {e}"))?;
+        std::fs::create_dir_all(parent).map_err(|e| format!("failed to create directory: {e}"))?;
     }
 
     let content = serde_json::to_string_pretty(&settings)
         .map_err(|e| format!("failed to serialize settings: {e}"))?;
 
-    std::fs::write(&path, content)
-        .map_err(|e| format!("failed to write {}: {e}", path.display()))
+    std::fs::write(&path, content).map_err(|e| format!("failed to write {}: {e}", path.display()))
 }
