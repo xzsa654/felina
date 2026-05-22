@@ -8,55 +8,159 @@
 - 項目需註明 `flagged: YYYY-MM-DD`(首次登錄日)與 `last-seen: YYYY-MM-DD`(最近一次 session 確認仍要做的日期)。
 - 不放工具 / 框架 / 流程層面的設計問題,那類項目歸 `.session/design-backlog.md`。
 
+
+Entry format:
+- Use `### <item-name>` for each backlog item; keep status and qualifiers out of the title.
+- Put metadata in a Markdown table so preview mode is readable:
+  `| Field | Value |` with fields such as `type`, `status`, `flagged`, `last-seen`, `blocked-by`, `description`, `archive-path`.
+- Put longer details below the table under `Scope:`, `Notes:`, `Suggested scope:`, or other short labels.
+- Keep archived/completed changes when they are useful historical roadmap context, but mark `status: archived` and include `archive-path`; do not leave them looking claimable.
+- Planned work should use `type: planned-change` and `status: planned`; non-committed ideas should use `type: suggestion` and `status: not-committed`.
+- Update `last-seen` when an item is actively reviewed or its status changes.
+
 ---
 
-## Phase 1 — 等依賴的下一個 Spectra change
+## Phase 1 — Skill foundation Spectra changes
 
-- **multi-agent-skills-foundation**(預計 change 名)
-  flagged: 2026-05-20 / last-seen: 2026-05-20
-  blocked-by: `agent-skills-schema-reference` 需先 apply 完成,提供 canonical schema 與三家 agent 對照表後,本 change 才能基於實際資料設計實作。
+### multi-agent-skills-foundation
 
-  核心構想(等 schema 研究完成後 propose 時細化):
+| Field | Value |
+|---|---|
+| type | spectra-change |
+| status | archived |
+| flagged | 2026-05-20 |
+| last-seen | 2026-05-22 |
+| archived | 2026-05-22 |
+| archive-path | `openspec/changes/archive/2026-05-22-multi-agent-skills-foundation` |
+| description | Canonical skill storage, agent path settings, existing-skill import, Skill CRUD, fan-out push, pending-push sync state, and visual frontmatter editor. |
+| original-blocked-by | `agent-skills-schema-reference` |
 
-  - **Canonical 儲存層**:
-    - `~/.glyphic/skills/<skill-name>/SKILL.md`(全域)與 `<project>/.glyphic/skills/<skill-name>/SKILL.md`(專案)兩個 scope 各自獨立。
-    - 主檔為 Markdown + YAML frontmatter,frontmatter 含 `agents: [<agent-name>, ...]` 同步控制欄位。
-    - 跟 git 一起追蹤(主檔本身就是 source of truth)。
+Notes:
+- This was the Skills-first foundation for the broader capability/control-plane direction.
+- Keep as historical roadmap context; do not treat as claimable backlog work.
 
-  - **Agent 設定**:
-    - 寫死支援 Anthropic / OpenAI Codex / Google Gemini 三家。
-    - 各 agent 的 skill 目錄路徑(global / project)可由使用者於 Settings 頁調整,預設值來自 `agent-skills-schema-reference` 研究結果。
-    - 預留資料結構支援第 4 家,但 UI 不暴露(避免使用者誤設)。
+## Product Direction - Capability Registry / Local Agent Control Plane
 
-  - **初始化匯入**:
-    - 首次啟動或手動觸發時,掃描已知 agent 目錄(`~/.claude/skills/`、`.claude/skills/`、`.codex/skills/` 等)收集既存 skill。
-    - 衝突處理:同名 skill 在多個 agent 目錄發現時,呈現 diff 讓使用者選擇主版本來源,並設定 `agents: []` 為所有發現的 agent。
-    - 匯入後 skill 主檔放在 `~/.glyphic/skills/` 或 `<project>/.glyphic/skills/`,各 agent 目錄保留原檔不動(等待 phase 2 drift 偵測啟動雙向處理)。
+### capability-registry-control-plane
 
-  - **Skill CRUD**:
-    - List:依 scope 切分 tab(global / 各 project),顯示 skill 名稱、description、`agents` 標籤、最後修改日。
-    - Create / Edit:CodeMirror 編輯 SKILL.md(frontmatter + body),frontmatter 區用視覺化表單(欄位依 canonical schema)。
-    - Delete:刪 canonical;同步給 agent 的版本不主動刪,留待 phase 2 drift UI 處理。
+| Field | Value |
+|---|---|
+| type | umbrella-direction |
+| status | active-direction |
+| flagged | 2026-05-22 |
+| last-seen | 2026-05-22 |
+| description | Felina should be treated as a local agent control plane, not only a skill editor. The user-facing first slice remains Skills, but the architecture should avoid skill-only dead ends. |
 
-  - **單向匯出(push)**:
-    - 操作:點 skill 上的「Sync」按鈕 → 依 `agents` 欄位匯出到各 agent 目錄。
-    - 行為:純檔案複製(Windows 無 symlink 問題);target 目錄不存在自動建立。
-    - 不處理:drift 偵測、衝突、normalize 警示——皆 phase 2。
+Near-term strategy:
+- Implement Skills first as the concrete, reusable template for a broader capability system.
+- Keep current Phase 1.5 / Phase 2 skill-sync sequencing intact; do not interrupt `path-bug-and-target-model`, `known-projects-and-multi-target`, or `skill-sync-lifecycle`.
+- Use official vendor docs to verify each new capability family before adding it, following the same pattern used for `agent-skills-schema`.
 
-  - **不包含的 phase 2 功能(明確 out of scope)**:
-    - 雙向同步(drift 偵測 + 三向 diff 衝突解決)
-    - 欄位 normalize 警示(target 不認識欄位的處理)
-    - Per-agent override(同 skill 多 agent 內容微調)
-    - Skill 社群化分享相關功能
+Architecture note:
+- Model toward `Capability`, `Artifact`, `RuntimeBinding`, and `ExecutionRecord` even while only `kind=skill` is exposed in the UI.
+- Future `Capability.kind` candidates: `skill`, `hook`, `subagent`, `workflow`, `mcp-tool`, `prompt-template`, and `policy-pack`.
+- Registry concerns should include source paths, install targets, lifecycle, version/sync metadata, permissions, drift state, and later execution/observability records.
 
-  - **影響的既有頁面**:
-    - Skills 頁重寫(使用 canonical 儲存層 + agent 同步)。
-    - Settings 頁加入 agent 路徑設定區。
-    - Templates 頁改寫為 skill 範本庫(初始化時可用)。
-    - Memory 頁不動。
-    - hooks / instructions / mcp / rules 仍保持取消註冊狀態。
+Expansion path:
+- After Skills stabilizes, verify official docs for hooks/subagents/workflows/tool definitions before proposing new capability kinds.
+- Future control-plane views may include topology/dependency view, runbook view, and incident/trace view, but these should follow the registry/lifecycle foundation rather than precede it.
 
-## Phase 2 — Skill 同步進階功能
+## Phase 1.5 — Target freedom sequence after path-bug-and-target-model
+
+### path-bug-and-target-model
+
+| Field | Value |
+|---|---|
+| type | spectra-change |
+| status | in-progress-nearly-complete |
+| flagged | 2026-05-22 |
+| last-seen | 2026-05-22 |
+| progress | 17/18 tasks complete; artifacts complete per `spectra status` |
+| description | Foundation for path reverse-resolution, sync-meta v2, agents-derived initial targets, and fan-out switching. |
+
+Notes:
+- Was previously proposed/parked; now unparked and in progress.
+- Remaining follow-up items should wait for completion confirmation and archive before depending on it as stable foundation.
+
+### known-projects-and-multi-target
+
+| Field | Value |
+|---|---|
+| type | planned-change |
+| status | planned |
+| flagged | 2026-05-22 |
+| last-seen | 2026-05-22 |
+| blocked-by | `path-bug-and-target-model` completion confirmation / archive |
+| description | Known Projects, per-skill target editor, cross-project push, coverage view, and push dry-run. |
+
+Scope:
+- Known Projects three-source model: current cwd, detected Claude project paths, and explicit user-added projects persisted to `~/.felina/known-projects.json`.
+- Per-skill target editor for per-agent selection across scopes/projects; replace agents-derived targets with explicit targets after the foundation lands.
+- Cross-project push and coverage view using sync-meta v2 `targets` and `last_sync`.
+- Push dry-run that previews write paths and overwrite impact before execution.
+
+### skill-sync-lifecycle
+
+| Field | Value |
+|---|---|
+| type | planned-change |
+| status | planned |
+| flagged | 2026-05-22 |
+| last-seen | 2026-05-22 |
+| blocked-by | `known-projects-and-multi-target` apply / archive |
+| description | Import source selection, target detach/prune, push-time drift checks, canonical delete cascade/detach, arbitrary-folder import, and global/project scope moves. |
+
+Scope:
+- Multi-source import resolution from deferred skill import work; wizard should support choosing source content and deriving initial targets from detected agents.
+- De-select / disable target should default to detach and offer explicit orphan prune.
+- Push-time drift check compares target hash with `last_sync.pushed_hash` and offers override/detach.
+- Canonical delete should prompt Cascade / Detach / Cancel and remember per-skill preference.
+- Arbitrary folder import through staging preview.
+- Global/project scope move with optional cleanup of original-scope targets.
+
+## Phase 2 — Skill sync advanced features
+
+### local-versioning-and-snapshot-layer
+
+| Field | Value |
+|---|---|
+| type | suggestion |
+| status | not-committed |
+| flagged | 2026-05-22 |
+| last-seen | 2026-05-22 |
+| description | Suggested support layer for Phase 2 compare / overwrite / delete / conflict / overlay behavior. |
+| rationale | Drift detection, target prune, cascade/detach, and forked-target overlay all need a common safety layer before they become reliable product workflows. |
+
+Suggested scope:
+- Detect whether `git` exists at onboarding/runtime and degrade gracefully when absent; do not assume every target path is inside a Git repo.
+- Preserve before/after file snapshots before push, prune, cascade delete, override, and overlay apply.
+- Use content hash/diff as the core comparison mechanism; use Git diff/status/log as optional adapters when a target path is inside a repo.
+- Support rollback from local snapshots even when Git is unavailable.
+- Keep file movement/write/delete in the backend filesystem layer; use Git as observability/versioning enhancement, not as primary transport.
+
+Notes:
+- Suggestion only. Re-evaluate when scoping Phase 2 drift/conflict/overlay changes; do not create a Spectra change until a concrete Phase 2 feature needs it.
+
+### sync-info-bar-scalability-when-many-agents
+
+| Field | Value |
+|---|---|
+| type | suggestion |
+| status | not-committed |
+| flagged | 2026-05-22 |
+| last-seen | 2026-05-22 |
+| description | Skills 頁的「Sync info」面板目前每個 target 一行,在三家 agent 下沒問題;當支援 agent 數量擴增（Phase 1.5 之後可能納入更多 agent,或 capability registry 把同一 skill 推到多個 binding 時）這條 bar 會變得很長,垂直佔用過多空間。 |
+| context | 2026-05-22 path-bug-and-target-model smoke 時,使用者點 skill → Sync info 列出每個 target 的 agent / scope / 最後更新時間,單一 skill 在三家 agent 已 3 行;當未來 agent 多時直觀會超出可視範圍。 |
+
+Suggested scope:
+- 設計可摺疊 / 摘要視圖:預設只顯示「最近一次 push 時間 + 成功 target 數 / 總 target 數」,展開後才列出 per-target 細節。
+- 或改用 grid / pill 顯示(每個 target 變成一個小 chip,而非整行),節省垂直空間。
+- 失敗 target 一律展開、成功 target 摺起。
+- 跟 [[Forked-target 客製化]] 的 overlay 顯示策略一起考慮(per-target 客製化也會撐長同一條 bar)。
+
+Notes:
+- 三家 agent 時不必處理;等 agent 種類或 target 維度擴張後再做。
+- 與 [[capability-registry-control-plane]] 走向相關:當 Capability/RuntimeBinding 模型上線後,同 skill 對應的 binding 數可能比現在的「3 家 agent × 2 scope」大很多。
 
 - **Drift 偵測 + 衝突解決 UI**
   flagged: 2026-05-20 / last-seen: 2026-05-20

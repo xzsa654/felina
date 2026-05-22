@@ -115,6 +115,8 @@ export default function SkillEditor({ skill, scope, projectPath, onSaved, onCanc
         body,
         dirty: true,
         lastSynced: skill?.lastSynced ?? null,
+        targets: skill?.targets ?? [],
+        lastSync: skill?.lastSync ?? {},
       });
       await loadEntries();
       onSaved(name);

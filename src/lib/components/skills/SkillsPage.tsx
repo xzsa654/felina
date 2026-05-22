@@ -32,7 +32,6 @@ export default function SkillsPage() {
     error,
     bannerDismissed,
     detectedImportCount,
-    lastSyncResults,
     setScope,
     setProjectPath,
     loadEntries,
@@ -98,6 +97,16 @@ export default function SkillsPage() {
   const isCanonicalEmpty = useMemo(() => {
     return entries.filter((e) => e.kind === "ok").length === 0;
   }, [entries]);
+
+  // Sync info source: the selected skill's targets + lastSync from the live
+  // entries list. Refreshes automatically after push (syncAll calls loadEntries).
+  const selectedSkill = useMemo(() => {
+    if (!selectedName) return null;
+    const e = entries.find(
+      (x) => x.kind === "ok" && x.skill.name === selectedName,
+    );
+    return e?.kind === "ok" ? e.skill : null;
+  }, [entries, selectedName]);
 
   const showBanner =
     !bannerDismissed && detectedImportCount > 0 && isCanonicalEmpty;
@@ -178,31 +187,41 @@ export default function SkillsPage() {
           </div>
         )}
 
-        {lastSyncResults.length > 0 && (
+        {selectedSkill && selectedSkill.targets.length > 0 && (
           <div className="mb-4 text-xs rounded border border-border bg-bg-secondary px-3 py-2">
-            <div className="text-text-secondary mb-1">Last push results:</div>
-            <ul className="flex flex-col gap-0.5">
-              {lastSyncResults.map((r, i) => (
-                <li
-                  key={`${r.agent}-${r.scope}-${i}`}
-                  className="flex items-start gap-2"
-                >
-                  <span
-                    className={
-                      r.success ? "text-emerald-400" : "text-red-400"
-                    }
+            <div className="text-text-secondary mb-1.5">
+              Sync info:{" "}
+              <span className="text-text-primary font-mono">
+                {selectedSkill.name}
+              </span>
+            </div>
+            <ul className="flex flex-col gap-1">
+              {selectedSkill.targets.map((t, i) => {
+                const key =
+                  t.scope === "global"
+                    ? `${t.agent}:global`
+                    : `${t.agent}:project:${t.project ?? ""}`;
+                const entry = selectedSkill.lastSync[key];
+                return (
+                  <li
+                    key={`${key}-${i}`}
+                    className="grid grid-cols-[1rem_5rem_4rem_1fr] gap-3 items-center"
                   >
-                    {r.success ? "✓" : "✗"}
-                  </span>
-                  <span className="capitalize w-16 shrink-0">{r.agent}</span>
-                  <span className="font-mono text-[10px] text-text-secondary truncate">
-                    {r.targetPath || "(no target)"}
-                  </span>
-                  {r.error && (
-                    <span className="text-red-400 truncate">— {r.error}</span>
-                  )}
-                </li>
-              ))}
+                    <span
+                      className={
+                        entry ? "text-emerald-400" : "text-text-secondary"
+                      }
+                    >
+                      {entry ? "✓" : "—"}
+                    </span>
+                    <span className="capitalize">{t.agent}</span>
+                    <span className="text-text-secondary">{t.scope}</span>
+                    <span className="text-text-secondary">
+                      {entry ? formatLocalTime(entry.at) : "Not synced"}
+                    </span>
+                  </li>
+                );
+              })}
             </ul>
           </div>
         )}
@@ -278,6 +297,17 @@ export default function SkillsPage() {
       />
     </>
   );
+}
+
+/**
+ * Format a UTC ISO-8601 timestamp into the user's local timezone.
+ * Output: `YYYY-MM-DD HH:MM` (24h, no seconds — push cadence is human-scale).
+ */
+function formatLocalTime(iso: string): string {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return iso;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 function ScopeToggle({

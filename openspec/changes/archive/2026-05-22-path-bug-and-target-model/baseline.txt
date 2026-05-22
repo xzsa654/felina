@@ -1,0 +1,30 @@
+# Baseline — path-bug-and-target-model
+# Captured: 2026-05-22, branch spx/path-bug-and-target-model, base dev @ 808a32c
+
+## npm run check
+EXIT=0
+errors=0
+
+> felina@0.20.0 check
+> tsc --noEmit
+
+(no output, no errors)
+
+## cargo test --manifest-path src-tauri/Cargo.toml --lib
+EXIT=0
+passing=35 / failed=0 / ignored=0
+warnings=2 (pre-existing, both in src/tokens/):
+  - unused import `std::time::SystemTime` at tokens/pricing.rs:5
+  - dead_code field `uuid` at tokens/parsers/claude_code.rs:16
+
+35 passing tests (multi-agent-skills-foundation 收尾數):
+- commands::agent_paths::tests (3)
+- commands::canonical_skills::tests (13)
+- commands::fan_out::tests + sub-modules (8)
+- commands::skill_import::tests (7)
+- paths::tests (2)
+- commands::fan_out::anthropic/codex/gemini::tests (covered above)
+
+## Diff 基準
+- npm: 不得新增 baseline 外的 error（baseline = 0 error）
+- cargo: passing 數下界 = 35 + 本 change 新增；warning 數不超過 2（pre-existing 為 floor，不算新增）

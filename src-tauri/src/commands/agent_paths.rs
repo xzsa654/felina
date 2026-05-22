@@ -2,7 +2,7 @@
 //!
 //! Defaults come from the `agent-skills-schema` capability spec. Users
 //! override via Settings → Agent Paths; the override is persisted into
-//! `~/.claude/settings.json` under the key `felina.agentPaths`.
+//! `~/.felina/settings.json` under the key `agentPaths`.
 //!
 //! On Gemini defaults: as of 2026-05-21 Google is sunsetting `gemini-cli`
 //! (June 18 2026 for consumer access) in favour of Antigravity CLI, which
@@ -54,17 +54,16 @@ impl AgentPathsConfig {
     }
 }
 
-/// Settings-file key under which the config is persisted. Lives inside
-/// `~/.claude/settings.json` (Claude Code's own settings file) so users
-/// don't need an extra config surface.
-const SETTINGS_KEY: &str = "felina.agentPaths";
+/// Settings-file key under which the config is persisted inside the
+/// felina settings file.
+const SETTINGS_KEY: &str = "agentPaths";
 
-/// Read the persisted config from `~/.claude/settings.json`, overlaying
+/// Read the persisted config from `~/.felina/settings.json`, overlaying
 /// fields onto the schema defaults. Missing file or missing key returns
 /// defaults — never an error.
 #[tauri::command]
 pub fn agent_paths_get() -> Result<AgentPathsConfig, String> {
-    let path = paths::global_settings_path();
+    let path = paths::felina_global_settings_path();
     if !path.exists() {
         return Ok(AgentPathsConfig::defaults());
     }
@@ -79,8 +78,6 @@ pub fn agent_paths_get() -> Result<AgentPathsConfig, String> {
     let Some(slot) = val.get(SETTINGS_KEY) else {
         return Ok(AgentPathsConfig::defaults());
     };
-    // Best-effort decode; if the stored value is malformed, fall back to
-    // defaults rather than failing the entire app.
     let stored = match serde_json::from_value::<AgentPathsConfig>(slot.clone()) {
         Ok(cfg) => cfg,
         Err(_) => return Ok(AgentPathsConfig::defaults()),
@@ -88,8 +85,6 @@ pub fn agent_paths_get() -> Result<AgentPathsConfig, String> {
     // Defence in depth: settings.json may have been hand-edited since the
     // last `agent_paths_set` (which DOES validate). Re-validate on read so
     // a traversal smuggled into the file can't reach the fan-out writers.
-    // On reject, fall back to defaults silently — the alternative is
-    // crashing on every startup, which is worse UX than reverting paths.
     if validate_pair("anthropic", &stored.anthropic).is_err()
         || validate_pair("codex", &stored.codex).is_err()
         || validate_pair("gemini", &stored.gemini).is_err()
@@ -108,7 +103,7 @@ pub fn agent_paths_set(config: AgentPathsConfig) -> Result<(), String> {
     validate_pair("codex", &config.codex)?;
     validate_pair("gemini", &config.gemini)?;
 
-    let path = paths::global_settings_path();
+    let path = paths::felina_global_settings_path();
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)
             .map_err(|e| format!("failed to create settings dir: {e}"))?;

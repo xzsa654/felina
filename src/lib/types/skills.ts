@@ -37,8 +37,14 @@ export interface CanonicalSkill {
   body: string;
   /** True when canonical content has changed since the last successful push. */
   dirty: boolean;
-  /** ISO-8601 timestamp of the last successful push, if any. */
+  /** ISO-8601 timestamp of the last successful push, if any (display only;
+   *  derived from sync-meta v1 legacy field or the newest `lastSync[*].at`). */
   lastSynced: string | null;
+  /** Per-skill target list (sync-meta v2). Empty for new skills before
+   *  the first push or for v1 sidecars that haven't been upgraded yet. */
+  targets: SkillTarget[];
+  /** Per-target push provenance (sync-meta v2). Keyed by stable per-target id. */
+  lastSync: Record<string, LastSyncEntry>;
 }
 
 /**
@@ -60,6 +66,8 @@ export interface SyncResult {
   success: boolean;
   /** Error message when success === false; null otherwise. */
   error: string | null;
+  /** ISO-8601 UTC timestamp of the push attempt (success or failure). */
+  at: string;
 }
 
 export interface ConflictInfo {
@@ -118,4 +126,32 @@ export interface AgentPathsConfig {
   anthropic: AgentPathPair;
   codex: AgentPathPair;
   gemini: AgentPathPair;
+}
+
+export type TargetMode = "tracked" | "detached" | "forked";
+
+export interface SkillTarget {
+  agent: AgentId;
+  scope: SkillScope;
+  /** Required when scope === "project"; absolute project root path. */
+  project?: string;
+  enabled: boolean;
+  mode: TargetMode;
+}
+
+export interface LastSyncEntry {
+  /** SHA-256 hex of the rendered SKILL.md content at last successful push. */
+  pushedHash: string;
+  /** Reserved for Phase 2 fork resolution; unset in this capability. */
+  baseSnapshot?: string;
+  /** ISO-8601 timestamp of the last successful push for this target. */
+  at: string;
+}
+
+export interface SyncMetaV2 {
+  version: 2;
+  targets: SkillTarget[];
+  /** Keyed by stable per-target identifier (see Rust target_key helper). */
+  lastSync: Record<string, LastSyncEntry>;
+  dirty: boolean;
 }
