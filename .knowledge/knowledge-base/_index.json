@@ -1,0 +1,19 @@
+{
+  "lastUpdated": "2026-05-22",
+  "categories": [
+    {
+      "id": "dev-docs",
+      "name": "Dev Docs",
+      "keywords": ["convention", "workflow", "setup", "config", "ci", "cd", "build", "deploy", "ui", "ui consistency", "layout", "flexbox", "tailwind", "component reuse", "design review", "modal", "scaffold", "pagebody"],
+      "file": "dev-docs.md",
+      "count": 2
+    },
+    {
+      "id": "platform",
+      "name": "Platform",
+      "keywords": ["windows", "git", "crlf", "autocrlf", "checkout", "merge", "line endings", "stat cache", "toolchain", "platform"],
+      "file": "platform.md",
+      "count": 1
+    }
+  ]
+}

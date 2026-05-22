@@ -14,6 +14,13 @@ import type {
   CacheEfficiency,
   AgentStatus,
   RefreshResult,
+  CanonicalSkill,
+  SkillListEntry,
+  SkillScope,
+  SyncResult,
+  ImportCandidate,
+  ImportSelection,
+  AgentPathsConfig,
 } from "$lib/types";
 
 // Retained-for-reference wrappers (hooks / instructions / mcp / rules / budget / stats):
@@ -87,13 +94,64 @@ export const api = {
     getCloudMcps: () => invoke<string[]>("get_cloud_mcps"),
   },
 
-  skills: {
-    list: (scope: string, projectPath?: string) =>
-      invoke<SkillInfo[]>("list_skills", { scope, projectPath }),
-    write: (scope: string, name: string, content: string, projectPath?: string) =>
-      invoke<void>("write_skill", { scope, projectPath, name, content }),
-    delete: (scope: string, name: string, projectPath?: string) =>
-      invoke<void>("delete_skill", { scope, projectPath, name }),
+  // Multi-agent canonical skills (multi-agent-skills-foundation).
+  // The previous flat `list_skills` / `write_skill` / `delete_skill` shape
+  // is gone; SkillsPage now drives canonical CRUD + fan-out + import.
+  canonicalSkills: {
+    list: (scope: SkillScope, projectPath?: string) =>
+      invoke<SkillListEntry[]>("canonical_skills_list", { scope, projectPath }),
+    read: (scope: SkillScope, name: string, projectPath?: string) =>
+      invoke<CanonicalSkill>("canonical_skills_read", { scope, projectPath, name }),
+    write: (
+      scope: SkillScope,
+      name: string,
+      frontmatter: Record<string, unknown>,
+      body: string,
+      projectPath?: string,
+    ) =>
+      invoke<void>("canonical_skills_write", {
+        scope,
+        projectPath,
+        name,
+        frontmatter,
+        body,
+      }),
+    delete: (scope: SkillScope, name: string, projectPath?: string) =>
+      invoke<void>("canonical_skills_delete", { scope, projectPath, name }),
+  },
+
+  // Fan-out sync (canonical → agent-native dirs).
+  skillSync: {
+    one: (scope: SkillScope, name: string, projectPath?: string) =>
+      invoke<SyncResult[]>("skill_sync_one", { scope, projectPath, name }),
+    all: (scope: SkillScope, projectPath?: string) =>
+      invoke<SyncResult[]>("skill_sync_all", { scope, projectPath }),
+  },
+
+  // Initial skill import (passive scan + manual wizard).
+  skillImport: {
+    scanQuick: (scope: SkillScope, projectPath?: string) =>
+      invoke<{
+        anthropic: number;
+        codex: number;
+        gemini: number;
+        total: number;
+      }>("skill_import_scan_quick", { scope, projectPath }),
+    scan: (scope: SkillScope, projectPath?: string) =>
+      invoke<ImportCandidate[]>("skill_import_scan", { scope, projectPath }),
+    apply: (
+      scope: SkillScope,
+      selections: ImportSelection[],
+      projectPath?: string,
+    ) =>
+      invoke<void>("skill_import_apply", { scope, projectPath, selections }),
+  },
+
+  // Settings → Agent Paths.
+  agentPaths: {
+    get: () => invoke<AgentPathsConfig>("agent_paths_get"),
+    set: (config: AgentPathsConfig) =>
+      invoke<void>("agent_paths_set", { config }),
   },
 
   agents: {

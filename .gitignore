@@ -15,3 +15,4 @@ openspec/.vector-search.db*
 AGENTS.md
 .spectra.yaml
 openspec/config.yaml
+.session/handoff

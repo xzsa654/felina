@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use glyphic_lib::tokens::reconciliation::{
+use felina_lib::tokens::reconciliation::{
     count_storage_state, reconcile, render_markdown_report, ReconcileOptions,
 };
 
@@ -86,7 +86,7 @@ fn parse_time_arg(value: &str) -> Option<i64> {
     value
         .parse::<i64>()
         .ok()
-        .or_else(|| glyphic_lib::tokens::parse_iso8601_to_epoch(value))
+        .or_else(|| felina_lib::tokens::parse_iso8601_to_epoch(value))
 }
 
 fn print_help() {

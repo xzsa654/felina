@@ -1,0 +1,31 @@
+=== npm run check ===
+
+> glyphic@0.20.0 check
+> tsc --noEmit
+
+EXIT: 0
+
+=== cargo build (src-tauri) ===
+   Compiling glyphic v0.20.0 (C:\MyProject\Pershing\felina\src-tauri)
+warning: unused import: `std::time::SystemTime`
+ --> src\tokens\pricing.rs:5:5
+  |
+5 | use std::time::SystemTime;
+  |     ^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: field `uuid` is never read
+  --> src\tokens\parsers\claude_code.rs:16:5
+   |
+12 | struct ConversationLine {
+   |        ---------------- field in this struct
+...
+16 |     uuid: Option<String>,
+   |     ^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `glyphic` (lib) generated 2 warnings (run `cargo fix --lib -p glyphic` to apply 1 suggestion)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 28.16s
+EXIT: 0

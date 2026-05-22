@@ -1,0 +1,41 @@
+{
+  "lastUpdated": "2026-05-22",
+  "entries": [
+    {
+      "id": "kb-react-pagebody-layout",
+      "title": "Page layout scaffold height contract (PageHeader + PageBody)",
+      "type": "knowledge",
+      "status": "active",
+      "confidence": "confirmed",
+      "keywords": ["layout", "flexbox", "h-full", "flex-1", "min-h-0", "overflow-hidden", "PageBody", "PageScaffold", "scroll", "clipping", "tailwind"],
+      "appliesWhen": "Building or debugging routed pages using PageScaffold or any full-height internal-scroll layout",
+      "file": "knowledge-base/dev-docs.md",
+      "anchor": "page-layout-scaffold-height-contract-pageheader--pagebody",
+      "updated": "2026-05-22"
+    },
+    {
+      "id": "kb-ui-consistency-design",
+      "title": "UI consistency design-time checklist",
+      "type": "knowledge",
+      "status": "active",
+      "confidence": "confirmed",
+      "keywords": ["ui consistency", "design review", "ConfirmDialog", "window.confirm", "modal", "inline error", "w-full", "component reuse", "design.md"],
+      "appliesWhen": "Designing any change that adds or modifies UI pages/components",
+      "file": "knowledge-base/dev-docs.md",
+      "anchor": "ui-consistency-design-time-checklist",
+      "updated": "2026-05-22"
+    },
+    {
+      "id": "kb-git-windows-crlf-stat-false-modified",
+      "title": "Windows: git checkout leaves files falsely modified (CRLF stat cache), can abort merge",
+      "type": "knowledge",
+      "status": "active",
+      "confidence": "confirmed",
+      "keywords": ["git", "windows", "crlf", "autocrlf", "checkout", "merge aborted", "local changes would be overwritten", "stat cache", "phantom modified", "line endings"],
+      "appliesWhen": "On Windows when git reports tracked files modified or blocks merge/checkout but git diff is empty",
+      "file": "knowledge-base/platform.md",
+      "anchor": "windows-git-checkout-leaves-files-falsely-modified-crlf-stat-cache-can-abort-merge",
+      "updated": "2026-05-22"
+    }
+  ]
+}
