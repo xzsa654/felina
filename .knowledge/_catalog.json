@@ -24,6 +24,18 @@
       "file": "knowledge-base/dev-docs.md",
       "anchor": "ui-consistency-design-time-checklist",
       "updated": "2026-05-22"
+    },
+    {
+      "id": "kb-git-windows-crlf-stat-false-modified",
+      "title": "Windows: git checkout leaves files falsely modified (CRLF stat cache), can abort merge",
+      "type": "knowledge",
+      "status": "active",
+      "confidence": "confirmed",
+      "keywords": ["git", "windows", "crlf", "autocrlf", "checkout", "merge aborted", "local changes would be overwritten", "stat cache", "phantom modified", "line endings"],
+      "appliesWhen": "On Windows when git reports tracked files modified or blocks merge/checkout but git diff is empty",
+      "file": "knowledge-base/platform.md",
+      "anchor": "windows-git-checkout-leaves-files-falsely-modified-crlf-stat-cache-can-abort-merge",
+      "updated": "2026-05-22"
     }
   ]
 }
