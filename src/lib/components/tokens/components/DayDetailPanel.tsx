@@ -194,15 +194,9 @@ interface PanelData {
 
 // ── Skeletons ─────────────────────────────────────────────────────────────────
 
-/** 3-node placeholder rendered immediately on expand (zero layout cost). */
+/** Invisible spacer rendered immediately on expand (zero layout cost, no visible flash). */
 function MiniSkeleton() {
-  return (
-    <div className="py-2 space-y-2 animate-pulse">
-      <div className="h-2 w-3/4 bg-bg-tertiary rounded" />
-      <div className="h-2 w-1/2 bg-bg-tertiary rounded" />
-      <div className="h-2 w-2/3 bg-bg-tertiary rounded" />
-    </div>
-  );
+  return <div className="h-32" />;
 }
 
 function Sk({ w, h = "h-2.5", className = "" }: { w: string; h?: string; className?: string }) {
@@ -349,7 +343,7 @@ export default function DayDetailPanel({ date, locale }: { date: string; locale:
     setPanelData(null);
     setError(false);
 
-    const GOLDEN_MS = 800; // minimum skeleton display time
+    const GOLDEN_MS = 600; // minimum skeleton display time
 
     // Frame 1: MiniSkeleton is painted (3 nodes, no layout cost).
     // Frame 2: upgrade to FullSkeleton and start fetch + timer in parallel.
