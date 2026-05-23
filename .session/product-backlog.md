@@ -65,6 +65,39 @@ Expansion path:
 - After Skills stabilizes, verify official docs for hooks/subagents/workflows/tool definitions before proposing new capability kinds.
 - Future control-plane views may include topology/dependency view, runbook view, and incident/trace view, but these should follow the registry/lifecycle foundation rather than precede it.
 
+### scope-model-simplification — single global canonical + project tab as managed-inventory view
+
+| Field | Value |
+|---|---|
+| type | suggestion |
+| status | not-committed |
+| flagged | 2026-05-24 |
+| last-seen | 2026-05-24 |
+| description | 重新檢討 global / project 雙 canonical 模型。改為「**單一 global 主檔（`~/.felina/skills`）**」為唯一真相來源，**取消 project-scope canonical（`<project>/.felina/skills`）**；project 分頁從「第二個主檔倉庫」改成「**該 project 的 skill 納管清單（唯讀 view）**」。 |
+
+問題（2026-05-24 與使用者釐清 b 收尾時浮現）：
+- APP 初衷是「skill 散落各 agent / 各 project 難管 → 一個主檔、fan out 收斂」。但 **project-scope canonical 反而把主檔打散到每個 project**，重新製造它要解決的分散問題。
+- `cross-project-push-and-coverage`（b）落地後，**global 主檔已能 push 到任意 project 的 agent 目錄**，使「每個 project 自存一份主檔」幾乎失去存在理由。
+- 「project 主檔可進該 repo git 版控」這個理由站不住：要版控直接把 `.claude/skills` 納入 git 即可；user 對 `.claude/skills` 的 commit/gitignore 處置，對 `.felina/skills` 只會一視同仁，`.felina` 無額外版控優勢。
+- 現況 global / project 兩分頁**操作行為完全相同、UI 看不出差異**，project 分頁顯得多餘，且雙 scope 概念對一般 user 是額外認知負擔。
+
+提案方向：
+- **單一 canonical = global**。`<project>/.felina/skills` 主檔取消。
+- **「project 專屬 skill」= 一個 global 主檔 + target 只指向該 project**（專屬變成 targeting 的選擇，而非另開 storage），維持單一來源、不再打散。
+- **project 分頁改成納管清單 view**（2026-05-24 與使用者敲定的 v1 形狀）：
+  - (a) **一列 = 一個 skill 名**，後面用 per-agent chip 標各 agent 狀態（claude / codex / gemini 各是否存在）。
+  - (2) **v1 先做二元標記：已納管 / 未納管**（「已納管」= `~/.felina` 有同名 global 主檔且其 target 指向此 project）；drift（agent 檔被手改、與主檔不一致）等狀態留 Phase 2 / (c) 再疊。
+  - (3) **未納管的 skill → 一鍵 import 到 global 收編**。import 入口由此統一為「從 project 現況收編進 global」，不再有「匯入成 project 主檔」。
+
+開放問題 / 影響：
+- 既有 project-scope canonical 的遷移（例如本專案 `C:/MyProject/Pershing/felina/.felina/skills/git/`）：是否、如何搬到 global 或就地保留相容。
+- 與 coverage matrix 的關係：project 分頁的納管清單可視為「project 視角的覆蓋表」（行=此 project 實際有的 skill，而非 global 主檔）。
+- 連帶小 bug：import wizard 多來源 defer 訊息 `"...handled by the upcoming target-control change"` 文字過時（該 change 已 archived，真正的多來源解析排在 (c)）；重做 import 入口時一併修正指向。
+
+Notes：
+- 比 `cross-project-push-and-coverage`（b）大很多，**不在 (b) 動**；(b) 在現有模型下是正確的，照常收尾。
+- 下一步建議用 `/spectra-discuss` 正式展開，再決定是否立 change（可能影響 (c) `skill-sync-lifecycle` 的 import / scope-move scope）。
+
 ## Phase 1.5 — Target freedom sequence after path-bug-and-target-model
 
 原本規劃為單一 `unified-skill-target-control` change,2026-05-22 discuss 後拆成 (a) → (b) → (c) 三 sub-change(見各 entry blocked-by)。
@@ -139,7 +172,7 @@ Out of scope (defer to (c)):
 | type | planned-change |
 | status | planned |
 | flagged | 2026-05-22 |
-| last-seen | 2026-05-22 |
+| last-seen | 2026-05-24 |
 | blocked-by | `cross-project-push-and-coverage` (b) apply / archive |
 | description | Lifecycle safety: push dry-run, drift detection, cascade-vs-detach prompts on destructive actions, multi-source import resolution, arbitrary-folder import, scope moves. |
 
@@ -147,7 +180,10 @@ Scope:
 - **Push dry-run**: preview-before-execute showing write paths + create/overwrite/no-op counts; user confirms to commit. UX form (modal vs inline, one-step vs two-step) decided during (c) propose.
 - **Push-time drift check**: compare target's current SKILL.md hash with `last_sync.pushed_hash`; if drift detected (agent-side modified externally), prompt override / detach / cancel.
 - **Canonical delete prompt**: when user deletes a canonical skill, prompt `Cascade (delete agent-side files too) / Detach (leave agent files orphaned) / Cancel`. Remember per-skill preference.
+- **Per-target removal prompt** (flagged 2026-05-24, raised during (b) smoke): removing a single target row is currently non-destructive — the rendered agent-side SKILL.md is left in place and only cleaned via the separate `[Prune orphans]` button. (c) should offer an inline prompt at target-removal time ("also delete this target's agent-side file? Cascade / Keep"), converging with the whole-skill Cascade/Detach/Cancel semantics so there aren't two inconsistent delete entry points.
+- **In-place target repoint (recovery from "project not found")** (flagged 2026-05-24, raised during (b) smoke; option B from the f-degradation discussion): (b) ships only detection + display of "project not found" (Sync info bar / Coverage matrix / TargetEditor row) plus passive recovery (restore the folder, or delete + re-add the target). It does NOT offer in-place editing of a target's project path. (c) should add a "repoint" action on a target row (e.g. Browse to a new project path) so a renamed/moved destination can be updated in one step instead of delete + add. Design alongside the per-target removal prompt and cascade/detach semantics — they share the same target-row recovery UX surface.
 - **Multi-source import resolution**: extend SkillImportWizard's deferred multi-source row from S3 H — let user pick which agent folder is the authoritative source when same skill name exists in multiple agent dirs.
+- **Import 自動回填來源 target** (flagged 2026-05-24, raised during (b) smoke): a skill imported from a project's agent dir (e.g. `projectA/.claude/skills/`) currently lands in canonical with **empty targets** — `skill_import_apply` writes only the canonical SKILL.md + bundled siblings, never a sync-meta target. So the round-trip back to the source agent/project must be re-created by hand. (c) should auto-backfill (or prompt to backfill) a target pointing at the import source's agent + scope + project, designed together with multi-source import resolution above (when a skill is multi-source, backfill only after the user picks the authoritative source).
 - **Arbitrary-folder import**: import a SKILL.md from any folder (not just the three known agent dirs) via staging preview.
 - **Scope move**: convert a project skill to global (or vice versa) with optional cleanup of original-scope targets.
 
