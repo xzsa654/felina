@@ -122,11 +122,12 @@ Notes:
 
 | Field | Value |
 |---|---|
-| type | planned-change |
-| status | planned |
+| type | spectra-change |
+| status | archived |
 | flagged | 2026-05-22 |
-| last-seen | 2026-05-22 |
-| blocked-by | — (foundation `path-bug-and-target-model` archived) |
+| last-seen | 2026-05-23 |
+| archived | 2026-05-23 |
+| archive-path | `openspec/changes/archive/2026-05-23-known-projects-and-multi-target` |
 | description | Known Projects three-source model + per-skill target editor + explicit orphan-prune button. Replaces agents-derived targets with explicitly-edited target list. |
 
 Scope (after 2026-05-22 discuss):
@@ -145,25 +146,21 @@ Out of scope (defer):
 
 | Field | Value |
 |---|---|
-| type | planned-change |
-| status | planned |
+| type | spectra-change |
+| status | archived |
 | flagged | 2026-05-22 |
-| last-seen | 2026-05-22 |
-| blocked-by | `known-projects-and-multi-target` (a) apply / archive |
-| description | Enable cross-project target rows in fan-out + coverage matrix view. Source-of-truth stays in origin project; cross-project targets render only the per-agent SKILL.md at the destination. |
+| last-seen | 2026-05-24 |
+| archived | 2026-05-24 |
+| archive-path | `openspec/changes/archive/2026-05-24-cross-project-push-and-coverage` |
+| description | Cross-project target unlock + manual project path entry (Browse) + coverage summary view-mode + origin-project degradation detection via `Path::exists()` + 跨平台路徑正規化 (`normalizeProjectPath`). |
 
-Scope:
-- **Cross-project target source-of-truth**: canonical lives only in origin project's `.felina/skills/`. Cross-project target row points at `{ scope: project, project: <other path> }`; push writes the agent SKILL.md into `<other path>/.claude/skills/` (or per-agent equivalent) without copying canonical to the destination. sync-meta `last_sync` keyed per-target unchanged.
-- **Activate `[Add cross-project target]` button** in (a)'s add target dialog. Project picker uses Known Projects list (L1/L2/L3 from (a)).
-- **Manual project path entry in AddTargetDialog**: L2 auto-detect relies on `paths::project_hash_to_path` reverse-resolution, which silently skips unresolved hashes. To cover projects that auto-detect misses, the project picker should offer a "Browse / manual path input" entry point that writes the path into L3 (`known_projects_add`) so it appears in the dropdown. This ensures users can always add cross-project targets regardless of auto-detect coverage.
-- **Coverage matrix view**: new Skills page view-mode (or sub-page) showing skill × target matrix; cell shows sync state (synced / dirty / not synced / disabled / detached). Filter by agent / project.
-- **Origin-project move semantics** when a target's destination project disappears from Known Projects (gracefully degrade to detached; no auto-delete).
-
-Out of scope (defer to (c)):
-- Push dry-run.
-- Push-time drift check.
-- Cascade/detach/cancel prompt on canonical delete.
-- Multi-source import resolution.
+Notes:
+- 落地差異（與原規劃比較）：
+  - 「Origin-project move semantics」改採**檔案系統實際存在性判定**（後端 `KnownProject.exists` 由 `Path::exists()` 填入、前端三處 — Sync info bar / Coverage matrix / TargetEditor row — 顯示 "project not found"，refresh trigger 含 Reload / Skills mount / window focus / entries change）。原 design 寫的「靠 list membership」在 smoke 證實對 L3 saved entry 失效（rename/delete 資料夾不會動 JSON），重設計後落地。
+  - 多新增「**跨平台路徑正規化決策**」（`src/lib/utils/path.ts`，行為對齊後端 `known_projects::normalize_path`：反斜線→正斜線、去尾斜線、僅 Windows casefold），同步寫入 `openspec/config.yaml` 平台限制（local-only / gitignored）。原本是 smoke 期間發現的 cross-platform 特化 bug，順手收斂。
+  - TargetEditor row 也補了 "project not found" 標示 + 恢復指引 tooltip（task 8.9 追加）。
+- 後續延伸（已記在下方 (c) scope）：per-target 刪除提示、in-place target repoint、import 自動回填精緻化、multi-source import resolution。
+- 觸發了一個更大的方向討論：scope-model 簡化（見上方 [[scope-model-simplification]]）— 不在 (c) 範圍，需獨立 discuss。
 
 ### skill-sync-lifecycle — Phase 1.5 (c)
 
@@ -173,7 +170,7 @@ Out of scope (defer to (c)):
 | status | planned |
 | flagged | 2026-05-22 |
 | last-seen | 2026-05-24 |
-| blocked-by | `cross-project-push-and-coverage` (b) apply / archive |
+| blocked-by | — ((b) `cross-project-push-and-coverage` archived 2026-05-24) |
 | description | Lifecycle safety: push dry-run, drift detection, cascade-vs-detach prompts on destructive actions, multi-source import resolution, arbitrary-folder import, scope moves. |
 
 Scope:
@@ -183,7 +180,7 @@ Scope:
 - **Per-target removal prompt** (flagged 2026-05-24, raised during (b) smoke): removing a single target row is currently non-destructive — the rendered agent-side SKILL.md is left in place and only cleaned via the separate `[Prune orphans]` button. (c) should offer an inline prompt at target-removal time ("also delete this target's agent-side file? Cascade / Keep"), converging with the whole-skill Cascade/Detach/Cancel semantics so there aren't two inconsistent delete entry points.
 - **In-place target repoint (recovery from "project not found")** (flagged 2026-05-24, raised during (b) smoke; option B from the f-degradation discussion): (b) ships only detection + display of "project not found" (Sync info bar / Coverage matrix / TargetEditor row) plus passive recovery (restore the folder, or delete + re-add the target). It does NOT offer in-place editing of a target's project path. (c) should add a "repoint" action on a target row (e.g. Browse to a new project path) so a renamed/moved destination can be updated in one step instead of delete + add. Design alongside the per-target removal prompt and cascade/detach semantics — they share the same target-row recovery UX surface.
 - **Multi-source import resolution**: extend SkillImportWizard's deferred multi-source row from S3 H — let user pick which agent folder is the authoritative source when same skill name exists in multiple agent dirs.
-- **Import 自動回填來源 target** (flagged 2026-05-24, raised during (b) smoke): a skill imported from a project's agent dir (e.g. `projectA/.claude/skills/`) currently lands in canonical with **empty targets** — `skill_import_apply` writes only the canonical SKILL.md + bundled siblings, never a sync-meta target. So the round-trip back to the source agent/project must be re-created by hand. (c) should auto-backfill (or prompt to backfill) a target pointing at the import source's agent + scope + project, designed together with multi-source import resolution above (when a skill is multi-source, backfill only after the user picks the authoritative source).
+- **Import 來源 target 精緻化** (flagged 2026-05-24, clarified post-(b)-archive): 現況其實**已經會回填一個指回來源 agent 的 target**，但是隱性的 — `skill_import_apply` 不寫 sync-meta sidecar，第一次讀取時 `read_sync_meta_v2` 走 `backfill_from_skill`，依 canonical 的 `agents` frontmatter × 當下 scope/project 即時產出 target。所以 import claude 來的 skill 會看到一條 `anthropic / 當下 scope` 的 target。(c) 要做的不是「補上空 targets」，而是把這個行為**顯式化 + 精確化**：(1) import 時就寫出 sync-meta sidecar、target 來源寫死成「來自哪個 agent 目錄」而非依賴讀取時的 backfill；(2) 跟 multi-source import resolution 整合 — 使用者選了權威來源後，target 也只回填那一個；(3) 釐清「`agents` frontmatter 欄位」與「sync-meta targets」之間的 drift 處理（新建 skill 是空 targets，import skill 是 backfilled，兩條讀取路徑共存的合理性需要決定）。
 - **Arbitrary-folder import**: import a SKILL.md from any folder (not just the three known agent dirs) via staging preview.
 - **Scope move**: convert a project skill to global (or vice versa) with optional cleanup of original-scope targets.
 
