@@ -62,10 +62,32 @@ pub fn global_agents_dir() -> PathBuf {
 /// edits and (optionally) git-tracks; agent-native skill dirs are fan-out
 /// outputs derived from here. See multi-agent-skills-foundation design
 /// decision 1.
+///
+/// In test builds a thread-local override redirects this to a tempdir; see
+/// `set_felina_home_override_for_test`. Production never reads the override.
 pub fn felina_home() -> PathBuf {
+    #[cfg(test)]
+    {
+        if let Some(p) = FELINA_HOME_OVERRIDE.with(|c| c.borrow().clone()) {
+            return p;
+        }
+    }
     dirs::home_dir()
         .expect("could not resolve home directory")
         .join(".felina")
+}
+
+#[cfg(test)]
+thread_local! {
+    static FELINA_HOME_OVERRIDE: std::cell::RefCell<Option<PathBuf>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Override `felina_home()` on the current test thread. `None` restores the
+/// real `dirs::home_dir()`-anchored path. Thread-local so parallel tests do
+/// not race. Test-only.
+#[cfg(test)]
+pub fn set_felina_home_override_for_test(path: Option<PathBuf>) {
+    FELINA_HOME_OVERRIDE.with(|c| *c.borrow_mut() = path);
 }
 
 /// Felina's own settings file. Holds felina-only config (e.g. agent paths).
@@ -77,12 +99,6 @@ pub fn felina_global_settings_path() -> PathBuf {
 
 pub fn felina_global_skills_dir() -> PathBuf {
     felina_home().join("skills")
-}
-
-pub fn felina_project_skills_dir(project_path: &str) -> PathBuf {
-    PathBuf::from(project_path)
-        .join(".felina")
-        .join("skills")
 }
 
 pub fn global_rules_dir() -> PathBuf {
@@ -307,15 +323,15 @@ mod tests {
     }
 
     #[test]
-    fn felina_project_skills_dir_under_project_root() {
-        // Use a fixed string; PathBuf normalises separators per-OS at display time.
-        let project = if cfg!(windows) { r"C:\proj" } else { "/proj" };
-        let p = felina_project_skills_dir(project);
-        assert!(p.starts_with(project));
-        assert_eq!(p.file_name().and_then(|s| s.to_str()), Some("skills"));
-        assert_eq!(
-            p.parent().and_then(|p| p.file_name()).and_then(|s| s.to_str()),
-            Some(".felina"),
-        );
+    fn felina_home_override_redirects_skills_dir() {
+        let tmp = tempdir();
+        set_felina_home_override_for_test(Some(tmp.clone()));
+        let dir = felina_global_skills_dir();
+        assert!(dir.starts_with(&tmp), "override should redirect: {dir:?}");
+        assert_eq!(dir.file_name().and_then(|s| s.to_str()), Some("skills"));
+        set_felina_home_override_for_test(None);
+        // After clearing, falls back to real home.
+        let real = felina_global_skills_dir();
+        assert!(real.starts_with(dirs::home_dir().expect("home")));
     }
 }

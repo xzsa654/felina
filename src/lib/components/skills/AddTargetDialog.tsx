@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { X, FolderOpen } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
-import type { AgentId, KnownProject, SkillScope, SkillTarget } from "$lib/types";
+import type { AgentId, KnownProject, SkillTarget } from "$lib/types";
 import { api } from "$lib/tauri/commands";
 import { normalizeProjectPath } from "$lib/utils/path";
 
@@ -24,8 +24,15 @@ function matchOption(
   return projects[0]?.path ?? null;
 }
 
+/**
+ * Add a `SkillTarget` to the currently-edited canonical skill. The dialog
+ * picks the target's agent and push destination (`global` or a specific
+ * project). After `scope-model-simplification`, this is the only place
+ * "scope" appears in the UI — and it refers to push destination, not to a
+ * canonical-storage location.
+ */
 interface Props {
-  scope: SkillScope;
+  /** Default project for new project-scope targets (typically the current cwd). */
   projectPath: string | null;
   existingTargets: SkillTarget[];
   onAdd: (target: SkillTarget) => void;
