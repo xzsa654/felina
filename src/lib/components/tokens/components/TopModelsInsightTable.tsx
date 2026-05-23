@@ -1,7 +1,7 @@
 import type { ModelBreakdown } from "$lib/types";
 import type { Locale } from "$lib/i18n";
 import { t } from "$lib/i18n";
-import { formatCostFull, formatNumber, formatNumberFull } from "$lib/utils/format";
+import { formatCostFull, formatNumber, formatNumberFull, formatCtx } from "$lib/utils/format";
 import { getTopModelInsights } from "../token-insights";
 
 function pct(value: number): string {
@@ -107,7 +107,7 @@ export default function TopModelsInsightTable({
                         {row.model}
                       </div>
                       <div className="text-[10px] text-text-muted mt-0.5">
-                        {row.provider}
+                        {[row.provider, formatCtx(row.maxInputTokens)].filter(Boolean).join(" · ")}
                       </div>
                     </td>
                     <td className="px-3 py-3 text-text-secondary whitespace-nowrap">

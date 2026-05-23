@@ -7,7 +7,7 @@ import type {
 } from "$lib/types";
 import type { Locale } from "$lib/i18n";
 import { t } from "$lib/i18n";
-import { formatNumber, formatCostFull } from "$lib/utils/format";
+import { formatNumber, formatCostFull, formatCtx } from "$lib/utils/format";
 import { totalTokensForModel } from "../token-insights";
 import { api } from "$lib/tauri/commands";
 
@@ -167,7 +167,9 @@ function ModelDetail({ data, locale }: { data: ModelBreakdown[]; locale: Locale 
               <td className="py-1 text-text-muted">{i + 1}</td>
               <td className="py-1 pr-3">
                 <div className="font-medium text-text-primary truncate max-w-[200px]" title={m.model}>{m.model}</div>
-                <div className="text-text-muted">{m.provider}</div>
+                <div className="text-text-muted">
+                  {[m.provider, formatCtx(m.max_input_tokens)].filter(Boolean).join(" · ")}
+                </div>
               </td>
               <td className="py-1 text-right text-text-secondary">{formatNumber(m.event_count, locale)}</td>
               <td className="py-1 text-right text-text-secondary">{formatNumber(m.input_tokens, locale)}</td>

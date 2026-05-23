@@ -83,6 +83,7 @@ impl TokenStorage {
             CREATE INDEX IF NOT EXISTS idx_events_agent ON token_events(agent);
             CREATE INDEX IF NOT EXISTS idx_events_model ON token_events(model);
             CREATE INDEX IF NOT EXISTS idx_events_source ON token_events(source);
+            CREATE INDEX IF NOT EXISTS idx_events_source_ts ON token_events(source, timestamp);
             CREATE TABLE IF NOT EXISTS token_ingestion_state (
                 key TEXT PRIMARY KEY,
                 value TEXT NOT NULL
@@ -136,6 +137,7 @@ impl TokenStorage {
         }
         conn.execute_batch(
             "CREATE INDEX IF NOT EXISTS idx_events_source ON token_events(source);
+             CREATE INDEX IF NOT EXISTS idx_events_source_ts ON token_events(source, timestamp);
              CREATE TABLE IF NOT EXISTS token_ingestion_state (
                 key TEXT PRIMARY KEY,
                 value TEXT NOT NULL

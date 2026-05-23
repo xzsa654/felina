@@ -212,13 +212,26 @@ export const api = {
         dateStart: dateStart ?? null,
         dateEnd: dateEnd ?? null,
       }),
-    getCacheEfficiency: (dateStart?: number, dateEnd?: number) =>
+    getCacheEfficiency: (dateStart?: number, dateEnd?: number, sourceOverride?: string) =>
       invoke<CacheEfficiency>("get_cache_efficiency", {
         dateStart: dateStart ?? null,
         dateEnd: dateEnd ?? null,
+        sourceOverride: sourceOverride ?? null,
       }),
     getAvailableAgents: () =>
       invoke<AgentStatus[]>("get_available_agents"),
+    getAnalyticsPair: (params: {
+      dateStart?: number;
+      dateEnd?: number;
+      monthlySource?: string;
+      dailySource?: string;
+    }) =>
+      invoke<{ monthly: TokenAnalytics; daily: TokenAnalytics }>("get_token_analytics_pair", {
+        dateStart: params.dateStart ?? null,
+        dateEnd: params.dateEnd ?? null,
+        monthlySource: params.monthlySource ?? null,
+        dailySource: params.dailySource ?? null,
+      }),
     getDayModelBreakdown: (date: string, sourceOverride?: string) =>
       invoke<ModelBreakdown[]>("get_day_model_breakdown", {
         date,

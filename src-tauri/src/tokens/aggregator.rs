@@ -25,13 +25,19 @@ fn weekday_name(dow: u8) -> &'static str {
 pub struct TokenAggregator {
     pub(crate) storage: TokenStorage,
     pub(crate) pricing: Mutex<PricingService>,
+    /// Cached result of pick_dated_source() — cleared on every refresh so the
+    /// next query re-evaluates after new data is ingested.
+    dated_source_cache: Mutex<Option<String>>,
 }
 
 impl TokenAggregator {
     pub fn new() -> Result<Self, String> {
         let storage = TokenStorage::new()?;
-        let pricing = Mutex::new(PricingService::new());
-        Ok(TokenAggregator { storage, pricing })
+        let mut svc = PricingService::new();
+        // Kick off background fetch of LiteLLM prices (no-op if cache is fresh).
+        svc.try_fetch_litellm();
+        let pricing = Mutex::new(svc);
+        Ok(TokenAggregator { storage, pricing, dated_source_cache: Mutex::new(None) })
     }
 
     /// Build a complete analytics response.
@@ -382,15 +388,19 @@ impl TokenAggregator {
                     reasoning_tokens: reasoning,
                     cost_usd: 0.0, // filled below
                     event_count: count,
+                    max_input_tokens: None, // filled below
                 })
             })
             .map_err(|e| format!("Model breakdown map error: {}", e))?;
 
         let mut models: Vec<ModelBreakdown> = rows.filter_map(|r| r.ok()).collect();
 
-        // Fill costs
+        // Fill costs + context window
         for m in &mut models {
             let mut pricing = self.pricing.lock().unwrap();
+            if let Ok(p) = pricing.get_price(&m.model) {
+                m.max_input_tokens = p.max_input_tokens;
+            }
             let event = TokenEvent {
                 agent: m.agent.clone(),
                 provider: m.provider.clone(),
@@ -813,14 +823,49 @@ impl TokenAggregator {
         self.build_model_breakdown(&conn, where_clause, params_refs.as_slice())
     }
 
+    /// Build both monthly and daily analytics in a single call.
+    ///
+    /// `monthly_source`: source for the Overview/Models monthly query.
+    ///   Pass `None` to use active_source (fast — tokscale for "all time").
+    ///   Pass `Some("auto_dated")` only when a date range is active.
+    ///
+    /// `daily_source`: source for the Daily tab.
+    ///   Always pass `Some("auto_dated")` — tokscale has no timestamps.
+    pub fn build_analytics_pair(
+        &self,
+        date_start: Option<i64>,
+        date_end: Option<i64>,
+        monthly_source: Option<String>,
+        daily_source: Option<String>,
+    ) -> Result<TokenAnalyticsPair, String> {
+        let monthly = self.build_analytics(
+            TimeGranularity::Monthly,
+            date_start,
+            date_end,
+            None,
+            None,
+            monthly_source,
+        )?;
+        let daily = self.build_analytics(
+            TimeGranularity::Daily,
+            date_start,
+            date_end,
+            None,
+            None,
+            daily_source,
+        )?;
+        Ok(TokenAnalyticsPair { monthly, daily })
+    }
+
     /// Build cache efficiency metrics.
     pub fn build_cache_efficiency(
         &self,
         date_start: Option<i64>,
         date_end: Option<i64>,
+        source_override: Option<String>,
     ) -> Result<CacheEfficiency, String> {
         let analytics =
-            self.build_analytics(TimeGranularity::Daily, date_start, date_end, None, None, None)?;
+            self.build_analytics(TimeGranularity::Daily, date_start, date_end, None, None, source_override)?;
 
         let total_input = analytics.total_input_tokens + analytics.total_cache_read_tokens;
         let cache_hit_ratio = if total_input > 0 {
@@ -843,18 +888,21 @@ impl TokenAggregator {
     }
 
     /// Pick the source that has the most events with a real timestamp (> 0).
-    /// Falls back to active_source if nothing has dated events.
+    /// Result is cached in-memory — one SQL query on first call, free thereafter.
     fn pick_dated_source(&self) -> Result<String, String> {
-        // Use an explicit block so `conn` (MutexGuard) is dropped before we
-        // call `active_source()`, which locks the same Mutex. Re-acquiring a
-        // non-reentrant Mutex on the same thread would deadlock.
-        let dated_source = {
-            let conn = self
-                .storage
-                .connection()
-                .lock()
-                .map_err(|e| format!("Lock error: {}", e))?;
+        // Return cached value if available.
+        {
+            let cache = self.dated_source_cache.lock()
+                .map_err(|e| format!("dated_source_cache lock error: {}", e))?;
+            if let Some(ref s) = *cache {
+                return Ok(s.clone());
+            }
+        }
 
+        // Query DB (scope conn lock so it's released before active_source).
+        let dated_source = {
+            let conn = self.storage.connection().lock()
+                .map_err(|e| format!("Lock error: {}", e))?;
             let mut stmt = conn
                 .prepare(
                     "SELECT source, COUNT(*) as cnt
@@ -865,16 +913,26 @@ impl TokenAggregator {
                      LIMIT 1",
                 )
                 .map_err(|e| format!("pick_dated_source prepare error: {}", e))?;
-
             stmt.query_row([], |row| row.get::<_, String>(0)).ok()
-            // conn MutexGuard dropped here — lock released
         };
 
-        Ok(dated_source.unwrap_or_else(|| {
-            self.storage
-                .active_source()
+        let source = dated_source.unwrap_or_else(|| {
+            self.storage.active_source()
                 .unwrap_or_else(|_| SOURCE_FELINA_PARSER.to_string())
-        }))
+        });
+
+        if let Ok(mut cache) = self.dated_source_cache.lock() {
+            *cache = Some(source.clone());
+        }
+
+        Ok(source)
+    }
+
+    /// Invalidate the dated-source cache (called after refresh ingests new data).
+    fn invalidate_dated_source_cache(&self) {
+        if let Ok(mut cache) = self.dated_source_cache.lock() {
+            *cache = None;
+        }
     }
 
     /// Run the Felina parser scan and upsert results under SOURCE_FELINA_PARSER.
@@ -970,6 +1028,7 @@ impl TokenAggregator {
     ) -> Result<RefreshResult, String> {
         // Prune events older than 90 days on every refresh (best-effort, non-fatal).
         let _ = self.storage.prune_older_than(90);
+        self.invalidate_dated_source_cache();
 
         match result {
             Ok(output) => {

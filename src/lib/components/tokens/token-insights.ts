@@ -33,6 +33,7 @@ export interface TopModelInsight extends TokenComposition {
   estimatedCostUsd: number;
   eventCount: number;
   cacheReadRatio: number;
+  maxInputTokens: number | null;
 }
 
 const DATED_LABEL_RE = /^\d{4}-\d{2}-\d{2}/;
@@ -145,6 +146,7 @@ export function getTopModelInsights(data: ModelBreakdown[]): TopModelInsight[] {
         estimatedCostUsd: model.cost_usd,
         eventCount: model.event_count,
         cacheReadRatio: total > 0 ? model.cache_read_tokens / total : 0,
+        maxInputTokens: model.max_input_tokens ?? null,
       };
     })
     .sort((a, b) => b.total - a.total || b.estimatedCostUsd - a.estimatedCostUsd);

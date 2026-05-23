@@ -26,6 +26,7 @@ export interface ModelBreakdown {
   reasoning_tokens: number;
   cost_usd: number;
   event_count: number;
+  max_input_tokens: number | null;
 }
 
 export interface AgentBreakdown {

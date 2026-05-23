@@ -2,7 +2,7 @@ import { useState } from "react";
 import type { ModelBreakdown } from "$lib/types";
 import type { Locale } from "$lib/i18n";
 import { t } from "$lib/i18n";
-import { formatCostFull, formatNumber } from "$lib/utils/format";
+import { formatCostFull, formatNumber, formatCtx } from "$lib/utils/format";
 import { totalTokensForModel } from "../token-insights";
 
 type SortField = "model" | "cost_usd" | "input_tokens" | "output_tokens" | "total_tokens";
@@ -60,8 +60,11 @@ export default function ModelBreakdownTable({
           <tbody>
             {sorted.map((m) => (
               <tr key={`${m.model}-${m.agent}`} className="border-b border-border/50">
-                <td className="px-3 py-2 text-text-primary max-w-[200px] truncate">
-                  {m.model}
+                <td className="px-3 py-2 max-w-[220px]">
+                  <div className="text-text-primary truncate">{m.model}</div>
+                  <div className="text-[10px] text-text-muted truncate">
+                    {[m.provider, formatCtx(m.max_input_tokens)].filter(Boolean).join(" · ")}
+                  </div>
                 </td>
                 <td className="px-3 py-2 text-text-primary font-medium">
                   {formatNumber(totalTokensForModel(m), locale)}

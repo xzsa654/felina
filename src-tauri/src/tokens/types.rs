@@ -74,6 +74,7 @@ pub struct ModelBreakdown {
     pub reasoning_tokens: u64,
     pub cost_usd: f64,
     pub event_count: u64,
+    pub max_input_tokens: Option<u64>,
 }
 
 /// Per-agent breakdown record.
@@ -142,6 +143,13 @@ pub struct DaySessionBreakdown {
     pub tokens: u64,
     pub messages: u64,
     pub cost_usd: f64,
+}
+
+/// Pair of monthly + daily analytics returned in one call.
+#[derive(Serialize, Clone, Debug)]
+pub struct TokenAnalyticsPair {
+    pub monthly: TokenAnalytics,
+    pub daily: TokenAnalytics,
 }
 
 /// Cache efficiency metrics.

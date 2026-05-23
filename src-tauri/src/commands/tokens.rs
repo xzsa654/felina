@@ -4,6 +4,18 @@ use tauri::State;
 use crate::tokens::aggregator::TokenAggregator;
 use crate::tokens::types::*;
 
+#[tauri::command]
+pub fn get_token_analytics_pair(
+    date_start: Option<i64>,
+    date_end: Option<i64>,
+    monthly_source: Option<String>,
+    daily_source: Option<String>,
+    state: State<'_, TokenState>,
+) -> Result<TokenAnalyticsPair, String> {
+    let agg = state.aggregator.lock().map_err(|e| format!("Lock error: {}", e))?;
+    agg.build_analytics_pair(date_start, date_end, monthly_source, daily_source)
+}
+
 /// Managed state wrapping the TokenAggregator.
 pub struct TokenState {
     pub aggregator: Arc<Mutex<TokenAggregator>>,
@@ -59,13 +71,14 @@ pub fn get_model_breakdown(
 pub fn get_cache_efficiency(
     date_start: Option<i64>,
     date_end: Option<i64>,
+    source_override: Option<String>,
     state: State<'_, TokenState>,
 ) -> Result<CacheEfficiency, String> {
     let agg = state
         .aggregator
         .lock()
         .map_err(|e| format!("Lock error: {}", e))?;
-    agg.build_cache_efficiency(date_start, date_end)
+    agg.build_cache_efficiency(date_start, date_end, source_override)
 }
 
 #[tauri::command]
