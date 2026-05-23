@@ -11,6 +11,8 @@ import {
   Moon,
   Search,
   Command as CommandIcon,
+  Coins,
+  History,
 } from "lucide-react";
 
 const ICON_MAP: Record<string, React.ComponentType<{ size?: number }>> = {
@@ -18,6 +20,8 @@ const ICON_MAP: Record<string, React.ComponentType<{ size?: number }>> = {
   gear: Settings,
   templates: LayoutGrid,
   brain: Brain,
+  tokens: Coins,
+  history: History,
 };
 
 interface PaletteAction {

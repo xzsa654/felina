@@ -14,10 +14,9 @@ import TokenCostTimeSeries from "./components/TokenCostTimeSeries";
 import ModelBreakdownChart from "./components/ModelBreakdownChart";
 import ModelBreakdownTable from "./components/ModelBreakdownTable";
 import CacheEfficiencyCard from "./components/CacheEfficiencyCard";
-import AgentDistribution from "./components/AgentDistribution";
+import TopSessionsCard from "./components/TopSessionsCard";
 import CostBudgetCard from "./components/CostBudgetCard";
 import AgentQuotaPanel from "./components/AgentQuotaPanel";
-import TopModelsInsightTable from "./components/TopModelsInsightTable";
 import TimeBucketTable from "./components/TimeBucketTable";
 import DailySummaryCards from "./components/DailySummaryCards";
 import ContributionGraph from "./components/ContributionGraph";
@@ -229,13 +228,8 @@ export default function TokensPage() {
                   <div className="space-y-4">
                     <AgentQuotaPanel locale={locale} />
                     <TokenStatCards analytics={analytics} cacheEfficiency={cacheEfficiency} locale={locale} />
-                    <div className="grid xl:grid-cols-[minmax(0,1.35fr)_minmax(340px,0.65fr)] gap-4">
-                      <TopModelsInsightTable data={analytics?.model_breakdown ?? []} locale={locale} />
-                      <div className="space-y-4">
-                        <CacheEfficiencyCard data={cacheEfficiency} locale={locale} />
-                        <AgentDistribution data={analytics?.agent_breakdown ?? []} locale={locale} />
-                      </div>
-                    </div>
+                    <TopSessionsCard data={analytics.top_sessions ?? []} locale={locale} />
+                    <CacheEfficiencyCard data={cacheEfficiency} locale={locale} />
                     {canShowTemporalCharts && (
                       <div className="grid lg:grid-cols-2 gap-4">
                         <TokenTimeSeries data={analyticsDaily?.time_series ?? []} locale={locale} />

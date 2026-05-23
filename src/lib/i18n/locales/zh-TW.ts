@@ -69,6 +69,10 @@ const zhTW: TranslationDict = {
       noProject: "（無專案）",
       colSession: "對話",
       colProject: "專案",
+      colAction: "開啟",
+      viewSession: "在 History 開啟",
+      openSession: "在檔案管理器定位對話檔",
+      sessionNotFound: "找不到",
     },
     agents: {
       title: "代理程式",
@@ -125,6 +129,11 @@ const zhTW: TranslationDict = {
       colMessages: "訊息數",
       colEstimatedCost: "預估費用",
       reasoning: "推理",
+    },
+    topSessions: {
+      title: "Top 5 流量 Session",
+      subtitle: "依目前日期範圍內的 token 流量排序。",
+      viewSession: "在 History 開啟 session",
     },
     tokenTimeSeries: {
       title: "Token 使用趨勢",

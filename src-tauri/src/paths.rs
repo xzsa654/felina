@@ -80,9 +80,7 @@ pub fn felina_global_skills_dir() -> PathBuf {
 }
 
 pub fn felina_project_skills_dir(project_path: &str) -> PathBuf {
-    PathBuf::from(project_path)
-        .join(".felina")
-        .join("skills")
+    PathBuf::from(project_path).join(".felina").join("skills")
 }
 
 pub fn global_rules_dir() -> PathBuf {
@@ -190,7 +188,11 @@ fn drive_root_for_hash(hash: &str) -> Option<String> {
 /// letter) is already consumed by `drive_root_for_hash`. Segment resolution
 /// SHOULD start from index 1, not 0.
 fn drive_skip_count(hash: &str) -> usize {
-    if drive_root_for_hash(hash).is_some() { 1 } else { 0 }
+    if drive_root_for_hash(hash).is_some() {
+        1
+    } else {
+        0
+    }
 }
 
 fn resolve_segments(segments: &[&str], idx: usize, current: &str) -> Option<String> {
@@ -305,7 +307,9 @@ mod tests {
         // Must terminate with the canonical segments regardless of OS separator.
         assert_eq!(p.file_name().and_then(|s| s.to_str()), Some("skills"));
         assert_eq!(
-            p.parent().and_then(|p| p.file_name()).and_then(|s| s.to_str()),
+            p.parent()
+                .and_then(|p| p.file_name())
+                .and_then(|s| s.to_str()),
             Some(".felina"),
         );
         // Anchored under the user's home directory.
@@ -320,7 +324,9 @@ mod tests {
         assert!(p.starts_with(project));
         assert_eq!(p.file_name().and_then(|s| s.to_str()), Some("skills"));
         assert_eq!(
-            p.parent().and_then(|p| p.file_name()).and_then(|s| s.to_str()),
+            p.parent()
+                .and_then(|p| p.file_name())
+                .and_then(|s| s.to_str()),
             Some(".felina"),
         );
     }

@@ -16,6 +16,12 @@ export type {
   DayHourlyBucket,
   DayProjectBreakdown,
   DaySessionBreakdown,
+  SessionTranscriptLocation,
+  HistorySession,
+  HistorySessionsPage,
+  SessionTranscript,
+  TranscriptMetadata,
+  TranscriptEntry,
 } from "./token-analytics";
 
 export type {

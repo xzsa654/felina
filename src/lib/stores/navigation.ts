@@ -1,4 +1,4 @@
-export type Page = "skills" | "settings" | "tokens" | "templates" | "memory";
+export type Page = "skills" | "settings" | "tokens" | "templates" | "memory" | "history";
 
 export interface NavItem {
   id: Page;
@@ -12,4 +12,5 @@ export const NAV_ITEMS: NavItem[] = [
   { id: "templates", label: "Templates", icon: "templates" },
   { id: "tokens", label: "Tokens", icon: "tokens" },
   { id: "memory", label: "Memory", icon: "brain" },
+  { id: "history", label: "History", icon: "history" },
 ];

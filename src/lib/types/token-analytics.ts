@@ -60,6 +60,7 @@ export interface TokenAnalytics {
   time_series: TokenBucket[];
   model_breakdown: ModelBreakdown[];
   agent_breakdown: AgentBreakdown[];
+  top_sessions: DaySessionBreakdown[];
   hourly_heatmap: HourlyHeatmapEntry[];
 }
 
@@ -78,11 +79,61 @@ export interface DayProjectBreakdown {
 
 export interface DaySessionBreakdown {
   session_id: string;
+  agent: AgentId;
   project: string | null;
   model: string;
   tokens: number;
   messages: number;
   cost_usd: number;
+}
+
+export interface SessionTranscriptLocation {
+  agent: AgentId;
+  session_id: string;
+  path: string;
+}
+
+export interface HistorySession {
+  agent: AgentId;
+  session_id: string;
+  project: string | null;
+  model: string | null;
+  timestamp: number | null;
+  tokens: number;
+  messages: number;
+  transcript_available: boolean;
+  source_path: string | null;
+}
+
+export interface HistorySessionsPage {
+  sessions: HistorySession[];
+  total: number;
+}
+
+export interface SessionTranscript {
+  agent: AgentId;
+  session_id: string;
+  source_path: string;
+  metadata: TranscriptMetadata;
+  entries: TranscriptEntry[];
+}
+
+export interface TranscriptMetadata {
+  project: string | null;
+  model: string | null;
+  timestamp: string | null;
+}
+
+export interface TranscriptEntry {
+  role: string;
+  content: string;
+  timestamp: string | null;
+  model: string | null;
+  input_tokens: number | null;
+  output_tokens: number | null;
+  cache_read_tokens: number | null;
+  cache_write_tokens: number | null;
+  reasoning_tokens: number | null;
 }
 
 export interface CacheEfficiency {

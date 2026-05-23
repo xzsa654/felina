@@ -1,4 +1,6 @@
 import { useState, useEffect } from "react";
+import { useNavigate } from "react-router";
+import { ExternalLink, FolderOpen, Loader2 } from "lucide-react";
 import type {
   ModelBreakdown,
   DayHourlyBucket,
@@ -105,6 +107,31 @@ function ProjectBreakdown({ data, locale }: { data: DayProjectBreakdown[]; local
 // ── Top sessions ──────────────────────────────────────────────────────────────
 
 function TopSessions({ data, locale }: { data: DaySessionBreakdown[]; locale: Locale }) {
+  const navigate = useNavigate();
+  const [openingId, setOpeningId] = useState<string | null>(null);
+  const [status, setStatus] = useState<Record<string, "not-found" | "failed">>({});
+
+  function openHistory(session: DaySessionBreakdown) {
+    navigate(`/history?agent=${session.agent}&session=${encodeURIComponent(session.session_id)}`);
+  }
+
+  async function revealSession(session: DaySessionBreakdown) {
+    setOpeningId(session.session_id);
+    setStatus((current) => {
+      const next = { ...current };
+      delete next[session.session_id];
+      return next;
+    });
+
+    try {
+      await api.tokenAnalytics.revealSessionTranscript(session.agent, session.session_id);
+    } catch {
+      setStatus((current) => ({ ...current, [session.session_id]: "not-found" }));
+    } finally {
+      setOpeningId(null);
+    }
+  }
+
   return (
     <div>
       <p className="text-[11px] font-medium text-text-secondary mb-2">
@@ -119,21 +146,57 @@ function TopSessions({ data, locale }: { data: DaySessionBreakdown[]; locale: Lo
             <th className="pb-1 text-right font-medium">Msgs</th>
             <th className="pb-1 text-right font-medium">Tokens</th>
             <th className="pb-1 text-right font-medium">Cost</th>
+            <th className="pb-1 text-right font-medium">{t(locale, "tokens.dayDetail.colAction" as never)}</th>
           </tr>
         </thead>
         <tbody>
-          {data.map((s) => (
-            <tr key={s.session_id} className="border-b border-border/20 last:border-0">
-              <td className="py-1 font-mono text-text-muted">{shortSession(s.session_id)}</td>
-              <td className="py-1 text-text-secondary truncate max-w-[120px]" title={s.project ?? ""}>
-                {s.project ? projectName(s.project) : "—"}
-              </td>
-              <td className="py-1 text-text-secondary truncate max-w-[140px]" title={s.model}>{s.model}</td>
-              <td className="py-1 text-right text-text-secondary">{formatNumber(s.messages, locale)}</td>
-              <td className="py-1 text-right text-text-primary font-medium">{formatNumber(s.tokens, locale)}</td>
-              <td className="py-1 text-right text-text-primary font-medium">{formatCostFull(s.cost_usd, locale)}</td>
-            </tr>
-          ))}
+          {data.map((s) => {
+            const isOpening = openingId === s.session_id;
+            const rowStatus = status[s.session_id];
+
+            return (
+              <tr key={`${s.agent}:${s.session_id}`} className="border-b border-border/20 last:border-0">
+                <td className="py-1 font-mono text-text-muted">{shortSession(s.session_id)}</td>
+                <td className="py-1 text-text-secondary truncate max-w-[120px]" title={s.project ?? ""}>
+                  {s.project ? projectName(s.project) : "—"}
+                </td>
+                <td className="py-1 text-text-secondary truncate max-w-[140px]" title={s.model}>{s.model}</td>
+                <td className="py-1 text-right text-text-secondary">{formatNumber(s.messages, locale)}</td>
+                <td className="py-1 text-right text-text-primary font-medium">{formatNumber(s.tokens, locale)}</td>
+                <td className="py-1 text-right text-text-primary font-medium">{formatCostFull(s.cost_usd, locale)}</td>
+                <td className="py-1">
+                  <div className="flex items-center justify-end gap-1.5">
+                    {rowStatus && (
+                      <span className="text-[9px] text-amber-400 whitespace-nowrap">
+                        {t(locale, "tokens.dayDetail.sessionNotFound" as never)}
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => openHistory(s)}
+                      title={t(locale, "tokens.dayDetail.viewSession" as never)}
+                      className="h-6 w-6 inline-flex items-center justify-center rounded border border-border text-text-muted hover:text-text-primary hover:bg-bg-secondary"
+                    >
+                      <ExternalLink className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void revealSession(s)}
+                      disabled={isOpening}
+                      title={t(locale, "tokens.dayDetail.openSession" as never)}
+                      className="h-6 w-6 inline-flex items-center justify-center rounded border border-border text-text-muted hover:text-text-primary hover:bg-bg-secondary disabled:opacity-60"
+                    >
+                      {isOpening ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <FolderOpen className="h-3.5 w-3.5" />
+                      )}
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>
@@ -288,7 +351,7 @@ function ModelDetailSkeleton() {
 
 /** Mirrors TopSessions table (header + 5 rows × 6 cols) */
 function TopSessionsSkeleton() {
-  const colWidths = ["w-14", "w-16", "w-24", "w-8", "w-12", "w-10"];
+  const colWidths = ["w-14", "w-16", "w-24", "w-8", "w-12", "w-10", "w-6"];
   return (
     <div>
       <Sk w="w-24" h="h-2" className="mb-2" />

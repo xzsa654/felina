@@ -22,6 +22,12 @@ import type {
   ImportSelection,
   AgentPathsConfig,
 } from "$lib/types";
+import type {
+  AgentId as TokenAgentId,
+  SessionTranscript,
+  SessionTranscriptLocation,
+  HistorySessionsPage,
+} from "$lib/types/token-analytics";
 
 // Retained-for-reference wrappers (hooks / instructions / mcp / rules / budget / stats):
 // backend modules + frontend pages are kept on disk but unregistered from invoke_handler.
@@ -252,6 +258,33 @@ export const api = {
         date,
         limit,
         sourceOverride: sourceOverride ?? null,
+      }),
+    listHistorySessions: (params?: {
+      limit?: number;
+      offset?: number;
+      agentFilter?: "all" | TokenAgentId;
+      query?: string;
+    }) =>
+      invoke<HistorySessionsPage>("list_history_sessions", {
+        limit: params?.limit ?? null,
+        offset: params?.offset ?? null,
+        agentFilter: params?.agentFilter ?? null,
+        query: params?.query ?? null,
+      }),
+    readSessionTranscript: (agent: TokenAgentId, sessionId: string) =>
+      invoke<SessionTranscript>("read_session_transcript", {
+        agent,
+        sessionId,
+      }),
+    resolveSessionTranscript: (agent: TokenAgentId, sessionId: string) =>
+      invoke<SessionTranscriptLocation>("resolve_session_transcript", {
+        agent,
+        sessionId,
+      }),
+    revealSessionTranscript: (agent: TokenAgentId, sessionId: string) =>
+      invoke<SessionTranscriptLocation>("reveal_session_transcript", {
+        agent,
+        sessionId,
       }),
     refresh: () => invoke<RefreshResult>("refresh_token_data"),
     getAgentQuotaSnapshot: () =>

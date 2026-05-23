@@ -12,6 +12,7 @@ const SettingsPage = lazy(() => import("$lib/components/settings/SettingsPage"))
 const TokensPage = lazy(() => import("$lib/components/tokens/TokensPage"));
 const TemplatesPage = lazy(() => import("$lib/components/templates/TemplatesPage"));
 const MemoryPage = lazy(() => import("$lib/components/memory/MemoryPage"));
+const HistoryPage = lazy(() => import("$lib/components/history/HistoryPage"));
 
 function LazyPage({ Component }: { Component: React.ComponentType }) {
   return (
@@ -51,6 +52,7 @@ const routes = [
       { path: "tokens", element: <LazyPage Component={TokensPage} /> },
       { path: "templates", element: <LazyPage Component={TemplatesPage} /> },
       { path: "memory", element: <LazyPage Component={MemoryPage} /> },
+      { path: "history", element: <LazyPage Component={HistoryPage} /> },
     ],
   },
 ];

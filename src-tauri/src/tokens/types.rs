@@ -114,6 +114,7 @@ pub struct TokenAnalytics {
     pub time_series: Vec<TokenBucket>,
     pub model_breakdown: Vec<ModelBreakdown>,
     pub agent_breakdown: Vec<AgentBreakdown>,
+    pub top_sessions: Vec<DaySessionBreakdown>,
     pub hourly_heatmap: Vec<HourlyHeatmapEntry>,
 }
 
@@ -138,11 +139,71 @@ pub struct DayProjectBreakdown {
 #[derive(Serialize, Clone, Debug)]
 pub struct DaySessionBreakdown {
     pub session_id: String,
+    pub agent: AgentId,
     pub project: Option<String>,
     pub model: String,
     pub tokens: u64,
     pub messages: u64,
     pub cost_usd: f64,
+}
+
+/// Resolved source file for a session transcript.
+#[derive(Serialize, Clone, Debug)]
+pub struct SessionTranscriptLocation {
+    pub agent: AgentId,
+    pub session_id: String,
+    pub path: String,
+}
+
+/// A session row for the History page.
+#[derive(Serialize, Clone, Debug)]
+pub struct HistorySession {
+    pub agent: AgentId,
+    pub session_id: String,
+    pub project: Option<String>,
+    pub model: Option<String>,
+    pub timestamp: Option<i64>,
+    pub tokens: u64,
+    pub messages: u64,
+    pub transcript_available: bool,
+    pub source_path: Option<String>,
+}
+
+/// Paginated History page result.
+#[derive(Serialize, Clone, Debug)]
+pub struct HistorySessionsPage {
+    pub sessions: Vec<HistorySession>,
+    pub total: u64,
+}
+
+/// Normalized transcript returned to the History page.
+#[derive(Serialize, Clone, Debug)]
+pub struct SessionTranscript {
+    pub agent: AgentId,
+    pub session_id: String,
+    pub source_path: String,
+    pub metadata: TranscriptMetadata,
+    pub entries: Vec<TranscriptEntry>,
+}
+
+#[derive(Serialize, Clone, Debug, Default)]
+pub struct TranscriptMetadata {
+    pub project: Option<String>,
+    pub model: Option<String>,
+    pub timestamp: Option<String>,
+}
+
+#[derive(Serialize, Clone, Debug)]
+pub struct TranscriptEntry {
+    pub role: String,
+    pub content: String,
+    pub timestamp: Option<String>,
+    pub model: Option<String>,
+    pub input_tokens: Option<u64>,
+    pub output_tokens: Option<u64>,
+    pub cache_read_tokens: Option<u64>,
+    pub cache_write_tokens: Option<u64>,
+    pub reasoning_tokens: Option<u64>,
 }
 
 /// Pair of monthly + daily analytics returned in one call.

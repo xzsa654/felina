@@ -67,6 +67,10 @@ const en = {
       noProject: "(no project)",
       colSession: "Session",
       colProject: "Project",
+      colAction: "Open",
+      viewSession: "Open in History",
+      openSession: "Reveal transcript file",
+      sessionNotFound: "Not found",
     },
     agents: {
       title: "Agents",
@@ -123,6 +127,11 @@ const en = {
       colMessages: "Messages",
       colEstimatedCost: "Estimated cost",
       reasoning: "Reasoning",
+    },
+    topSessions: {
+      title: "Top 5 Traffic Sessions",
+      subtitle: "Ranked by token traffic in the selected range.",
+      viewSession: "Open session in History",
     },
     tokenTimeSeries: {
       title: "Token Usage Over Time",

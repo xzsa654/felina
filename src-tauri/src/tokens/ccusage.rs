@@ -48,7 +48,12 @@ struct OauthEntry {
 pub fn fetch_anthropic_rate_limits() -> AnthropicRateLimits {
     // 1. Get token from Keychain
     let keychain_out = Command::new("security")
-        .args(["find-generic-password", "-s", "Claude Code-credentials", "-w"])
+        .args([
+            "find-generic-password",
+            "-s",
+            "Claude Code-credentials",
+            "-w",
+        ])
         .output();
 
     let token = match keychain_out {
@@ -57,22 +62,42 @@ pub fn fetch_anthropic_rate_limits() -> AnthropicRateLimits {
             match serde_json::from_str::<KeychainCredentials>(&raw) {
                 Ok(creds) => match creds.claude_ai_oauth {
                     Some(oauth) => oauth.access_token,
-                    None => return AnthropicRateLimits { error: Some("No OAuth entry in credentials".into()), ..Default::default() },
+                    None => {
+                        return AnthropicRateLimits {
+                            error: Some("No OAuth entry in credentials".into()),
+                            ..Default::default()
+                        }
+                    }
                 },
-                Err(e) => return AnthropicRateLimits { error: Some(format!("Credentials parse error: {}", e)), ..Default::default() },
+                Err(e) => {
+                    return AnthropicRateLimits {
+                        error: Some(format!("Credentials parse error: {}", e)),
+                        ..Default::default()
+                    }
+                }
             }
         }
-        _ => return AnthropicRateLimits { error: Some("Claude Code credentials not found in Keychain".into()), ..Default::default() },
+        _ => {
+            return AnthropicRateLimits {
+                error: Some("Claude Code credentials not found in Keychain".into()),
+                ..Default::default()
+            }
+        }
     };
 
     // 2. Call Anthropic oauth/usage API
     // curl exits 0 even on HTTP 4xx/5xx; use -w to append the HTTP status code.
     let output = Command::new("curl")
         .args([
-            "-s", "--max-time", "8",
-            "-w", "\n%{http_code}",   // append status on a new line
-            "-H", &format!("Authorization: Bearer {}", token),
-            "-H", "anthropic-version: 2023-06-01",
+            "-s",
+            "--max-time",
+            "8",
+            "-w",
+            "\n%{http_code}", // append status on a new line
+            "-H",
+            &format!("Authorization: Bearer {}", token),
+            "-H",
+            "anthropic-version: 2023-06-01",
             "https://api.anthropic.com/api/oauth/usage",
         ])
         .output();
@@ -90,7 +115,11 @@ pub fn fetch_anthropic_rate_limits() -> AnthropicRateLimits {
 
             if !(200..300).contains(&http_status) {
                 return AnthropicRateLimits {
-                    error: Some(format!("HTTP {}: {}", http_status, body.trim().chars().take(120).collect::<String>())),
+                    error: Some(format!(
+                        "HTTP {}: {}",
+                        http_status,
+                        body.trim().chars().take(120).collect::<String>()
+                    )),
                     ..Default::default()
                 };
             }
@@ -102,12 +131,20 @@ pub fn fetch_anthropic_rate_limits() -> AnthropicRateLimits {
                     // If both utilization values are None the response was likely an error body
                     if five.utilization.is_none() && seven.utilization.is_none() {
                         return AnthropicRateLimits {
-                            error: Some(format!("No usage data in response: {}", body.trim().chars().take(120).collect::<String>())),
+                            error: Some(format!(
+                                "No usage data in response: {}",
+                                body.trim().chars().take(120).collect::<String>()
+                            )),
                             ..Default::default()
                         };
                     }
-                    AnthropicRateLimits { five_hour: five, seven_day: seven, available: true, error: None }
-                },
+                    AnthropicRateLimits {
+                        five_hour: five,
+                        seven_day: seven,
+                        available: true,
+                        error: None,
+                    }
+                }
                 Err(e) => AnthropicRateLimits {
                     error: Some(format!("Parse error: {}", e)),
                     ..Default::default()
@@ -115,10 +152,16 @@ pub fn fetch_anthropic_rate_limits() -> AnthropicRateLimits {
             }
         }
         Ok(out) => AnthropicRateLimits {
-            error: Some(format!("curl error: {}", String::from_utf8_lossy(&out.stderr).trim())),
+            error: Some(format!(
+                "curl error: {}",
+                String::from_utf8_lossy(&out.stderr).trim()
+            )),
             ..Default::default()
         },
-        Err(e) => AnthropicRateLimits { error: Some(format!("curl failed: {}", e)), ..Default::default() },
+        Err(e) => AnthropicRateLimits {
+            error: Some(format!("curl failed: {}", e)),
+            ..Default::default()
+        },
     }
 }
 
@@ -126,9 +169,9 @@ pub fn fetch_anthropic_rate_limits() -> AnthropicRateLimits {
 
 #[derive(Serialize, Clone, Debug, Default)]
 pub struct CodexRateLimits {
-    pub primary_pct: Option<f64>,    // 5-hour window %
+    pub primary_pct: Option<f64>, // 5-hour window %
     pub primary_reset: Option<String>,
-    pub secondary_pct: Option<f64>,  // 7-day window %
+    pub secondary_pct: Option<f64>, // 7-day window %
     pub secondary_reset: Option<String>,
     pub plan_type: Option<String>,
     pub available: bool,
@@ -171,31 +214,57 @@ pub fn fetch_codex_rate_limits() -> CodexRateLimits {
 
     let auth_raw = match std::fs::read_to_string(&auth_path) {
         Ok(s) => s,
-        Err(_) => return CodexRateLimits { error: Some("~/.codex/auth.json not found".into()), ..Default::default() },
+        Err(_) => {
+            return CodexRateLimits {
+                error: Some("~/.codex/auth.json not found".into()),
+                ..Default::default()
+            }
+        }
     };
 
     let auth: CodexAuth = match serde_json::from_str(&auth_raw) {
         Ok(a) => a,
-        Err(e) => return CodexRateLimits { error: Some(format!("auth parse: {}", e)), ..Default::default() },
+        Err(e) => {
+            return CodexRateLimits {
+                error: Some(format!("auth parse: {}", e)),
+                ..Default::default()
+            }
+        }
     };
 
     let tokens = match auth.tokens {
         Some(t) => t,
-        None => return CodexRateLimits { error: Some("No tokens in auth.json".into()), ..Default::default() },
+        None => {
+            return CodexRateLimits {
+                error: Some("No tokens in auth.json".into()),
+                ..Default::default()
+            }
+        }
     };
     let access_token = match tokens.access_token {
         Some(t) => t,
-        None => return CodexRateLimits { error: Some("No access_token".into()), ..Default::default() },
+        None => {
+            return CodexRateLimits {
+                error: Some("No access_token".into()),
+                ..Default::default()
+            }
+        }
     };
     let account_id = tokens.account_id.unwrap_or_default();
 
     let out = Command::new("curl")
         .args([
-            "-s", "--max-time", "8",
-            "-w", "\n%{http_code}",
-            "-H", &format!("Authorization: Bearer {}", access_token),
-            "-H", &format!("ChatGPT-Account-Id: {}", account_id),
-            "-H", "Content-Type: application/json",
+            "-s",
+            "--max-time",
+            "8",
+            "-w",
+            "\n%{http_code}",
+            "-H",
+            &format!("Authorization: Bearer {}", access_token),
+            "-H",
+            &format!("ChatGPT-Account-Id: {}", account_id),
+            "-H",
+            "Content-Type: application/json",
             "https://chatgpt.com/backend-api/wham/usage",
         ])
         .output();
@@ -206,17 +275,23 @@ pub fn fetch_codex_rate_limits() -> CodexRateLimits {
             let (body, http_status) = if let Some(pos) = raw.rfind('\n') {
                 let s: u16 = raw[pos + 1..].trim().parse().unwrap_or(0);
                 (&raw[..pos], s)
-            } else { (raw.as_ref(), 0u16) };
+            } else {
+                (raw.as_ref(), 0u16)
+            };
             if !(200..300).contains(&http_status) {
                 return CodexRateLimits {
-                    error: Some(format!("HTTP {}", http_status)), ..Default::default()
+                    error: Some(format!("HTTP {}", http_status)),
+                    ..Default::default()
                 };
             }
             match serde_json::from_str::<WhamUsageResponse>(body) {
                 Ok(resp) => {
-                    let rl = resp.rate_limit.unwrap_or(WhamRateLimit { primary_window: None, secondary_window: None });
+                    let rl = resp.rate_limit.unwrap_or(WhamRateLimit {
+                        primary_window: None,
+                        secondary_window: None,
+                    });
                     let to_iso = |ts: i64| -> String {
-                        use std::time::{UNIX_EPOCH, Duration};
+                        use std::time::{Duration, UNIX_EPOCH};
                         // Simple epoch → ISO-8601 via format
                         let secs = ts;
                         let d = UNIX_EPOCH + Duration::from_secs(secs as u64);
@@ -224,10 +299,16 @@ pub fn fetch_codex_rate_limits() -> CodexRateLimits {
                         // Use the parse_iso approach in reverse: just format as ISO string
                         format!("{}Z", chrono_simple(dur))
                     };
-                    let primary_reset = rl.primary_window.as_ref()
-                        .and_then(|w| w.reset_at).map(to_iso);
-                    let secondary_reset = rl.secondary_window.as_ref()
-                        .and_then(|w| w.reset_at).map(to_iso);
+                    let primary_reset = rl
+                        .primary_window
+                        .as_ref()
+                        .and_then(|w| w.reset_at)
+                        .map(to_iso);
+                    let secondary_reset = rl
+                        .secondary_window
+                        .as_ref()
+                        .and_then(|w| w.reset_at)
+                        .map(to_iso);
                     CodexRateLimits {
                         primary_pct: rl.primary_window.and_then(|w| w.used_percent),
                         primary_reset,
@@ -238,11 +319,20 @@ pub fn fetch_codex_rate_limits() -> CodexRateLimits {
                         error: None,
                     }
                 }
-                Err(e) => CodexRateLimits { error: Some(format!("parse: {}", e)), ..Default::default() },
+                Err(e) => CodexRateLimits {
+                    error: Some(format!("parse: {}", e)),
+                    ..Default::default()
+                },
             }
         }
-        Ok(o) => CodexRateLimits { error: Some(format!("HTTP {}", o.status)), ..Default::default() },
-        Err(e) => CodexRateLimits { error: Some(format!("curl: {}", e)), ..Default::default() },
+        Ok(o) => CodexRateLimits {
+            error: Some(format!("HTTP {}", o.status)),
+            ..Default::default()
+        },
+        Err(e) => CodexRateLimits {
+            error: Some(format!("curl: {}", e)),
+            ..Default::default()
+        },
     }
 }
 
@@ -253,24 +343,38 @@ fn chrono_simple(secs: u64) -> String {
     let mut remaining = s;
     // walk forward year by year (fast enough for near-future dates)
     loop {
-        let days_in_year = if (y % 4 == 0 && y % 100 != 0) || y % 400 == 0 { 366 } else { 365 };
-        if remaining < days_in_year * 86400 { break; }
+        let days_in_year = if (y % 4 == 0 && y % 100 != 0) || y % 400 == 0 {
+            366
+        } else {
+            365
+        };
+        if remaining < days_in_year * 86400 {
+            break;
+        }
         remaining -= days_in_year * 86400;
         y += 1;
     }
     let days_in_months: [i64; 12] = {
-        let feb = if (y % 4 == 0 && y % 100 != 0) || y % 400 == 0 { 29 } else { 28 };
+        let feb = if (y % 4 == 0 && y % 100 != 0) || y % 400 == 0 {
+            29
+        } else {
+            28
+        };
         [31, feb, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
     };
     for days in days_in_months.iter() {
-        if remaining < days * 86400 { break; }
+        if remaining < days * 86400 {
+            break;
+        }
         remaining -= days * 86400;
         m += 1;
     }
     d += remaining / 86400;
     remaining %= 86400;
-    let h = remaining / 3600; remaining %= 3600;
-    let min = remaining / 60; let sec = remaining % 60;
+    let h = remaining / 3600;
+    remaining %= 3600;
+    let min = remaining / 60;
+    let sec = remaining % 60;
     format!("{:04}-{:02}-{:02}T{:02}:{:02}:{:02}", y, m, d, h, min, sec)
 }
 
@@ -311,25 +415,45 @@ pub fn fetch_gemini_rate_limits() -> GeminiRateLimits {
 
     let creds_raw = match std::fs::read_to_string(&creds_path) {
         Ok(s) => s,
-        Err(_) => return GeminiRateLimits { error: Some("Gemini CLI not installed".into()), ..Default::default() },
+        Err(_) => {
+            return GeminiRateLimits {
+                error: Some("Gemini CLI not installed".into()),
+                ..Default::default()
+            }
+        }
     };
 
     let creds: GeminiOauthCreds = match serde_json::from_str(&creds_raw) {
         Ok(c) => c,
-        Err(e) => return GeminiRateLimits { error: Some(format!("creds parse: {}", e)), ..Default::default() },
+        Err(e) => {
+            return GeminiRateLimits {
+                error: Some(format!("creds parse: {}", e)),
+                ..Default::default()
+            }
+        }
     };
 
     let token = match creds.access_token {
         Some(t) => t,
-        None => return GeminiRateLimits { error: Some("No access_token in oauth_creds.json".into()), ..Default::default() },
+        None => {
+            return GeminiRateLimits {
+                error: Some("No access_token in oauth_creds.json".into()),
+                ..Default::default()
+            }
+        }
     };
 
     let out = Command::new("curl")
         .args([
-            "-s", "--max-time", "8",
-            "-w", "\n%{http_code}",
-            "-H", &format!("Authorization: Bearer {}", token),
-            "-H", "Content-Type: application/json",
+            "-s",
+            "--max-time",
+            "8",
+            "-w",
+            "\n%{http_code}",
+            "-H",
+            &format!("Authorization: Bearer {}", token),
+            "-H",
+            "Content-Type: application/json",
             "https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota",
         ])
         .output();
@@ -340,15 +464,19 @@ pub fn fetch_gemini_rate_limits() -> GeminiRateLimits {
             let (body, http_status) = if let Some(pos) = raw.rfind('\n') {
                 let s: u16 = raw[pos + 1..].trim().parse().unwrap_or(0);
                 (&raw[..pos], s)
-            } else { (raw.as_ref(), 0u16) };
+            } else {
+                (raw.as_ref(), 0u16)
+            };
             if !(200..300).contains(&http_status) {
                 return GeminiRateLimits {
-                    error: Some(format!("HTTP {}", http_status)), ..Default::default()
+                    error: Some(format!("HTTP {}", http_status)),
+                    ..Default::default()
                 };
             }
             match serde_json::from_str::<GeminiQuotaResponse>(body) {
                 Ok(resp) => {
-                    let first_bucket = resp.rate_limit
+                    let first_bucket = resp
+                        .rate_limit
                         .and_then(|rl| rl.buckets)
                         .and_then(|b| b.into_iter().next());
                     GeminiRateLimits {
@@ -358,11 +486,20 @@ pub fn fetch_gemini_rate_limits() -> GeminiRateLimits {
                         error: None,
                     }
                 }
-                Err(e) => GeminiRateLimits { error: Some(format!("parse: {}", e)), ..Default::default() },
+                Err(e) => GeminiRateLimits {
+                    error: Some(format!("parse: {}", e)),
+                    ..Default::default()
+                },
             }
         }
-        Ok(o) => GeminiRateLimits { error: Some(format!("HTTP {}", o.status)), ..Default::default() },
-        Err(e) => GeminiRateLimits { error: Some(format!("curl: {}", e)), ..Default::default() },
+        Ok(o) => GeminiRateLimits {
+            error: Some(format!("HTTP {}", o.status)),
+            ..Default::default()
+        },
+        Err(e) => GeminiRateLimits {
+            error: Some(format!("curl: {}", e)),
+            ..Default::default()
+        },
     }
 }
 

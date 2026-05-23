@@ -136,6 +136,10 @@ pub fn run() {
             commands::tokens::get_day_project_breakdown,
             commands::tokens::get_day_top_sessions,
             commands::tokens::get_day_model_breakdown,
+            commands::tokens::list_history_sessions,
+            commands::tokens::read_session_transcript,
+            commands::tokens::resolve_session_transcript,
+            commands::tokens::reveal_session_transcript,
             commands::tokens::refresh_token_data,
         ])
         .run(tauri::generate_context!())

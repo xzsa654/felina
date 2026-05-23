@@ -14,6 +14,7 @@ import {
   GitBranch as GithubIcon,
   X as XIcon,
   Coins,
+  History,
 } from "lucide-react";
 import logoUrl from "$lib/assets/logo.png";
 
@@ -23,6 +24,7 @@ const ICON_MAP: Record<string, React.ComponentType<{ size?: number; className?: 
   templates: LayoutGrid,
   tokens: Coins,
   brain: Brain,
+  history: History,
 };
 
 export default function Sidebar() {

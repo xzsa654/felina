@@ -62,97 +62,242 @@ fn static_pricing_map() -> HashMap<String, ModelPricing> {
     // (model, input $/1M, output $/1M, cache_read, cache_write, max_input_tokens)
     let claude: &[(&str, f64, f64, Option<f64>, Option<f64>, Option<u64>)] = &[
         // Current generation
-        ("claude-opus-4-7",           5.0, 25.0, Some(0.5),  Some(6.25),  Some(1_000_000)),
-        ("claude-opus-4-6",           5.0, 25.0, Some(0.5),  Some(6.25),  Some(1_000_000)),
-        ("claude-sonnet-4-6",         3.0, 15.0, Some(0.3),  Some(3.75),  Some(1_000_000)),
-        ("claude-haiku-4-5-20251001", 1.0,  5.0, Some(0.1),  Some(1.25),  Some(200_000)),
-        ("claude-haiku-4-5",          1.0,  5.0, Some(0.1),  Some(1.25),  Some(200_000)),
+        (
+            "claude-opus-4-7",
+            5.0,
+            25.0,
+            Some(0.5),
+            Some(6.25),
+            Some(1_000_000),
+        ),
+        (
+            "claude-opus-4-6",
+            5.0,
+            25.0,
+            Some(0.5),
+            Some(6.25),
+            Some(1_000_000),
+        ),
+        (
+            "claude-sonnet-4-6",
+            3.0,
+            15.0,
+            Some(0.3),
+            Some(3.75),
+            Some(1_000_000),
+        ),
+        (
+            "claude-haiku-4-5-20251001",
+            1.0,
+            5.0,
+            Some(0.1),
+            Some(1.25),
+            Some(200_000),
+        ),
+        (
+            "claude-haiku-4-5",
+            1.0,
+            5.0,
+            Some(0.1),
+            Some(1.25),
+            Some(200_000),
+        ),
         // Legacy
-        ("claude-opus-4-5-20251101",  5.0, 25.0, Some(0.5),  Some(6.25),  Some(200_000)),
-        ("claude-opus-4-5",           5.0, 25.0, Some(0.5),  Some(6.25),  Some(200_000)),
-        ("claude-opus-4-1-20250805", 15.0, 75.0, Some(1.5),  Some(18.75), Some(200_000)),
-        ("claude-opus-4-1",          15.0, 75.0, Some(1.5),  Some(18.75), Some(200_000)),
-        ("claude-sonnet-4-5-20250929",3.0, 15.0, Some(0.3),  Some(3.75),  Some(200_000)),
-        ("claude-sonnet-4-5",         3.0, 15.0, Some(0.3),  Some(3.75),  Some(200_000)),
-        ("claude-opus-4-20250514",   15.0, 75.0, Some(1.5),  Some(18.75), Some(200_000)),
-        ("claude-sonnet-4-20250514",  3.0, 15.0, Some(0.3),  Some(3.75),  Some(200_000)),
-        ("claude-3-5-sonnet-20241022",3.0, 15.0, Some(0.3),  Some(3.75),  Some(200_000)),
-        ("claude-3-5-haiku-20241022", 1.0,  5.0, Some(0.1),  Some(1.25),  Some(200_000)),
-        ("claude-haiku-3-5",          1.0,  5.0, Some(0.1),  Some(1.25),  Some(200_000)),
-        ("claude-3-haiku-3",          0.25, 1.25, Some(0.03), Some(0.3),  Some(200_000)),
+        (
+            "claude-opus-4-5-20251101",
+            5.0,
+            25.0,
+            Some(0.5),
+            Some(6.25),
+            Some(200_000),
+        ),
+        (
+            "claude-opus-4-5",
+            5.0,
+            25.0,
+            Some(0.5),
+            Some(6.25),
+            Some(200_000),
+        ),
+        (
+            "claude-opus-4-1-20250805",
+            15.0,
+            75.0,
+            Some(1.5),
+            Some(18.75),
+            Some(200_000),
+        ),
+        (
+            "claude-opus-4-1",
+            15.0,
+            75.0,
+            Some(1.5),
+            Some(18.75),
+            Some(200_000),
+        ),
+        (
+            "claude-sonnet-4-5-20250929",
+            3.0,
+            15.0,
+            Some(0.3),
+            Some(3.75),
+            Some(200_000),
+        ),
+        (
+            "claude-sonnet-4-5",
+            3.0,
+            15.0,
+            Some(0.3),
+            Some(3.75),
+            Some(200_000),
+        ),
+        (
+            "claude-opus-4-20250514",
+            15.0,
+            75.0,
+            Some(1.5),
+            Some(18.75),
+            Some(200_000),
+        ),
+        (
+            "claude-sonnet-4-20250514",
+            3.0,
+            15.0,
+            Some(0.3),
+            Some(3.75),
+            Some(200_000),
+        ),
+        (
+            "claude-3-5-sonnet-20241022",
+            3.0,
+            15.0,
+            Some(0.3),
+            Some(3.75),
+            Some(200_000),
+        ),
+        (
+            "claude-3-5-haiku-20241022",
+            1.0,
+            5.0,
+            Some(0.1),
+            Some(1.25),
+            Some(200_000),
+        ),
+        (
+            "claude-haiku-3-5",
+            1.0,
+            5.0,
+            Some(0.1),
+            Some(1.25),
+            Some(200_000),
+        ),
+        (
+            "claude-3-haiku-3",
+            0.25,
+            1.25,
+            Some(0.03),
+            Some(0.3),
+            Some(200_000),
+        ),
     ];
 
     for &(model, input, output, cr, cw, ctx) in claude {
-        map.insert(model.to_string(), ModelPricing {
-            model: model.to_string(),
-            provider: "anthropic".to_string(),
-            input_cost_per_1m: input,
-            output_cost_per_1m: output,
-            cache_read_cost_per_1m: cr,
-            cache_write_cost_per_1m: cw,
-            max_input_tokens: ctx,
-        });
+        map.insert(
+            model.to_string(),
+            ModelPricing {
+                model: model.to_string(),
+                provider: "anthropic".to_string(),
+                input_cost_per_1m: input,
+                output_cost_per_1m: output,
+                cache_read_cost_per_1m: cr,
+                cache_write_cost_per_1m: cw,
+                max_input_tokens: ctx,
+            },
+        );
     }
 
     let openai: &[(&str, f64, f64, Option<f64>, Option<f64>, Option<u64>)] = &[
-        ("gpt-5.5",      5.0,  30.0, Some(0.5),   None, Some(1_047_576)),
-        ("gpt-5",        2.5,  10.0, Some(0.625), None, Some(1_047_576)),
-        ("gpt-4o",       2.5,  10.0, Some(1.25),  None, Some(128_000)),
-        ("gpt-4o-mini",  0.15,  0.6, Some(0.075), None, Some(128_000)),
-        ("gpt-4.1",      2.0,   8.0, Some(0.5),   None, Some(1_047_576)),
-        ("gpt-4.1-mini", 0.4,   1.6, Some(0.1),   None, Some(1_047_576)),
-        ("gpt-4-turbo", 10.0,  30.0, None,        None, Some(128_000)),
-        ("o3",          10.0,  40.0, Some(2.5),   None, Some(200_000)),
-        ("o4-mini",      1.1,   4.4, Some(0.275), None, Some(200_000)),
+        ("gpt-5.5", 5.0, 30.0, Some(0.5), None, Some(1_047_576)),
+        ("gpt-5", 2.5, 10.0, Some(0.625), None, Some(1_047_576)),
+        ("gpt-4o", 2.5, 10.0, Some(1.25), None, Some(128_000)),
+        ("gpt-4o-mini", 0.15, 0.6, Some(0.075), None, Some(128_000)),
+        ("gpt-4.1", 2.0, 8.0, Some(0.5), None, Some(1_047_576)),
+        ("gpt-4.1-mini", 0.4, 1.6, Some(0.1), None, Some(1_047_576)),
+        ("gpt-4-turbo", 10.0, 30.0, None, None, Some(128_000)),
+        ("o3", 10.0, 40.0, Some(2.5), None, Some(200_000)),
+        ("o4-mini", 1.1, 4.4, Some(0.275), None, Some(200_000)),
     ];
 
     for &(model, input, output, cr, cw, ctx) in openai {
-        map.insert(model.to_string(), ModelPricing {
-            model: model.to_string(),
-            provider: "openai".to_string(),
-            input_cost_per_1m: input,
-            output_cost_per_1m: output,
-            cache_read_cost_per_1m: cr,
-            cache_write_cost_per_1m: cw,
-            max_input_tokens: ctx,
-        });
+        map.insert(
+            model.to_string(),
+            ModelPricing {
+                model: model.to_string(),
+                provider: "openai".to_string(),
+                input_cost_per_1m: input,
+                output_cost_per_1m: output,
+                cache_read_cost_per_1m: cr,
+                cache_write_cost_per_1m: cw,
+                max_input_tokens: ctx,
+            },
+        );
     }
 
     let deepseek: &[(&str, f64, f64, Option<f64>, Option<f64>, Option<u64>)] = &[
-        ("deepseek-v4-flash", 0.14, 0.28, Some(0.003), None, Some(1_048_576)),
-        ("deepseek-v4-pro",   1.74, 3.48, Some(0.004), None, Some(1_048_576)),
-        ("deepseek-v3",       0.27, 1.1,  Some(0.07),  None, Some(1_048_576)),
-        ("deepseek-r1",       0.55, 2.19, Some(0.14),  None, Some(1_048_576)),
+        (
+            "deepseek-v4-flash",
+            0.14,
+            0.28,
+            Some(0.003),
+            None,
+            Some(1_048_576),
+        ),
+        (
+            "deepseek-v4-pro",
+            1.74,
+            3.48,
+            Some(0.004),
+            None,
+            Some(1_048_576),
+        ),
+        ("deepseek-v3", 0.27, 1.1, Some(0.07), None, Some(1_048_576)),
+        ("deepseek-r1", 0.55, 2.19, Some(0.14), None, Some(1_048_576)),
     ];
 
     for &(model, input, output, cr, cw, ctx) in deepseek {
-        map.insert(model.to_string(), ModelPricing {
-            model: model.to_string(),
-            provider: "deepseek".to_string(),
-            input_cost_per_1m: input,
-            output_cost_per_1m: output,
-            cache_read_cost_per_1m: cr,
-            cache_write_cost_per_1m: cw,
-            max_input_tokens: ctx,
-        });
+        map.insert(
+            model.to_string(),
+            ModelPricing {
+                model: model.to_string(),
+                provider: "deepseek".to_string(),
+                input_cost_per_1m: input,
+                output_cost_per_1m: output,
+                cache_read_cost_per_1m: cr,
+                cache_write_cost_per_1m: cw,
+                max_input_tokens: ctx,
+            },
+        );
     }
 
     let gemini: &[(&str, f64, f64, Option<u64>)] = &[
-        ("gemini-2.5-pro",   2.5,  10.0, Some(1_048_576)),
-        ("gemini-2.5-flash", 0.15,  0.6, Some(1_048_576)),
-        ("gemini-2.0-flash", 0.1,   0.4, Some(1_048_576)),
+        ("gemini-2.5-pro", 2.5, 10.0, Some(1_048_576)),
+        ("gemini-2.5-flash", 0.15, 0.6, Some(1_048_576)),
+        ("gemini-2.0-flash", 0.1, 0.4, Some(1_048_576)),
     ];
 
     for &(model, input, output, ctx) in gemini {
-        map.insert(model.to_string(), ModelPricing {
-            model: model.to_string(),
-            provider: "google".to_string(),
-            input_cost_per_1m: input,
-            output_cost_per_1m: output,
-            cache_read_cost_per_1m: None,
-            cache_write_cost_per_1m: None,
-            max_input_tokens: ctx,
-        });
+        map.insert(
+            model.to_string(),
+            ModelPricing {
+                model: model.to_string(),
+                provider: "google".to_string(),
+                input_cost_per_1m: input,
+                output_cost_per_1m: output,
+                cache_read_cost_per_1m: None,
+                cache_write_cost_per_1m: None,
+                max_input_tokens: ctx,
+            },
+        );
     }
 
     map
@@ -240,7 +385,10 @@ impl PricingService {
                     }
                 }
                 Err(e) => {
-                    eprintln!("pricing: LiteLLM fetch failed (will use static fallback): {}", e);
+                    eprintln!(
+                        "pricing: LiteLLM fetch failed (will use static fallback): {}",
+                        e
+                    );
                 }
             }
         });
@@ -281,17 +429,22 @@ impl PricingService {
                 .clone()
                 .unwrap_or_else(|| "unknown".to_string());
 
-            prices.insert(model.clone(), ModelPricing {
-                model: model.clone(),
-                provider,
-                input_cost_per_1m: input,
-                output_cost_per_1m: output,
-                cache_read_cost_per_1m: entry.cache_read_input_token_cost
-                    .map(|v| v * 1_000_000.0),
-                cache_write_cost_per_1m: entry.cache_creation_input_token_cost
-                    .map(|v| v * 1_000_000.0),
-                max_input_tokens: entry.max_input_tokens,
-            });
+            prices.insert(
+                model.clone(),
+                ModelPricing {
+                    model: model.clone(),
+                    provider,
+                    input_cost_per_1m: input,
+                    output_cost_per_1m: output,
+                    cache_read_cost_per_1m: entry
+                        .cache_read_input_token_cost
+                        .map(|v| v * 1_000_000.0),
+                    cache_write_cost_per_1m: entry
+                        .cache_creation_input_token_cost
+                        .map(|v| v * 1_000_000.0),
+                    max_input_tokens: entry.max_input_tokens,
+                },
+            );
         }
 
         Ok(prices)
@@ -372,9 +525,9 @@ impl PricingService {
             }
             Err(_) => {
                 // Generic fallback for completely unknown models (Sonnet-level estimate)
-                let input  = event.input_tokens as f64 / 1_000_000.0 * 3.0;
-                let output = (event.output_tokens + event.reasoning_tokens) as f64
-                    / 1_000_000.0 * 15.0;
+                let input = event.input_tokens as f64 / 1_000_000.0 * 3.0;
+                let output =
+                    (event.output_tokens + event.reasoning_tokens) as f64 / 1_000_000.0 * 15.0;
                 let cr = event.cache_read_tokens as f64 / 1_000_000.0 * 0.3;
                 let cw = event.cache_write_tokens as f64 / 1_000_000.0 * 3.75;
                 input + output + cr + cw

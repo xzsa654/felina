@@ -1,4 +1,3 @@
-use std::collections::BTreeMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::tokens::reconciliation::{
@@ -93,10 +92,7 @@ pub fn scan_error_from_status(status: &str, message: Option<String>) -> ScanErro
 fn event_from_record(record: ReconciliationRecord) -> Result<TokenEvent, String> {
     let timestamp = timestamp_from_record(&record).unwrap_or(0);
     let project = record.source_metadata.get("workspace").cloned();
-    let session_id = record
-        .session_id
-        .clone()
-        .or_else(|| synthetic_session_id(&record.source_metadata, &record.agent));
+    let session_id = record.session_id.clone();
     Ok(TokenEvent {
         agent: agent_from_str(&record.agent)
             .ok_or_else(|| format!("unsupported tokscale agent: {}", record.agent))?,
@@ -111,11 +107,6 @@ fn event_from_record(record: ReconciliationRecord) -> Result<TokenEvent, String>
         project,
         session_id,
     })
-}
-
-fn synthetic_session_id(metadata: &BTreeMap<String, String>, agent: &str) -> Option<String> {
-    let client = metadata.get("client").map(String::as_str).unwrap_or(agent);
-    Some(format!("tokscale-{}", client))
 }
 
 fn timestamp_from_record(record: &ReconciliationRecord) -> Option<i64> {
@@ -172,6 +163,7 @@ mod tests {
     use super::*;
     use crate::tokens::reconciliation::{SourceCollection, TokenSource};
     use crate::tokens::storage::TokenStorage;
+    use std::collections::BTreeMap;
     use std::path::PathBuf;
 
     fn temp_db(name: &str) -> PathBuf {
@@ -256,6 +248,26 @@ mod tests {
             1
         );
         cleanup_db(&db);
+    }
+
+    #[test]
+    fn aggregate_tokscale_records_do_not_fabricate_session_ids() {
+        let output = output_from_collection(SourceCollection {
+            source: TokenSource::TokscaleExport,
+            status: SourceStatus::Ok,
+            message: None,
+            version: None,
+            records: vec![record(
+                "claude-code",
+                "claude-sonnet-4-6",
+                1_161_157_714,
+                12_459,
+            )],
+        })
+        .expect("output");
+
+        assert_eq!(output.events.len(), 1);
+        assert!(output.events[0].session_id.is_none());
     }
 
     #[test]

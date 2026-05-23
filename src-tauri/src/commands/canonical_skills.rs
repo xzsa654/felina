@@ -96,7 +96,10 @@ fn split_frontmatter(raw: &str) -> (String, String) {
         return (String::new(), raw.to_string());
     };
     // Opening `---` must be its own line.
-    let rest = match rest.strip_prefix("\r\n").or_else(|| rest.strip_prefix('\n')) {
+    let rest = match rest
+        .strip_prefix("\r\n")
+        .or_else(|| rest.strip_prefix('\n'))
+    {
         Some(r) => r,
         None => return (String::new(), raw.to_string()),
     };
@@ -161,10 +164,7 @@ pub fn parse_skill_md(raw: &str) -> Result<CanonicalSkill, String> {
     })
 }
 
-fn take_required_string(
-    map: &mut serde_yaml::Mapping,
-    key: &str,
-) -> Result<String, String> {
+fn take_required_string(map: &mut serde_yaml::Mapping, key: &str) -> Result<String, String> {
     let v = map
         .remove(serde_yaml::Value::String(key.to_string()))
         .ok_or_else(|| format!("missing required frontmatter field: {key}"))?;
@@ -391,9 +391,7 @@ pub(crate) fn read_sync_meta_v2(
         Err(_) => return (backfill_from_skill(skill, scope, project_path, false), None),
     };
 
-    if probe.get("version").and_then(|v| v.as_u64()) == Some(2)
-        && probe.get("targets").is_some()
-    {
+    if probe.get("version").and_then(|v| v.as_u64()) == Some(2) && probe.get("targets").is_some() {
         if let Ok(meta) = serde_json::from_str::<SyncMetaV2>(&raw) {
             // v2 + non-empty targets → use as-is.
             if !meta.targets.is_empty() {
@@ -435,7 +433,10 @@ fn mark_sync_meta_dirty(skill_dir: &Path) {
     let raw = match fs::read_to_string(&path) {
         Ok(s) => s,
         Err(_) => {
-            let meta = SyncMetaV2 { dirty: true, ..SyncMetaV2::default() };
+            let meta = SyncMetaV2 {
+                dirty: true,
+                ..SyncMetaV2::default()
+            };
             let _ = write_sync_meta_v2(skill_dir, &meta);
             return;
         }
@@ -458,7 +459,10 @@ fn mark_sync_meta_dirty(skill_dir: &Path) {
         // v1 or corrupt — preserve v1 shape (last_synced lives on) and
         // just flip dirty=true. Full v2 upgrade happens at the next push.
         let v1: SyncMetaV1 = serde_json::from_str(&raw).unwrap_or_default();
-        let updated = SyncMetaV1 { dirty: true, last_synced: v1.last_synced };
+        let updated = SyncMetaV1 {
+            dirty: true,
+            last_synced: v1.last_synced,
+        };
         if let Ok(json) = serde_json::to_string_pretty(&updated) {
             let _ = fs::write(&path, json);
         }
@@ -527,10 +531,7 @@ fn align_v2_targets_to_agents(
 /// for surfacing a single `CanonicalSkill.last_synced` value to the UI.
 /// ISO-8601 UTC strings (`...Z`) compare lexicographically as time order.
 fn pick_latest_at(last_sync: &BTreeMap<String, LastSyncEntry>) -> Option<String> {
-    last_sync
-        .values()
-        .map(|e| e.at.clone())
-        .max()
+    last_sync.values().map(|e| e.at.clone()).max()
 }
 
 /// List canonical skills under the given scope. A missing canonical
@@ -546,8 +547,8 @@ pub fn canonical_skills_list(
         return Ok(Vec::new());
     }
 
-    let entries = fs::read_dir(&dir)
-        .map_err(|e| format!("failed to read canonical skills dir: {e}"))?;
+    let entries =
+        fs::read_dir(&dir).map_err(|e| format!("failed to read canonical skills dir: {e}"))?;
 
     let mut out = Vec::new();
     for entry in entries {
@@ -625,11 +626,9 @@ pub fn canonical_skills_read(
     if !skill_md.is_file() {
         return Err(format!("skill not found: {name}"));
     }
-    let raw = fs::read_to_string(&skill_md)
-        .map_err(|e| format!("failed to read SKILL.md: {e}"))?;
+    let raw = fs::read_to_string(&skill_md).map_err(|e| format!("failed to read SKILL.md: {e}"))?;
     let mut skill = parse_skill_md(&raw)?;
-    let (meta, legacy_last) =
-        read_sync_meta_v2(&skill_dir, &skill, scope, project_path.as_deref());
+    let (meta, legacy_last) = read_sync_meta_v2(&skill_dir, &skill, scope, project_path.as_deref());
     skill.dirty = meta.dirty;
     skill.last_synced = legacy_last.or_else(|| pick_latest_at(&meta.last_sync));
     skill.targets = meta.targets;
@@ -836,8 +835,7 @@ Hello.\n";
     fn list_returns_empty_for_missing_dir() {
         let tmp = tempdir();
         let project = tmp.to_string_lossy().to_string();
-        let entries =
-            canonical_skills_list(SkillScope::Project, Some(project)).unwrap();
+        let entries = canonical_skills_list(SkillScope::Project, Some(project)).unwrap();
         assert!(entries.is_empty());
     }
 
@@ -865,8 +863,7 @@ Hello.\n";
         );
 
         let project = tmp.to_string_lossy().to_string();
-        let entries =
-            canonical_skills_list(SkillScope::Project, Some(project)).unwrap();
+        let entries = canonical_skills_list(SkillScope::Project, Some(project)).unwrap();
         assert_eq!(entries.len(), 3, "expected 3 entries, got {entries:#?}");
 
         // Sorted alphabetically by name. alpha + beta = Ok, broken = Broken.
@@ -899,8 +896,8 @@ Hello.\n";
         );
 
         let project = tmp.to_string_lossy().to_string();
-        let err = canonical_skills_read(SkillScope::Project, Some(project), "bad".into())
-            .unwrap_err();
+        let err =
+            canonical_skills_read(SkillScope::Project, Some(project), "bad".into()).unwrap_err();
         assert!(err.contains("description"), "err was: {err}");
     }
 
@@ -937,14 +934,15 @@ Hello.\n";
         .expect("write");
 
         // Directory should be created automatically.
-        assert!(tmp.join(".felina").join("skills").join("foo").join("SKILL.md").is_file());
+        assert!(tmp
+            .join(".felina")
+            .join("skills")
+            .join("foo")
+            .join("SKILL.md")
+            .is_file());
 
-        let skill = canonical_skills_read(
-            SkillScope::Project,
-            Some(project),
-            "foo".into(),
-        )
-        .expect("read back");
+        let skill = canonical_skills_read(SkillScope::Project, Some(project), "foo".into())
+            .expect("read back");
         assert_eq!(skill.name, "foo");
         assert_eq!(skill.description, "Foo helper");
         assert_eq!(skill.agents, vec![AgentId::Anthropic]);
@@ -1010,12 +1008,8 @@ Hello.\n";
     fn read_returns_err_for_missing_skill() {
         let tmp = tempdir();
         let project = tmp.to_string_lossy().to_string();
-        let err = canonical_skills_read(
-            SkillScope::Project,
-            Some(project),
-            "nope".into(),
-        )
-        .unwrap_err();
+        let err =
+            canonical_skills_read(SkillScope::Project, Some(project), "nope".into()).unwrap_err();
         assert!(err.contains("not found"), "err was: {err}");
     }
 
@@ -1091,21 +1085,23 @@ Hello.\n";
 
         // Read back via the v2 reader (no v1 sidecar → not a backfill).
         let skill = skill_with_agents("foo", vec![AgentId::Anthropic, AgentId::Codex]);
-        let (round, legacy) = read_sync_meta_v2(
-            &skill_dir,
-            &skill,
-            SkillScope::Project,
-            Some("C:/proj"),
-        );
+        let (round, legacy) =
+            read_sync_meta_v2(&skill_dir, &skill, SkillScope::Project, Some("C:/proj"));
         assert_eq!(round.version, 2);
         assert_eq!(round.targets.len(), 2);
         assert_eq!(round.last_sync.len(), 2);
         assert_eq!(
-            round.last_sync.get("anthropic:project:C:/proj").map(|e| e.pushed_hash.as_str()),
+            round
+                .last_sync
+                .get("anthropic:project:C:/proj")
+                .map(|e| e.pushed_hash.as_str()),
             Some("abc123"),
         );
         assert_eq!(round.dirty, false);
-        assert!(legacy.is_none(), "native v2 read MUST NOT report a legacy last_synced");
+        assert!(
+            legacy.is_none(),
+            "native v2 read MUST NOT report a legacy last_synced"
+        );
     }
 
     #[test]
@@ -1192,17 +1188,14 @@ Hello.\n";
 
         // Read back: dirty=true, but targets and last_sync survive.
         let skill = skill_with_agents("preserve", vec![AgentId::Gemini]);
-        let (meta, _legacy) = read_sync_meta_v2(
-            &skill_dir,
-            &skill,
-            SkillScope::Global,
-            None,
-        );
+        let (meta, _legacy) = read_sync_meta_v2(&skill_dir, &skill, SkillScope::Global, None);
         assert!(meta.dirty, "mark_sync_meta_dirty must flip dirty=true");
         assert_eq!(meta.targets.len(), 1, "targets must survive mark_dirty");
         assert_eq!(meta.targets[0].agent, AgentId::Gemini);
         assert_eq!(
-            meta.last_sync.get("gemini:global").map(|e| e.pushed_hash.as_str()),
+            meta.last_sync
+                .get("gemini:global")
+                .map(|e| e.pushed_hash.as_str()),
             Some("preserved-hash"),
             "last_sync must survive mark_dirty",
         );
@@ -1337,14 +1330,14 @@ Hello.\n";
         )
         .expect("first write");
 
-        let skill = canonical_skills_read(
-            SkillScope::Project,
-            Some(project.clone()),
-            "fresh".into(),
-        )
-        .expect("read v1");
+        let skill =
+            canonical_skills_read(SkillScope::Project, Some(project.clone()), "fresh".into())
+                .expect("read v1");
         assert!(skill.dirty, "fresh canonical must be dirty=true");
-        assert!(skill.last_synced.is_none(), "fresh canonical has no last_synced");
+        assert!(
+            skill.last_synced.is_none(),
+            "fresh canonical has no last_synced"
+        );
 
         // Simulate a prior successful push by overwriting sync-meta with
         // dirty=false + a recorded timestamp.
@@ -1367,12 +1360,8 @@ Hello.\n";
         )
         .expect("second write");
 
-        let after = canonical_skills_read(
-            SkillScope::Project,
-            Some(project),
-            "fresh".into(),
-        )
-        .expect("read v2");
+        let after = canonical_skills_read(SkillScope::Project, Some(project), "fresh".into())
+            .expect("read v2");
         assert!(after.dirty, "edited canonical must be dirty=true");
         assert_eq!(
             after.last_synced.as_deref(),
