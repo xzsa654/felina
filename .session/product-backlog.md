@@ -63,6 +63,7 @@ Architecture note:
 
 Expansion path:
 - After Skills stabilizes, verify official docs for hooks/subagents/workflows/tool definitions before proposing new capability kinds.
+- Agent capability research for future tabs is captured in `.session/agent-capability-research.md`.
 - Future control-plane views may include topology/dependency view, runbook view, and incident/trace view, but these should follow the registry/lifecycle foundation rather than precede it.
 
 ### scope-model-simplification — single global canonical + project tab as managed-inventory view
