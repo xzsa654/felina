@@ -14,6 +14,11 @@ pub enum ProjectSource {
 #[serde(rename_all = "camelCase")]
 pub struct KnownProject {
     pub path: String,
+    /// Whether the project directory currently exists on disk. Drives the
+    /// "project not found" degradation indicator. An L3 saved entry persists
+    /// in known-projects.json after its folder is renamed/deleted, so list
+    /// membership alone cannot detect on-disk removal — this stat can.
+    pub exists: bool,
     pub sources: Vec<ProjectSource>,
 }
 
@@ -103,7 +108,14 @@ pub fn known_projects_list(
 
     let mut out: Vec<KnownProject> = map
         .into_iter()
-        .map(|(path, sources)| KnownProject { path, sources })
+        .map(|(path, sources)| {
+            let exists = std::path::Path::new(&path).exists();
+            KnownProject {
+                path,
+                exists,
+                sources,
+            }
+        })
         .collect();
     out.sort_by(|a, b| a.path.cmp(&b.path));
     Ok(out)
@@ -256,6 +268,37 @@ mod tests {
     }
 
     #[test]
+    fn exists_reflects_filesystem_presence() {
+        // A real temp dir (current_project) must report exists=true; a saved
+        // entry whose folder is absent must report exists=false. This is the
+        // signal the "project not found" degradation indicator relies on.
+        let real = tempdir();
+        let store_file = real.join("known-projects.json");
+        let bogus = real.join("does-not-exist-xyz");
+        fs::write(
+            &store_file,
+            format!(
+                r#"{{"projects":["{}"]}}"#,
+                bogus.to_string_lossy().replace('\\', "/")
+            ),
+        )
+        .unwrap();
+
+        let result = list_with_store(
+            Some(real.to_string_lossy().to_string()),
+            &[],
+            &store_file,
+        );
+
+        let real_key = normalize_path(&real.to_string_lossy());
+        let bogus_key = normalize_path(&bogus.to_string_lossy());
+        let real_entry = result.iter().find(|p| p.path == real_key).unwrap();
+        let bogus_entry = result.iter().find(|p| p.path == bogus_key).unwrap();
+        assert!(real_entry.exists, "existing dir must report exists=true");
+        assert!(!bogus_entry.exists, "missing dir must report exists=false");
+    }
+
+    #[test]
     fn remove_deletes_only_target() {
         let tmp = tempdir();
         let store_file = tmp.join("known-projects.json");
@@ -322,7 +365,14 @@ mod tests {
 
         let mut out: Vec<KnownProject> = map
             .into_iter()
-            .map(|(path, sources)| KnownProject { path, sources })
+            .map(|(path, sources)| {
+                let exists = std::path::Path::new(&path).exists();
+                KnownProject {
+                    path,
+                    exists,
+                    sources,
+                }
+            })
             .collect();
         out.sort_by(|a, b| a.path.cmp(&b.path));
         out

@@ -160,6 +160,11 @@ export type ProjectSource = "cwd" | "detected" | "saved";
 
 export interface KnownProject {
   path: string;
+  /** Whether the project directory currently exists on disk (filesystem stat
+   *  performed by `known_projects_list`). Drives the "project not found"
+   *  degradation indicator — list membership alone can't detect an L3 saved
+   *  entry whose folder was renamed/deleted. */
+  exists: boolean;
   sources: ProjectSource[];
 }
 
