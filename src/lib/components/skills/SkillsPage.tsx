@@ -6,12 +6,13 @@ import { PageBody, PageHeader } from "$lib/components/shared/PageScaffold";
 import { useProjectContextStore } from "$lib/stores/project-context";
 import { useSkillsStore } from "$lib/stores/skills-store";
 import { api } from "$lib/tauri/commands";
-import type { CanonicalSkill, SkillScope } from "$lib/types";
+import type { CanonicalSkill, SkillScope, SkillTarget } from "$lib/types";
 import SkillList from "./SkillList";
 import SkillEditor from "./SkillEditor";
 import PendingPushBar from "./PendingPushBar";
 import SkillImportBanner from "./SkillImportBanner";
 import SkillImportWizard from "./SkillImportWizard";
+import TargetEditor from "./TargetEditor";
 
 /**
  * Skills page — composes the multi-agent-skills-foundation pieces:
@@ -46,6 +47,7 @@ export default function SkillsPage() {
   const [wizardOpen, setWizardOpen] = useState(false);
   const [reloading, setReloading] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
+  const [pendingTargets, setPendingTargets] = useState<SkillTarget[]>([]);
 
   async function handleReload() {
     setReloading(true);
@@ -166,6 +168,7 @@ export default function SkillsPage() {
             <button
               type="button"
               onClick={() => {
+                setPendingTargets([]);
                 setCreatingNew(true);
                 setSelectedName(null);
               }}
@@ -244,27 +247,55 @@ export default function SkillsPage() {
 
           <div className="border border-border rounded overflow-y-auto">
             {creatingNew ? (
-              <SkillEditor
-                skill={null}
-                scope={scope}
-                projectPath={projectPath ?? null}
-                onSaved={(name) => {
-                  setCreatingNew(false);
-                  setSelectedName(name);
-                }}
-                onCancel={() => setCreatingNew(false)}
-              />
+              <div className="flex flex-col">
+                <div className="px-4 pt-4">
+                  <TargetEditor
+                    skillName=""
+                    scope={scope}
+                    projectPath={projectPath ?? null}
+                    targets={pendingTargets}
+                    onTargetsChange={setPendingTargets}
+                  />
+                </div>
+                <SkillEditor
+                  skill={null}
+                  scope={scope}
+                  projectPath={projectPath ?? null}
+                  onSaved={async (name) => {
+                    if (pendingTargets.length > 0) {
+                      await api.skillTargets.set(scope, name, pendingTargets, projectPath ?? undefined);
+                      await loadEntries();
+                    }
+                    setPendingTargets([]);
+                    setCreatingNew(false);
+                    setSelectedName(name);
+                  }}
+                  onCancel={() => {
+                    setPendingTargets([]);
+                    setCreatingNew(false);
+                  }}
+                />
+              </div>
             ) : activeSkill ? (
-              <SkillEditor
-                skill={activeSkill}
-                scope={scope}
-                projectPath={projectPath ?? null}
-                onSaved={() => {
-                  // After save, reload entry list to refresh dirty flags.
-                  void loadEntries();
-                }}
-                onDelete={handleDelete}
-              />
+              <div className="flex flex-col">
+                <div className="px-4 pt-4">
+                  <TargetEditor
+                    skillName={activeSkill.name}
+                    scope={scope}
+                    projectPath={projectPath ?? null}
+                    targets={selectedSkill?.targets ?? activeSkill.targets}
+                  />
+                </div>
+                <SkillEditor
+                  skill={activeSkill}
+                  scope={scope}
+                  projectPath={projectPath ?? null}
+                  onSaved={() => {
+                    void loadEntries();
+                  }}
+                  onDelete={handleDelete}
+                />
+              </div>
             ) : (
               <div className="flex items-center justify-center h-full text-sm text-text-secondary p-8">
                 Select a skill or create a new one.

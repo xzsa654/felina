@@ -1,18 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
 import { ChevronDown, ChevronRight, Plus, Save, Trash2 } from "lucide-react";
-import type { AgentId, CanonicalSkill, SkillScope } from "$lib/types";
+import type { CanonicalSkill, SkillScope } from "$lib/types";
 import { api } from "$lib/tauri/commands";
 import { useSkillsStore } from "$lib/stores/skills-store";
-
-const ALL_AGENTS: AgentId[] = ["anthropic", "codex", "gemini"];
 
 interface Props {
   /** `null` when creating a new skill; otherwise the skill being edited. */
   skill: CanonicalSkill | null;
   scope: SkillScope;
   projectPath: string | null;
-  /** Called after a successful save with the updated/created skill name. */
-  onSaved: (name: string) => void;
+  /** Called after a successful save with the updated/created skill name. May be async. */
+  onSaved: (name: string) => void | Promise<void>;
   /** Cancel a new-skill draft (no-op for existing skills). */
   onCancel?: () => void;
   /** Optional delete callback for existing skills; renders in the header next to Save. */
@@ -38,7 +36,6 @@ function makeRowId(): string {
  * Properties block:
  *   - name (text input, disabled when editing an existing skill)
  *   - description (textarea, one-line conceptually but allow wrapping)
- *   - agents (three checkboxes, one per supported agent)
  *
  * Advanced block (collapsed by default per decision 4):
  *   - Free-form extra key/value rows. Values that parse as JSON (arrays,
@@ -56,9 +53,6 @@ export default function SkillEditor({ skill, scope, projectPath, onSaved, onCanc
   const isNew = skill === null;
   const [name, setName] = useState(skill?.name ?? "");
   const [description, setDescription] = useState(skill?.description ?? "");
-  const [agents, setAgents] = useState<Set<AgentId>>(
-    new Set(skill?.agents ?? ["anthropic"]),
-  );
   const [body, setBody] = useState(skill?.body ?? "");
   const [extras, setExtras] = useState<ExtraRow[]>(() => initExtras(skill));
   const [advancedOpen, setAdvancedOpen] = useState(false);
@@ -69,7 +63,6 @@ export default function SkillEditor({ skill, scope, projectPath, onSaved, onCanc
   useEffect(() => {
     setName(skill?.name ?? "");
     setDescription(skill?.description ?? "");
-    setAgents(new Set(skill?.agents ?? ["anthropic"]));
     setBody(skill?.body ?? "");
     setExtras(initExtras(skill));
     setAdvancedOpen(false);
@@ -78,7 +71,7 @@ export default function SkillEditor({ skill, scope, projectPath, onSaved, onCanc
 
   const nameError = useMemo(() => validateName(name), [name]);
   const canSave =
-    nameError === null && description.trim() !== "" && agents.size > 0 && !saving;
+    nameError === null && description.trim() !== "" && !saving;
 
   async function handleSave() {
     if (!canSave) return;
@@ -88,7 +81,7 @@ export default function SkillEditor({ skill, scope, projectPath, onSaved, onCanc
       const frontmatter: Record<string, unknown> = {
         name,
         description,
-        agents: Array.from(agents),
+        agents: skill?.agents ?? [],
       };
       for (const row of extras) {
         const trimmedKey = row.key.trim();
@@ -107,19 +100,20 @@ export default function SkillEditor({ skill, scope, projectPath, onSaved, onCanc
       );
       // Optimistically mark dirty=true so the pending-push bar shows up
       // immediately; loadEntries() below picks up the real sync-meta.
+      const currentTargets = skill?.targets ?? [];
       upsertEntry({
         name,
         description,
-        agents: Array.from(agents),
+        agents: skill?.agents ?? [],
         frontmatterExtras: {},
         body,
-        dirty: true,
+        dirty: currentTargets.some((t) => t.enabled && t.mode === "tracked"),
         lastSynced: skill?.lastSynced ?? null,
-        targets: skill?.targets ?? [],
+        targets: currentTargets,
         lastSync: skill?.lastSync ?? {},
       });
       await loadEntries();
-      onSaved(name);
+      await onSaved(name);
     } catch (e) {
       setError(String(e));
     } finally {
@@ -209,34 +203,6 @@ export default function SkillEditor({ skill, scope, projectPath, onSaved, onCanc
           />
         </label>
 
-        <fieldset className="flex flex-col gap-1 text-sm">
-          <legend className="text-text-secondary">Agents</legend>
-          <div className="flex gap-3 flex-wrap">
-            {ALL_AGENTS.map((agent) => (
-              <label
-                key={agent}
-                className="inline-flex items-center gap-1.5 text-sm cursor-pointer"
-              >
-                <input
-                  type="checkbox"
-                  checked={agents.has(agent)}
-                  onChange={() => {
-                    setAgents((prev) => {
-                      const next = new Set(prev);
-                      if (next.has(agent)) next.delete(agent);
-                      else next.add(agent);
-                      return next;
-                    });
-                  }}
-                />
-                <span className="capitalize">{agent}</span>
-              </label>
-            ))}
-          </div>
-          {agents.size === 0 && (
-            <span className="text-xs text-red-400">Pick at least one agent.</span>
-          )}
-        </fieldset>
       </section>
 
       {/* ------- Advanced (collapsed by default) ------- */}

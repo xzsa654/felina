@@ -16,7 +16,7 @@ export default function PendingPushBar() {
   const [pushing, setPushing] = useState(false);
 
   const dirtyCount = useMemo(
-    () => entries.filter((e) => e.kind === "ok" && e.skill.dirty).length,
+    () => entries.filter((e) => e.kind === "ok" && e.skill.dirty && e.skill.targets.length > 0).length,
     [entries],
   );
 

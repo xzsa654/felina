@@ -156,24 +156,8 @@ export const useSkillsStore = create<SkillsStore>((set, get) => ({
     });
     try {
       const results = await api.skillSync.one(scope, name, projectPath ?? undefined);
-      const allOk = results.every((r) => r.success);
-      set((s) => ({
-        entries: allOk
-          ? s.entries.map((e) =>
-              e.kind === "ok" && e.skill.name === name
-                ? {
-                    ...e,
-                    skill: {
-                      ...e.skill,
-                      dirty: false,
-                      lastSynced: new Date().toISOString(),
-                    },
-                  }
-                : e,
-            )
-          : s.entries,
-        lastSyncResults: results,
-      }));
+      await get().loadEntries();
+      set({ lastSyncResults: results });
       return results;
     } finally {
       set((s) => {

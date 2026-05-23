@@ -21,6 +21,9 @@ import type {
   ImportCandidate,
   ImportSelection,
   AgentPathsConfig,
+  KnownProject,
+  SkillTarget,
+  OrphanFile,
 } from "$lib/types";
 
 // Retained-for-reference wrappers (hooks / instructions / mcp / rules / budget / stats):
@@ -145,6 +148,30 @@ export const api = {
       projectPath?: string,
     ) =>
       invoke<void>("skill_import_apply", { scope, projectPath, selections }),
+  },
+
+  // Known Projects.
+  knownProjects: {
+    list: (currentProject?: string) =>
+      invoke<KnownProject[]>("known_projects_list", { currentProject }),
+    add: (path: string) =>
+      invoke<void>("known_projects_add", { path }),
+    remove: (path: string) =>
+      invoke<void>("known_projects_remove", { path }),
+  },
+
+  // Per-skill target editor.
+  skillTargets: {
+    set: (scope: SkillScope, skillName: string, targets: SkillTarget[], projectPath?: string) =>
+      invoke<void>("skill_targets_set", { scope, projectPath, skillName, targets }),
+  },
+
+  // Orphan prune.
+  skillPrune: {
+    scan: (scope: SkillScope, skillName: string, projectPath?: string) =>
+      invoke<OrphanFile[]>("skill_prune_orphans_scan", { scope, projectPath, skillName }),
+    apply: (scope: SkillScope, skillName: string, orphans: OrphanFile[], projectPath?: string) =>
+      invoke<void>("skill_prune_orphans_apply", { scope, projectPath, skillName, orphans }),
   },
 
   // Settings → Agent Paths.

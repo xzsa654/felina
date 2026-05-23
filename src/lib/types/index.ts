@@ -40,6 +40,10 @@ export type {
   ImportSelection,
   AgentPathPair,
   AgentPathsConfig,
+  SkillTarget,
+  ProjectSource,
+  KnownProject,
+  OrphanFile,
   // Deprecated; removed in tasks 5.3 + 6.6.
   SkillInfo,
 } from "./skills";

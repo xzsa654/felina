@@ -104,40 +104,38 @@ export default function SkillList({ entries, selectedName, onSelect }: Props) {
                 <div className="text-xs text-text-secondary truncate">
                   {skill.description || <span className="italic">(no description)</span>}
                 </div>
-                <div className="mt-1 flex gap-1 flex-wrap">
-                  {skill.agents.map((a) => (
-                    <span
-                      key={a}
-                      className="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-accent/10 text-accent"
-                    >
-                      {a}
-                    </span>
-                  ))}
-                </div>
+                {skill.targets.length > 0 && (
+                  <div className="mt-1 flex gap-1 flex-wrap">
+                    {[...new Set(skill.targets.map((t) => t.agent))].map((a) => (
+                      <span
+                        key={a}
+                        className="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-accent/10 text-accent"
+                      >
+                        {a}
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
-              <button
-                type="button"
-                disabled={isPushing}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  void syncOne(skill.name);
-                }}
-                className={`shrink-0 inline-flex items-center gap-1 text-xs px-2 py-1 rounded transition-colors ${
-                  isPushing
-                    ? "text-text-secondary opacity-50 cursor-wait"
-                    : skill.dirty
-                      ? "bg-accent text-white hover:bg-accent-hover"
-                      : "border border-border text-text-secondary hover:text-text-primary hover:border-accent"
-                }`}
-                title={
-                  skill.dirty
-                    ? "Push this skill to its agent targets"
-                    : "Re-push this skill (overwrites agent targets)"
-                }
-              >
-                <Send size={12} />
-                {isPushing ? "Pushing…" : skill.dirty ? "Push" : "Re-push"}
-              </button>
+              {(skill.dirty || isPushing) && (
+                <button
+                  type="button"
+                  disabled={isPushing}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void syncOne(skill.name);
+                  }}
+                  className={`shrink-0 inline-flex items-center gap-1 text-xs px-2 py-1 rounded transition-colors ${
+                    isPushing
+                      ? "text-text-secondary opacity-50 cursor-wait"
+                      : "bg-accent text-white hover:bg-accent-hover"
+                  }`}
+                  title="Push this skill to its agent targets"
+                >
+                  <Send size={12} />
+                  {isPushing ? "Pushing…" : "Push"}
+                </button>
+              )}
             </button>
           </li>
         );

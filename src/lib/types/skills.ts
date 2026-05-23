@@ -155,3 +155,16 @@ export interface SyncMetaV2 {
   lastSync: Record<string, LastSyncEntry>;
   dirty: boolean;
 }
+
+export type ProjectSource = "cwd" | "detected" | "saved";
+
+export interface KnownProject {
+  path: string;
+  sources: ProjectSource[];
+}
+
+export interface OrphanFile {
+  path: string;
+  agent: AgentId;
+  scope: SkillScope;
+}

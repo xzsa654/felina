@@ -111,6 +111,9 @@ pub fn run() {
             commands::canonical_skills::canonical_skills_read,
             commands::canonical_skills::canonical_skills_write,
             commands::canonical_skills::canonical_skills_delete,
+            commands::canonical_skills::skill_targets_set,
+            commands::canonical_skills::skill_prune_orphans_scan,
+            commands::canonical_skills::skill_prune_orphans_apply,
             // Fan-out push.
             commands::fan_out::skill_sync_one,
             commands::fan_out::skill_sync_all,
@@ -121,6 +124,10 @@ pub fn run() {
             // Settings → Agent Paths.
             commands::agent_paths::agent_paths_get,
             commands::agent_paths::agent_paths_set,
+            // Known Projects.
+            commands::known_projects::known_projects_list,
+            commands::known_projects::known_projects_add,
+            commands::known_projects::known_projects_remove,
             // Maintenance
             commands::maintenance::get_disk_usage,
             commands::maintenance::cleanup_directory,

@@ -191,10 +191,9 @@ pub fn skill_sync_one(
         }
     }
 
-    // Partial success keeps dirty=true so the user can re-push after fixing
-    // the failing target. last_sync entries for successful targets are still
-    // persisted so the next push knows what changed.
-    let all_ok = !results.is_empty() && results.iter().all(|r| r.success);
+    // No targets → nothing to push → clear dirty. Partial success keeps
+    // dirty=true so the user can re-push after fixing the failing target.
+    let all_ok = results.is_empty() || results.iter().all(|r| r.success);
     if all_ok {
         meta.dirty = false;
     }
@@ -430,7 +429,8 @@ mod tests {
     // never touched.
 
     use crate::commands::canonical_skills::{
-        canonical_skills_list, canonical_skills_write, SkillListEntry, SkillScope,
+        canonical_skills_list, canonical_skills_write, write_sync_meta_v2,
+        SkillListEntry, SkillScope, SkillTarget, SyncMetaV2, TargetMode,
     };
     use std::sync::atomic::{AtomicU32, Ordering};
 
@@ -481,6 +481,22 @@ mod tests {
         make_canonical(&tmp, "smoke-fanout", &["anthropic", "codex", "gemini"]);
 
         let canonical_skill_dir = tmp.join(".felina").join("skills").join("smoke-fanout");
+        let project = tmp.to_string_lossy().to_string();
+        write_sync_meta_v2(
+            &canonical_skill_dir,
+            &SyncMetaV2 {
+                version: 2,
+                targets: vec![
+                    SkillTarget { agent: AgentId::Anthropic, scope: SkillScope::Project, project: Some(project.clone()), enabled: true, mode: TargetMode::Tracked },
+                    SkillTarget { agent: AgentId::Codex,     scope: SkillScope::Project, project: Some(project.clone()), enabled: true, mode: TargetMode::Tracked },
+                    SkillTarget { agent: AgentId::Gemini,    scope: SkillScope::Project, project: Some(project.clone()), enabled: true, mode: TargetMode::Tracked },
+                ],
+                last_sync: std::collections::BTreeMap::new(),
+                dirty: true,
+            },
+        )
+        .unwrap();
+
         let scripts = canonical_skill_dir.join("scripts");
         let references = canonical_skill_dir.join("references");
         fs::create_dir_all(&scripts).unwrap();
@@ -599,12 +615,25 @@ mod tests {
 
     #[test]
     fn per_target_pushed_hash_and_at_recorded() {
-        // After a successful push, last_sync[<key>] contains a SHA-256 hex
-        // pushed_hash and an ISO-8601 timestamp.
         let tmp = smoke_tempdir("hashat");
         make_canonical(&tmp, "hash-skill", &["anthropic", "gemini"]);
 
         let project = tmp.to_string_lossy().to_string();
+        let canonical_skill_dir = tmp.join(".felina").join("skills").join("hash-skill");
+        write_sync_meta_v2(
+            &canonical_skill_dir,
+            &SyncMetaV2 {
+                version: 2,
+                targets: vec![
+                    SkillTarget { agent: AgentId::Anthropic, scope: SkillScope::Project, project: Some(project.clone()), enabled: true, mode: TargetMode::Tracked },
+                    SkillTarget { agent: AgentId::Gemini,    scope: SkillScope::Project, project: Some(project.clone()), enabled: true, mode: TargetMode::Tracked },
+                ],
+                last_sync: std::collections::BTreeMap::new(),
+                dirty: true,
+            },
+        )
+        .unwrap();
+
         let results = skill_sync_one(
             SkillScope::Project,
             Some(project.clone()),
@@ -613,7 +642,6 @@ mod tests {
         .expect("sync");
         assert!(results.iter().all(|r| r.success), "{results:#?}");
 
-        let canonical_skill_dir = tmp.join(".felina").join("skills").join("hash-skill");
         let after_meta: serde_json::Value = serde_json::from_str(
             &fs::read_to_string(canonical_skill_dir.join(".felina-sync-meta.json")).unwrap()
         )
