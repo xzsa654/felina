@@ -1,9 +1,28 @@
 import { useEffect, useState } from "react";
-import { X } from "lucide-react";
+import { X, FolderOpen } from "lucide-react";
+import { open } from "@tauri-apps/plugin-dialog";
 import type { AgentId, KnownProject, SkillScope, SkillTarget } from "$lib/types";
 import { api } from "$lib/tauri/commands";
+import { normalizeProjectPath } from "$lib/utils/path";
 
 const AGENTS: AgentId[] = ["anthropic", "codex", "gemini"];
+
+// known_projects_list returns normalized paths; the raw projectPath prop and
+// the OS dialog return un-normalized paths. A controlled <select> only matches
+// an <option> on exact string equality, so we must map a raw/desired path back
+// to the exact value present in the list — otherwise the select silently shows
+// its first option while state holds an unmatched value.
+function matchOption(
+  projects: KnownProject[],
+  want: string | null,
+): string | null {
+  if (want != null) {
+    const w = normalizeProjectPath(want);
+    const hit = projects.find((p) => normalizeProjectPath(p.path) === w);
+    if (hit) return hit.path;
+  }
+  return projects[0]?.path ?? null;
+}
 
 interface Props {
   scope: SkillScope;
@@ -29,19 +48,20 @@ export default function AddTargetDialog({
   useEffect(() => {
     void api.knownProjects
       .list(projectPath ?? undefined)
-      .then(setProjects)
+      .then((ps) => {
+        setProjects(ps);
+        setSelectedProject((cur) => matchOption(ps, cur ?? projectPath));
+      })
       .catch(() => setProjects([]));
   }, [projectPath]);
-
-  const normalizedCurrent = projectPath?.replace(/\\/g, "/").toLowerCase() ?? "";
 
   const isDuplicate = existingTargets.some(
     (t) =>
       t.agent === agent &&
       t.scope === targetScope &&
       (targetScope === "global" ||
-        (t.project ?? "").replace(/\\/g, "/").toLowerCase() ===
-          (selectedProject ?? "").replace(/\\/g, "/").toLowerCase()),
+        normalizeProjectPath(t.project ?? "") ===
+          normalizeProjectPath(selectedProject ?? "")),
   );
 
   function handleConfirm() {
@@ -97,25 +117,37 @@ export default function AddTargetDialog({
         </label>
 
         {targetScope === "project" && (
-          <label className="flex flex-col gap-1 text-sm">
+          <div className="flex flex-col gap-1 text-sm">
             <span className="text-text-secondary">Project</span>
-            <select
-              value={selectedProject ?? ""}
-              onChange={(e) => setSelectedProject(e.target.value)}
-              className="px-2 py-1.5 rounded bg-bg-primary border border-border text-sm"
-            >
-              {projects.map((p) => {
-                const norm = p.path.toLowerCase();
-                const isCurrent = norm === normalizedCurrent;
-                return (
-                  <option key={p.path} value={p.path} disabled={!isCurrent}>
+            <div className="flex gap-1.5">
+              <select
+                value={selectedProject ?? ""}
+                onChange={(e) => setSelectedProject(e.target.value)}
+                className="flex-1 min-w-0 px-2 py-1.5 rounded bg-bg-primary border border-border text-sm"
+              >
+                {projects.map((p) => (
+                  <option key={p.path} value={p.path}>
                     {p.path}
-                    {!isCurrent ? " — cross-project: Phase 1.5 (b)" : ""}
                   </option>
-                );
-              })}
-            </select>
-          </label>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={async () => {
+                  const dir = await open({ directory: true });
+                  if (!dir) return;
+                  await api.knownProjects.add(dir);
+                  const refreshed = await api.knownProjects.list(projectPath ?? undefined);
+                  setProjects(refreshed);
+                  setSelectedProject(matchOption(refreshed, dir));
+                }}
+                className="px-2 py-1.5 rounded border border-border text-text-secondary hover:text-text-primary hover:bg-bg-primary shrink-0"
+                title="Browse for project folder"
+              >
+                <FolderOpen size={14} />
+              </button>
+            </div>
+          </div>
         )}
 
         {isDuplicate && (

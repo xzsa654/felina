@@ -458,48 +458,41 @@ code:
 ---
 ### Requirement: Per-Skill Target Editor
 
-The system SHALL allow a user to explicitly edit a canonical skill's target list. The system SHALL support adding a target by choosing an agent (`anthropic`, `codex`, or `gemini`) and a scope (`global` or `project`); a target added through this capability SHALL default to `enabled: true` and `mode: tracked`. For a `project`-scope target, the project SHALL be chosen from the known-projects list, restricted in this capability to the current project; selecting a project other than the current one SHALL NOT be permitted in this capability. The system SHALL support setting each target's state to exactly one of Tracked (`enabled: true`, `mode: tracked`), Detached (`enabled: true`, `mode: detached`), or Disabled (`enabled: false`). The `forked` mode SHALL NOT be selectable in this capability. The system SHALL support removing a single target from the list. Saving an edited target list SHALL overwrite the sidecar `targets` array and SHALL prune any `last_sync` entry whose key no longer corresponds to a target in the new list, while preserving `last_sync` entries for targets that remain.
+The AddTargetDialog SHALL allow selecting any project from the Known Projects list as a target destination, not only the current project. The "cross-project: Phase 1.5 (b)" disabled label SHALL be removed. When a cross-project target is added, the target's `project` field SHALL contain the selected project's path. Fan-out push SHALL write the rendered SKILL.md to the selected project's agent skill directory using the existing `resolve_pair` routing (which already accepts arbitrary `project_path`).
 
-#### Scenario: Add a target to an empty skill
+#### Scenario: Add a cross-project target
 
-- **WHEN** a skill has an empty target list and the user adds an anthropic global target
-- **THEN** the sidecar `targets` array SHALL contain one entry `{ agent: anthropic, scope: global, enabled: true, mode: tracked }`
-- **AND** a subsequent push SHALL write the anthropic global target
+- **GIVEN** skill "shared-util" exists in project A and Known Projects contains project B at `D:/work/project-b`
+- **WHEN** the user opens AddTargetDialog, selects agent "anthropic", scope "project", and project "D:/work/project-b", then confirms
+- **THEN** a new target `{ agent: "anthropic", scope: "project", project: "D:/work/project-b", enabled: true, mode: "tracked" }` is added to the skill's target list
 
-#### Scenario: Removing a target prunes its last_sync entry
+#### Scenario: Cross-project push writes to destination
 
-- **WHEN** a skill has two targets each with a recorded `last_sync` entry and the user removes one target
-- **THEN** the saved `targets` array SHALL contain only the remaining target
-- **AND** the `last_sync` map SHALL retain the remaining target's entry and SHALL NOT contain the removed target's key
-
-#### Scenario: Setting a target to Disabled excludes it from push
-
-- **WHEN** the user sets a target's state to Disabled
-- **THEN** the target SHALL be persisted with `enabled: false`
-- **AND** a subsequent push SHALL skip that target
+- **GIVEN** skill "shared-util" has a cross-project target pointing to `D:/work/project-b` with agent "anthropic"
+- **WHEN** the user pushes the skill
+- **THEN** the rendered SKILL.md is written to `D:/work/project-b/.claude/skills/shared-util/SKILL.md`
 
 
 <!-- @trace
-source: known-projects-and-multi-target
-updated: 2026-05-23
+source: cross-project-push-and-coverage
+updated: 2026-05-24
 code:
-  - src/lib/components/skills/SkillList.tsx
-  - src/lib/stores/skills-store.ts
-  - src-tauri/Cargo.toml
-  - src-tauri/src/commands/known_projects.rs
-  - src/lib/components/skills/SkillsPage.tsx
-  - src/lib/components/skills/PendingPushBar.tsx
-  - src-tauri/src/commands/canonical_skills.rs
-  - src/lib/components/skills/TargetEditor.tsx
-  - src-tauri/src/lib.rs
-  - src/lib/components/skills/SkillEditor.tsx
-  - src/lib/tauri/commands.ts
-  - src-tauri/src/commands/fan_out/mod.rs
-  - src/lib/types/index.ts
-  - src-tauri/src/commands/mod.rs
-  - .session/product-backlog.md
-  - src/lib/types/skills.ts
+  - src/lib/utils/path.ts
   - src/lib/components/skills/AddTargetDialog.tsx
+  - src/lib/components/skills/SkillsPage.tsx
+  - src/lib/components/skills/CoverageMatrix.tsx
+  - src-tauri/Cargo.toml
+  - src-tauri/capabilities/default.json
+  - src/lib/components/skills/TargetEditor.tsx
+  - src/lib/types/skills.ts
+  - package.json
+  - src-tauri/gen/schemas/desktop-schema.json
+  - src-tauri/gen/schemas/capabilities.json
+  - src-tauri/src/commands/known_projects.rs
+  - src-tauri/src/lib.rs
+  - src-tauri/gen/schemas/acl-manifests.json
+  - .session/product-backlog.md
+  - src-tauri/gen/schemas/windows-schema.json
 -->
 
 ---
@@ -546,4 +539,51 @@ code:
   - .session/product-backlog.md
   - src/lib/types/skills.ts
   - src/lib/components/skills/AddTargetDialog.tsx
+-->
+
+---
+### Requirement: Origin-Project Degradation
+
+Project-scope target existence SHALL be determined by actual filesystem existence of the target's project path, NOT by Known Projects list membership (an explicitly-saved L3 entry persists in `known-projects.json` after its folder is renamed or deleted, so list membership cannot detect on-disk removal). The `known_projects_list` command SHALL annotate each returned project with an `exists` boolean computed via a filesystem stat (`Path::exists()`), without adding a new command. This stat SHALL be evaluated whenever the list is loaded — on Skills page mount, on manual Reload, on window focus regain, and after target/push operations change the skill entries — and SHALL NOT use a file watcher or polling.
+
+A project-scope target SHALL be shown with a "project not found" indicator (instead of "Not synced") in the Sync info bar, the per-skill Target editor row, and the Coverage matrix when its project path is present in the list with `exists` false, OR is absent from the list. The Target editor indicator SHALL carry guidance that the user can either restore the folder or remove the target and re-point it. When a target's destination project path no longer exists, the system SHALL NOT automatically delete the target row or modify the target's `enabled` state; the target row SHALL remain editable. Fan-out push SHALL skip an unresolvable target and produce a `SyncResult` with `success: false`.
+
+#### Scenario: Destination project folder renamed or deleted
+
+- **GIVEN** skill "shared-util" has a target pointing to `D:/work/old-project`, and that folder is then renamed or deleted on disk while it remains an entry in `known-projects.json`
+- **WHEN** the Known Projects list is reloaded (Skills page mount, Reload, or window focus)
+- **THEN** `known_projects_list` reports that project with `exists` false, and the Sync info bar and Coverage matrix display "project not found" for that target rather than "Not synced"
+
+#### Scenario: Push skips a missing destination
+
+- **GIVEN** skill "shared-util" has a target pointing to `D:/work/old-project` which no longer exists
+- **WHEN** the user pushes the skill
+- **THEN** push skips that target with a `success: false` result and `dirty` remains true for the skill
+
+#### Scenario: Destination project restored
+
+- **GIVEN** a target previously showed "project not found" because `D:/work/old-project` was missing
+- **WHEN** the folder `D:/work/old-project` is recreated and the Known Projects list is reloaded
+- **THEN** `known_projects_list` reports that project with `exists` true and the indicator returns to its normal sync state
+
+<!-- @trace
+source: cross-project-push-and-coverage
+updated: 2026-05-24
+code:
+  - src/lib/utils/path.ts
+  - src/lib/components/skills/AddTargetDialog.tsx
+  - src/lib/components/skills/SkillsPage.tsx
+  - src/lib/components/skills/CoverageMatrix.tsx
+  - src-tauri/Cargo.toml
+  - src-tauri/capabilities/default.json
+  - src/lib/components/skills/TargetEditor.tsx
+  - src/lib/types/skills.ts
+  - package.json
+  - src-tauri/gen/schemas/desktop-schema.json
+  - src-tauri/gen/schemas/capabilities.json
+  - src-tauri/src/commands/known_projects.rs
+  - src-tauri/src/lib.rs
+  - src-tauri/gen/schemas/acl-manifests.json
+  - .session/product-backlog.md
+  - src-tauri/gen/schemas/windows-schema.json
 -->

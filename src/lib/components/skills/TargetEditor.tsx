@@ -1,8 +1,9 @@
 import { useState } from "react";
-import { Plus, Search, Trash2 } from "lucide-react";
-import type { OrphanFile, SkillScope, SkillTarget } from "$lib/types";
+import { AlertTriangle, Plus, Search, Trash2 } from "lucide-react";
+import type { KnownProject, OrphanFile, SkillScope, SkillTarget } from "$lib/types";
 import { api } from "$lib/tauri/commands";
 import { useSkillsStore } from "$lib/stores/skills-store";
+import { isProjectMissing } from "$lib/utils/path";
 import ConfirmDialog from "$lib/components/shared/ConfirmDialog";
 import AddTargetDialog from "./AddTargetDialog";
 
@@ -35,9 +36,12 @@ interface Props {
   targets: SkillTarget[];
   /** When set, targets are buffered locally instead of saved to backend. */
   onTargetsChange?: (targets: SkillTarget[]) => void;
+  /** Known Projects (with `exists`) — drives the per-row "project not found"
+   *  indicator for project-scope targets whose destination folder is gone. */
+  knownProjects?: KnownProject[];
 }
 
-export default function TargetEditor({ skillName, scope, projectPath, targets, onTargetsChange }: Props) {
+export default function TargetEditor({ skillName, scope, projectPath, targets, onTargetsChange, knownProjects }: Props) {
   const loadEntries = useSkillsStore((s) => s.loadEntries);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [pruneOrphans, setPruneOrphans] = useState<OrphanFile[] | null>(null);
@@ -134,6 +138,10 @@ export default function TargetEditor({ skillName, scope, projectPath, targets, o
         <div className="flex flex-col gap-1">
           {targets.map((t, i) => {
             const current = toUIState(t);
+            const projectNotFound =
+              t.scope === "project" &&
+              knownProjects !== undefined &&
+              isProjectMissing(knownProjects, t.project ?? "");
             return (
               <div
                 key={`${t.agent}-${t.scope}-${t.project ?? ""}-${i}`}
@@ -144,6 +152,14 @@ export default function TargetEditor({ skillName, scope, projectPath, targets, o
                 {t.scope === "project" && (
                   <span className="text-text-secondary truncate max-w-[10rem]" title={t.project ?? ""}>
                     {t.project ?? ""}
+                  </span>
+                )}
+                {projectNotFound && (
+                  <span
+                    className="inline-flex items-center gap-1 text-red-400 shrink-0"
+                    title="此 target 的 project 資料夾不存在（已被刪除/改名/卸載）。請還原資料夾，或刪除此 target 後重新指向新路徑。"
+                  >
+                    <AlertTriangle size={12} /> project not found
                   </span>
                 )}
 
