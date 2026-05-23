@@ -180,4 +180,30 @@ export interface OrphanFile {
   path: string;
   agent: AgentId;
   scope: SkillScope;
+  /** Originating project path when `scope === "project"`; absent for global. */
+  project?: string;
+}
+
+// --- Project→global canonical migration (scope-model-simplification) -------
+
+/** A legacy `<project>/.felina/skills/<name>` master discovered by the scan. */
+export interface MigrationCandidate {
+  projectPath: string;
+  skillName: string;
+  /** True when a global master with the same name already exists. */
+  conflict: boolean;
+}
+
+/** Per-candidate user decision, keyed by `(projectPath, name)`. */
+export interface MigrationAction {
+  projectPath: string;
+  name: string;
+  action: "keep" | "overwrite" | "skip";
+}
+
+export interface MigrationResult {
+  projectPath: string;
+  name: string;
+  status: "applied" | "skipped" | "conflict-resolved";
+  targetPath: string;
 }

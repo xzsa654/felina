@@ -44,6 +44,9 @@ export type {
   ProjectSource,
   KnownProject,
   OrphanFile,
+  MigrationCandidate,
+  MigrationAction,
+  MigrationResult,
   // Deprecated; removed in tasks 5.3 + 6.6.
   SkillInfo,
 } from "./skills";
