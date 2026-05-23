@@ -34,10 +34,10 @@ const zhTW: TranslationDict = {
       agents: "代理",
     },
     dateRange: {
+      today: "今天",
       days7: "7天",
       days30: "30天",
       days90: "90天",
-      all: "全部",
     },
     daily: {
       busiestDay: "最忙碌的一天",

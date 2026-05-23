@@ -1,4 +1,5 @@
 pub mod aggregator;
+pub mod ccusage;
 pub mod parsers;
 pub mod pricing;
 pub mod reconciliation;

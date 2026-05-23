@@ -109,6 +109,41 @@ export interface ScanError {
   message: string;
 }
 
+export interface RateLimitBucket {
+  utilization: number | null;
+  resets_at: string | null;
+}
+
+export interface AnthropicRateLimits {
+  five_hour: RateLimitBucket;
+  seven_day: RateLimitBucket;
+  available: boolean;
+  error: string | null;
+}
+
+export interface CodexRateLimits {
+  primary_pct: number | null;
+  primary_reset: string | null;
+  secondary_pct: number | null;
+  secondary_reset: string | null;
+  plan_type: string | null;
+  available: boolean;
+  error: string | null;
+}
+
+export interface GeminiRateLimits {
+  primary_pct: number | null;
+  primary_reset: string | null;
+  available: boolean;
+  error: string | null;
+}
+
+export interface QuotaSnapshot {
+  anthropic_limits: AnthropicRateLimits;
+  codex_limits: CodexRateLimits;
+  gemini_limits: GeminiRateLimits;
+}
+
 export interface RefreshResult {
   agents_scanned: number;
   files_scanned: number;

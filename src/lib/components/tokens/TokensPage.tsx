@@ -3,12 +3,10 @@ import { api } from "$lib/tauri/commands";
 import type {
   TokenAnalytics,
   CacheEfficiency,
-  AgentStatus,
-  RefreshResult,
 } from "$lib/types";
 import { useLocaleStore } from "$lib/stores/locale";
 import { t } from "$lib/i18n";
-import { PageHeader, PageBody } from "$lib/components/shared/PageScaffold";
+import { PageBody } from "$lib/components/shared/PageScaffold";
 import LanguageSwitcher from "./components/LanguageSwitcher";
 import TokenStatCards from "./components/TokenStatCards";
 import TokenTimeSeries from "./components/TokenTimeSeries";
@@ -17,9 +15,8 @@ import ModelBreakdownChart from "./components/ModelBreakdownChart";
 import ModelBreakdownTable from "./components/ModelBreakdownTable";
 import CacheEfficiencyCard from "./components/CacheEfficiencyCard";
 import AgentDistribution from "./components/AgentDistribution";
-import AgentStatusPanel from "./components/AgentStatusPanel";
 import CostBudgetCard from "./components/CostBudgetCard";
-import DataResolutionPanel from "./components/DataResolutionPanel";
+import AgentQuotaPanel from "./components/AgentQuotaPanel";
 import TopModelsInsightTable from "./components/TopModelsInsightTable";
 import TimeBucketTable from "./components/TimeBucketTable";
 import DailySummaryCards from "./components/DailySummaryCards";
@@ -31,8 +28,8 @@ import {
   getTokenComposition,
 } from "./token-insights";
 
-type Tab = "overview" | "daily" | "models" | "agents";
-type DatePreset = "all" | "days7" | "days30" | "days90";
+type Tab = "overview" | "daily" | "models";
+type DatePreset = "today" | "days7" | "days30" | "days90";
 
 // ── Module-level cache ────────────────────────────────────────────────────────
 // Survives route changes so the page feels instant when revisiting.
@@ -41,13 +38,12 @@ interface PageCache {
   analytics: TokenAnalytics;
   analyticsDaily: TokenAnalytics;
   cacheEfficiency: CacheEfficiency;
-  agents: AgentStatus[];
   datePreset: DatePreset;
 }
 let _cache: PageCache | null = null;
 
-const DATE_PRESETS: { key: DatePreset; days: number | null }[] = [
-  { key: "all", days: null },
+const DATE_PRESETS: { key: DatePreset; days: number }[] = [
+  { key: "today", days: 1 },
   { key: "days7", days: 7 },
   { key: "days30", days: 30 },
   { key: "days90", days: 90 },
@@ -57,28 +53,23 @@ const TABS: { key: Tab; i18nKey: string }[] = [
   { key: "overview", i18nKey: "tokens.tabs.overview" },
   { key: "daily", i18nKey: "tokens.tabs.daily" },
   { key: "models", i18nKey: "tokens.tabs.models" },
-  { key: "agents", i18nKey: "tokens.tabs.agents" },
 ];
 
 export default function TokensPage() {
   const locale = useLocaleStore((s) => s.locale);
   const [activeTab, setActiveTab] = useState<Tab>("overview");
-  const [datePreset, setDatePreset] = useState<DatePreset>("all");
+  const [datePreset, setDatePreset] = useState<DatePreset>("today");
+  const [dailyPreset, setDailyPreset] = useState<DatePreset>("days90");
 
   const [analytics, setAnalytics] = useState<TokenAnalytics | null>(null);
   const [analyticsDaily, setAnalyticsDaily] = useState<TokenAnalytics | null>(null);
   const [cacheEfficiency, setCacheEfficiency] = useState<CacheEfficiency | null>(null);
-  const [agents, setAgents] = useState<AgentStatus[]>([]);
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [lastRefreshResult, setLastRefreshResult] = useState<RefreshResult | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [initialScanDone, setInitialScanDone] = useState(false);
   // Prevents StrictMode's double-invocation of effects from firing 2× fetches.
   const isFetchingRef = useRef(false);
 
-  function getDateBounds(days: number | null): { dateStart?: number; dateEnd?: number } {
-    if (!days) return {};
+  function getDateBounds(days: number): { dateStart: number; dateEnd: number } {
     const dateEnd = Math.floor(Date.now() / 1000);
     return { dateStart: dateEnd - days * 86400, dateEnd };
   }
@@ -105,7 +96,6 @@ export default function TokensPage() {
           setAnalytics(cached.analytics);
           setAnalyticsDaily(cached.analyticsDaily);
           setCacheEfficiency(cached.cacheEfficiency);
-          setAgents(cached.agents);
           setLoading(false);
           isFetchingRef.current = false;
         }, 0);
@@ -128,15 +118,17 @@ export default function TokensPage() {
         setLoading(true);
         setError(null);
 
-        const bounds = getDateBounds(DATE_PRESETS.find((p) => p.key === datePreset)?.days ?? null);
+        const bounds = getDateBounds(DATE_PRESETS.find((p) => p.key === datePreset)!.days);
+        const dailyBounds = getDateBounds(DATE_PRESETS.find((p) => p.key === dailyPreset)!.days);
 
         Promise.all([
-          api.tokenAnalytics.getAnalyticsPair({ ...bounds, monthlySource: datePreset !== "all" ? "auto_dated" : undefined, dailySource: "auto_dated" }),
-          api.tokenAnalytics.getAvailableAgents(),
+          api.tokenAnalytics.get({ granularity: "monthly", ...bounds,
+            sourceOverride: datePreset !== "days90" ? "auto_dated" : undefined }),
+          api.tokenAnalytics.get({ granularity: "daily", ...dailyBounds,
+            sourceOverride: "auto_dated" }),
         ])
-          .then(([pair, ag]) => {
+          .then(([monthly, ad]) => {
             if (cancelled) return;
-            const ad = pair.daily;
             const totalInput = ad.total_input_tokens + ad.total_cache_read_tokens;
             const ce: import("$lib/types").CacheEfficiency = {
               total_input_tokens: ad.total_input_tokens,
@@ -145,11 +137,10 @@ export default function TokensPage() {
               cache_hit_ratio: totalInput > 0 ? ad.total_cache_read_tokens / totalInput : 0,
               cache_cost_saved: ad.total_cache_read_tokens / 1_000_000 * (3.0 - 0.3),
             };
-            setAnalytics(pair.monthly);
+            setAnalytics(monthly);
             setAnalyticsDaily(ad);
             setCacheEfficiency(ce);
-            setAgents(ag);
-            _cache = { analytics: pair.monthly, analyticsDaily: ad, cacheEfficiency: ce, agents: ag, datePreset };
+            _cache = { analytics: monthly, analyticsDaily: ad, cacheEfficiency: ce, datePreset };
           })
           .catch((e) => { if (!cancelled) setError(String(e)); })
           .finally(() => { if (!cancelled) setLoading(false); isFetchingRef.current = false; });
@@ -162,20 +153,22 @@ export default function TokensPage() {
       clearTimeout(timerId);
       isFetchingRef.current = false;
     };
-  }, [datePreset]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [datePreset, dailyPreset]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const fetchData = useCallback(async () => {
     isFetchingRef.current = false; // allow re-fetch on manual trigger
     if (_cache && _cache.datePreset !== datePreset) _cache = null;
     setLoading(true);
     setError(null);
-    const bounds = getDateBounds(DATE_PRESETS.find((p) => p.key === datePreset)?.days ?? null);
+    const bounds = getDateBounds(DATE_PRESETS.find((p) => p.key === datePreset)!.days);
+    const dailyBounds = getDateBounds(DATE_PRESETS.find((p) => p.key === dailyPreset)!.days);
     try {
-      const [pair, ag] = await Promise.all([
-        api.tokenAnalytics.getAnalyticsPair({ ...bounds, monthlySource: datePreset !== "all" ? "auto_dated" : undefined, dailySource: "auto_dated" }),
-        api.tokenAnalytics.getAvailableAgents(),
+      const [monthly, ad] = await Promise.all([
+        api.tokenAnalytics.get({ granularity: "monthly", ...bounds,
+          sourceOverride: datePreset !== "days90" ? "auto_dated" : undefined }),
+        api.tokenAnalytics.get({ granularity: "daily", ...dailyBounds,
+          sourceOverride: "auto_dated" }),
       ]);
-      const ad = pair.daily;
       const totalInput = ad.total_input_tokens + ad.total_cache_read_tokens;
       const ce: import("$lib/types").CacheEfficiency = {
         total_input_tokens: ad.total_input_tokens,
@@ -184,50 +177,18 @@ export default function TokensPage() {
         cache_hit_ratio: totalInput > 0 ? ad.total_cache_read_tokens / totalInput : 0,
         cache_cost_saved: ad.total_cache_read_tokens / 1_000_000 * (3.0 - 0.3),
       };
-      setAnalytics(pair.monthly); setAnalyticsDaily(ad); setCacheEfficiency(ce); setAgents(ag);
-      _cache = { analytics: pair.monthly, analyticsDaily: ad, cacheEfficiency: ce, agents: ag, datePreset };
+      setAnalytics(monthly); setAnalyticsDaily(ad); setCacheEfficiency(ce);
+      _cache = { analytics: monthly, analyticsDaily: ad, cacheEfficiency: ce, datePreset };
     } catch (e) {
       setError(String(e));
     } finally {
       setLoading(false);
     }
-  }, [datePreset]);
-
-  async function handleRefresh() {
-    try {
-      _cache = null; // Force re-fetch after refresh ingests new data
-      setRefreshing(true);
-      const result = await api.tokenAnalytics.refresh();
-      setLastRefreshResult(result);
-      await fetchData();
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setRefreshing(false);
-    }
-  }
+  }, [datePreset, dailyPreset]);
 
   useEffect(() => {
     fetchData();
   }, [fetchData]);
-
-  useEffect(() => {
-    async function init() {
-      try {
-        const a = await api.tokenAnalytics.get({ granularity: "daily" });
-        if (a.event_count === 0 && !initialScanDone) {
-          setInitialScanDone(true);
-          setRefreshing(true);
-          await api.tokenAnalytics.refresh();
-          setRefreshing(false);
-          await fetchData();
-        }
-      } catch {
-        // silent
-      }
-    }
-    init();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const dataResolution = classifyDataResolution(
     analyticsDaily?.time_series ?? [],
@@ -238,14 +199,15 @@ export default function TokensPage() {
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      {/* Top bar */}
-      <div className="flex items-center justify-between px-6 pt-5 pb-0 flex-shrink-0">
-        <PageHeader title={t(locale, "tokens.title")} />
-        <LanguageSwitcher />
+      {/* Top bar + Tab bar (single row with border-b) */}
+      <div className="px-6 pt-5 flex-shrink-0">
+        <div className="flex items-center justify-between mb-3">
+          <h1 className="text-xl font-semibold text-text-primary">{t(locale, "tokens.title")}</h1>
+          <LanguageSwitcher />
+        </div>
       </div>
 
-      {/* Tab bar + date presets */}
-      <div className="flex items-center justify-between px-6 mt-3 border-b border-border flex-shrink-0">
+      <div className="flex items-center justify-between px-6 border-b border-border flex-shrink-0">
         <div className="flex items-center gap-0">
           {TABS.map((tab) => (
             <button
@@ -263,19 +225,24 @@ export default function TokensPage() {
         </div>
 
         <div className="flex items-center gap-1.5 pb-2">
-          {DATE_PRESETS.map((preset) => (
-            <button
-              key={preset.key}
-              onClick={() => setDatePreset(preset.key)}
-              className={`px-2.5 py-1 text-xs font-medium rounded transition-colors ${
-                datePreset === preset.key
-                  ? "bg-bg-secondary text-text-primary border border-border shadow-sm"
-                  : "text-text-muted hover:text-text-secondary"
-              }`}
-            >
-              {t(locale, `tokens.dateRange.${preset.key}` as never)}
-            </button>
-          ))}
+          {DATE_PRESETS.map((preset) => {
+            const isDaily = activeTab === "daily";
+            const active = isDaily ? dailyPreset : datePreset;
+            const setter = isDaily ? setDailyPreset : setDatePreset;
+            return (
+              <button
+                key={preset.key}
+                onClick={() => setter(preset.key)}
+                className={`px-2.5 py-1 text-xs font-medium rounded transition-colors ${
+                  active === preset.key
+                    ? "bg-bg-secondary text-text-primary border border-border shadow-sm"
+                    : "text-text-muted hover:text-text-secondary"
+                }`}
+              >
+                {t(locale, `tokens.dateRange.${preset.key}` as never)}
+              </button>
+            );
+          })}
         </div>
       </div>
 
@@ -291,17 +258,13 @@ export default function TokensPage() {
 
             {loading && !analytics ? (
               <TokensPageSkeleton />
-            ) : (
+            ) : analytics ? (
               <>
                 {/* ── Overview ── */}
                 {activeTab === "overview" && (
                   <div className="space-y-4">
+                    <AgentQuotaPanel locale={locale} />
                     <TokenStatCards analytics={analytics} cacheEfficiency={cacheEfficiency} locale={locale} />
-                    <DataResolutionPanel
-                      resolution={dataResolution}
-                      eventCount={analytics?.event_count ?? 0}
-                      locale={locale}
-                    />
                     <div className="grid xl:grid-cols-[minmax(0,1.35fr)_minmax(340px,0.65fr)] gap-4">
                       <TopModelsInsightTable data={analytics?.model_breakdown ?? []} locale={locale} />
                       <div className="space-y-4">
@@ -352,18 +315,9 @@ export default function TokensPage() {
                   </div>
                 )}
 
-                {/* ── Agents ── */}
-                {activeTab === "agents" && (
-                  <AgentStatusPanel
-                    agents={agents}
-                    loading={refreshing}
-                    onRefresh={handleRefresh}
-                    lastResult={lastRefreshResult}
-                    locale={locale}
-                  />
-                )}
               </>
-            )}
+            ) : null}
+
           </div>
         </PageBody>
       </div>

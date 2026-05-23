@@ -386,7 +386,7 @@ impl TokenAggregator {
                     cache_read_tokens: cr,
                     cache_write_tokens: cw,
                     reasoning_tokens: reasoning,
-                    cost_usd: 0.0, // filled below
+                    cost_usd: 0.0,
                     event_count: count,
                     max_input_tokens: None, // filled below
                 })

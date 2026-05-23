@@ -26,10 +26,7 @@ export default function ModelBreakdownTable({
 
   function toggleSort(field: SortField) {
     if (sortField === field) setSortAsc(!sortAsc);
-    else {
-      setSortField(field);
-      setSortAsc(false);
-    }
+    else { setSortField(field); setSortAsc(false); }
   }
 
   const SortHeader = ({ field, label }: { field: SortField; label: string }) => (

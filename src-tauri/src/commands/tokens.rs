@@ -5,6 +5,14 @@ use crate::tokens::aggregator::TokenAggregator;
 use crate::tokens::types::*;
 
 #[tauri::command]
+pub async fn get_agent_quota_snapshot(
+) -> Result<crate::tokens::ccusage::QuotaSnapshot, String> {
+    tokio::task::spawn_blocking(crate::tokens::ccusage::fetch_quota_snapshot)
+        .await
+        .map_err(|e| format!("Task join error: {}", e))
+}
+
+#[tauri::command]
 pub fn get_token_analytics_pair(
     date_start: Option<i64>,
     date_end: Option<i64>,

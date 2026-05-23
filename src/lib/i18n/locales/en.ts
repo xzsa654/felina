@@ -32,10 +32,10 @@ const en = {
       agents: "Agents",
     },
     dateRange: {
+      today: "Today",
       days7: "7d",
       days30: "30d",
       days90: "90d",
-      all: "All",
     },
     daily: {
       busiestDay: "Most Active Day",

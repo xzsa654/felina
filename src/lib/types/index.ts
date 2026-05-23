@@ -1,5 +1,10 @@
 export type {
   TokenBucket,
+  RateLimitBucket,
+  AnthropicRateLimits,
+  CodexRateLimits,
+  GeminiRateLimits,
+  QuotaSnapshot,
   TimeGranularity,
   ModelBreakdown,
   AgentBreakdown,

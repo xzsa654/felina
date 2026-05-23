@@ -254,6 +254,8 @@ export const api = {
         sourceOverride: sourceOverride ?? null,
       }),
     refresh: () => invoke<RefreshResult>("refresh_token_data"),
+    getAgentQuotaSnapshot: () =>
+      invoke<import("$lib/types").QuotaSnapshot>("get_agent_quota_snapshot"),
   },
 } as const;
 

@@ -46,7 +46,7 @@ export default function TokenStatCards({
     : undefined;
 
   return (
-    <div className="grid sm:grid-cols-2 xl:grid-cols-5 gap-3">
+    <div className="grid sm:grid-cols-2 xl:grid-cols-4 gap-3">
       <StatCard
         label={t(locale, "tokens.statCards.totalTokens")}
         value={formatNumber(composition.total, locale)}
@@ -60,10 +60,6 @@ export default function TokenStatCards({
       <StatCard
         label={t(locale, "tokens.statCards.messages")}
         value={formatNumber(analytics.event_count, locale)}
-      />
-      <StatCard
-        label={t(locale, "tokens.statCards.activeAgents")}
-        value={`${analytics.agent_breakdown.filter(a => a.event_count > 0).length}`}
       />
       <StatCard
         label={t(locale, "tokens.statCards.cacheReadShare")}

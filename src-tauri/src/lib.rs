@@ -128,6 +128,7 @@ pub fn run() {
             // Token Analytics
             commands::tokens::get_token_analytics,
             commands::tokens::get_token_analytics_pair,
+            commands::tokens::get_agent_quota_snapshot,
             commands::tokens::get_model_breakdown,
             commands::tokens::get_cache_efficiency,
             commands::tokens::get_available_agents,

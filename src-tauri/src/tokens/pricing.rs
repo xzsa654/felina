@@ -311,9 +311,26 @@ impl PricingService {
     /// Get pricing for a model.
     /// Order: in-memory → static map → prefix match → hardcoded fallback.
     pub fn get_price(&mut self, model: &str) -> Result<ModelPricing, String> {
-        // 1. In-memory (includes previously loaded LiteLLM cache)
+        // 1. In-memory (includes previously loaded LiteLLM cache).
+        //    If found but max_input_tokens is missing, patch it from the static map.
         if let Some(p) = self.prices.get(model) {
-            return Ok(p.clone());
+            if p.max_input_tokens.is_some() {
+                return Ok(p.clone());
+            }
+            // Fall through to enrich with static_map context window info.
+            let mut enriched = p.clone();
+            if let Some(s) = self.static_map.get(model) {
+                enriched.max_input_tokens = s.max_input_tokens;
+            } else {
+                for (known, s) in &self.static_map {
+                    if model.starts_with(known.as_str()) || known.starts_with(model) {
+                        enriched.max_input_tokens = s.max_input_tokens;
+                        break;
+                    }
+                }
+            }
+            self.prices.insert(model.to_string(), enriched.clone());
+            return Ok(enriched);
         }
 
         // 2. Static map
