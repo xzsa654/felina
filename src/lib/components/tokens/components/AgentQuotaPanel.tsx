@@ -171,8 +171,6 @@ export default function AgentQuotaPanel({ locale: _locale }: { locale: Locale })
   const [nextAllowed, setNextAllowed] = useState<Date | null>(_quotaNextAllowed);
   const [, tick] = useState(0);
 
-  const THROTTLE_MS = 60_000; // 1 minute between manual refreshes
-
   const doFetch = useCallback(async () => {
     try {
       const data = await api.tokenAnalytics.getAgentQuotaSnapshot();
@@ -186,6 +184,10 @@ export default function AgentQuotaPanel({ locale: _locale }: { locale: Locale })
         const hasNewCodex = data.codex_limits.available &&
           data.codex_limits.primary_pct != null;
         const merged = {
+          fetched_at: data.fetched_at,
+          expires_at: data.expires_at,
+          next_refresh_at: data.next_refresh_at,
+          stale: data.stale,
           anthropic_limits: hasNewClaude ? data.anthropic_limits : base.anthropic_limits,
           codex_limits:     hasNewCodex  ? data.codex_limits     : base.codex_limits,
           gemini_limits:    data.gemini_limits.available
@@ -195,9 +197,12 @@ export default function AgentQuotaPanel({ locale: _locale }: { locale: Locale })
         _quotaCache = merged;
         return merged;
       });
-      const now = new Date();
-      _quotaLastUpdated = now;
-      setLastUpdated(now);
+      const fetchedAt = new Date(data.fetched_at);
+      const nextRefreshAt = new Date(data.next_refresh_at);
+      _quotaLastUpdated = fetchedAt;
+      _quotaNextAllowed = nextRefreshAt;
+      setLastUpdated(fetchedAt);
+      setNextAllowed(nextRefreshAt);
     } catch { /* silently ignore */ }
     finally { setLoading(false); }
   }, []);
@@ -228,15 +233,14 @@ export default function AgentQuotaPanel({ locale: _locale }: { locale: Locale })
         <h3 className="text-sm font-semibold text-text-primary">Token 用量</h3>
         <div className="flex items-center gap-2">
           {lastUpdated && (
-            <span className="text-[10px] text-text-muted">Last updated: {timeAgoShort(lastUpdated)}</span>
+            <span className="text-[10px] text-text-muted">
+              {snapshot?.stale ? "Cached" : "Last updated"}: {timeAgoShort(lastUpdated)}
+            </span>
           )}
           <button
             onClick={() => {
               const now = new Date();
               if (nextAllowed && now < nextAllowed) return;
-              const na = new Date(now.getTime() + THROTTLE_MS);
-              _quotaNextAllowed = na;
-              setNextAllowed(na);
               doFetch();
             }}
             disabled={!!(nextAllowed && new Date() < nextAllowed)}

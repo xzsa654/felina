@@ -3,6 +3,12 @@
 
 use serde::{Deserialize, Serialize};
 use std::process::Command;
+use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+const QUOTA_CACHE_TTL: Duration = Duration::from_secs(15 * 60);
+const QUOTA_BACKOFF_BASE: Duration = Duration::from_secs(60);
+const QUOTA_BACKOFF_MAX: Duration = Duration::from_secs(30 * 60);
 
 // ── Anthropic rate limits (from oauth/usage API) ─────────────────────────────
 
@@ -60,15 +66,6 @@ pub fn fetch_anthropic_rate_limits() -> AnthropicRateLimits {
     };
 
     // 2. Call Anthropic oauth/usage API
-    let output = Command::new("curl")
-        .args([
-            "-s", "--max-time", "8",
-            "-H", &format!("Authorization: Bearer {}", token),
-            "-H", "anthropic-version: 2023-06-01",
-            "https://api.anthropic.com/api/oauth/usage",
-        ])
-        .output();
-
     // curl exits 0 even on HTTP 4xx/5xx; use -w to append the HTTP status code.
     let output = Command::new("curl")
         .args([
@@ -376,13 +373,137 @@ pub struct QuotaSnapshot {
     pub anthropic_limits: AnthropicRateLimits,
     pub codex_limits: CodexRateLimits,
     pub gemini_limits: GeminiRateLimits,
+    pub fetched_at: String,
+    pub expires_at: String,
+    pub next_refresh_at: String,
+    pub stale: bool,
 }
 
+#[derive(Clone, Debug)]
+struct QuotaCache {
+    snapshot: QuotaSnapshot,
+    fetched_at: SystemTime,
+    expires_at: SystemTime,
+    rate_limited_until: Option<SystemTime>,
+    failure_count: u32,
+}
+
+static QUOTA_CACHE: OnceLock<Mutex<Option<QuotaCache>>> = OnceLock::new();
+
+fn quota_cache() -> &'static Mutex<Option<QuotaCache>> {
+    QUOTA_CACHE.get_or_init(|| Mutex::new(None))
+}
+
+fn system_time_secs(time: SystemTime) -> u64 {
+    time.duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
+}
+
+fn system_time_iso(time: SystemTime) -> String {
+    format!("{}Z", chrono_simple(system_time_secs(time)))
+}
+
+fn with_quota_metadata(
+    mut snapshot: QuotaSnapshot,
+    fetched_at: SystemTime,
+    expires_at: SystemTime,
+    next_refresh_at: SystemTime,
+    stale: bool,
+) -> QuotaSnapshot {
+    snapshot.fetched_at = system_time_iso(fetched_at);
+    snapshot.expires_at = system_time_iso(expires_at);
+    snapshot.next_refresh_at = system_time_iso(next_refresh_at);
+    snapshot.stale = stale;
+    snapshot
+}
+
+fn quota_has_429(snapshot: &QuotaSnapshot) -> bool {
+    [
+        snapshot.anthropic_limits.error.as_deref(),
+        snapshot.codex_limits.error.as_deref(),
+        snapshot.gemini_limits.error.as_deref(),
+    ]
+    .into_iter()
+    .flatten()
+    .any(|error| error.contains("429"))
+}
+
+fn quota_backoff_duration(failure_count: u32) -> Duration {
+    let multiplier = 1u32.checked_shl(failure_count.min(4)).unwrap_or(16);
+    QUOTA_BACKOFF_BASE
+        .saturating_mul(multiplier)
+        .min(QUOTA_BACKOFF_MAX)
+}
 
 pub fn fetch_quota_snapshot() -> QuotaSnapshot {
     let ((anthropic_limits, codex_limits), gemini_limits) = rayon::join(
         || rayon::join(fetch_anthropic_rate_limits, fetch_codex_rate_limits),
         fetch_gemini_rate_limits,
     );
-    QuotaSnapshot { anthropic_limits, codex_limits, gemini_limits }
+    let now = SystemTime::now();
+    QuotaSnapshot {
+        anthropic_limits,
+        codex_limits,
+        gemini_limits,
+        fetched_at: system_time_iso(now),
+        expires_at: system_time_iso(now),
+        next_refresh_at: system_time_iso(now),
+        stale: false,
+    }
+}
+
+pub fn get_quota_snapshot_cached() -> QuotaSnapshot {
+    let now = SystemTime::now();
+    let mut cache = quota_cache().lock().unwrap_or_else(|e| e.into_inner());
+
+    if let Some(cached) = cache.as_ref() {
+        if let Some(until) = cached.rate_limited_until {
+            if now < until {
+                return with_quota_metadata(
+                    cached.snapshot.clone(),
+                    cached.fetched_at,
+                    cached.expires_at,
+                    until,
+                    true,
+                );
+            }
+        }
+
+        if now < cached.expires_at {
+            return with_quota_metadata(
+                cached.snapshot.clone(),
+                cached.fetched_at,
+                cached.expires_at,
+                cached.expires_at,
+                false,
+            );
+        }
+    }
+
+    let fetched = fetch_quota_snapshot();
+    let fetched_at = SystemTime::now();
+    let expires_at = fetched_at + QUOTA_CACHE_TTL;
+    let previous_failure_count = cache.as_ref().map(|c| c.failure_count).unwrap_or(0);
+
+    let (failure_count, rate_limited_until) = if quota_has_429(&fetched) {
+        let failure_count = previous_failure_count.saturating_add(1);
+        let until = fetched_at + quota_backoff_duration(failure_count);
+        (failure_count, Some(until))
+    } else {
+        (0, None)
+    };
+
+    let next_refresh_at = rate_limited_until.unwrap_or(expires_at);
+    let snapshot = with_quota_metadata(fetched, fetched_at, expires_at, next_refresh_at, false);
+
+    *cache = Some(QuotaCache {
+        snapshot: snapshot.clone(),
+        fetched_at,
+        expires_at,
+        rate_limited_until,
+        failure_count,
+    });
+
+    snapshot
 }

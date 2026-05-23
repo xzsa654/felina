@@ -142,6 +142,10 @@ export interface QuotaSnapshot {
   anthropic_limits: AnthropicRateLimits;
   codex_limits: CodexRateLimits;
   gemini_limits: GeminiRateLimits;
+  fetched_at: string;
+  expires_at: string;
+  next_refresh_at: string;
+  stale: boolean;
 }
 
 export interface RefreshResult {

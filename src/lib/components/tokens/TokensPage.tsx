@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useRef } from "react";
 import { api } from "$lib/tauri/commands";
 import type {
   TokenAnalytics,
@@ -111,9 +111,8 @@ export default function TokensPage() {
     let timerId: ReturnType<typeof setTimeout>;
 
     rafId = requestAnimationFrame(() => {
-      timerId = setTimeout(() => {  // 600ms golden time
+      timerId = setTimeout(() => {
         if (cancelled) return;
-
 
         setLoading(true);
         setError(null);
@@ -154,41 +153,6 @@ export default function TokensPage() {
       isFetchingRef.current = false;
     };
   }, [datePreset, dailyPreset]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const fetchData = useCallback(async () => {
-    isFetchingRef.current = false; // allow re-fetch on manual trigger
-    if (_cache && _cache.datePreset !== datePreset) _cache = null;
-    setLoading(true);
-    setError(null);
-    const bounds = getDateBounds(DATE_PRESETS.find((p) => p.key === datePreset)!.days);
-    const dailyBounds = getDateBounds(DATE_PRESETS.find((p) => p.key === dailyPreset)!.days);
-    try {
-      const [monthly, ad] = await Promise.all([
-        api.tokenAnalytics.get({ granularity: "monthly", ...bounds,
-          sourceOverride: datePreset !== "days90" ? "auto_dated" : undefined }),
-        api.tokenAnalytics.get({ granularity: "daily", ...dailyBounds,
-          sourceOverride: "auto_dated" }),
-      ]);
-      const totalInput = ad.total_input_tokens + ad.total_cache_read_tokens;
-      const ce: import("$lib/types").CacheEfficiency = {
-        total_input_tokens: ad.total_input_tokens,
-        cache_read_tokens: ad.total_cache_read_tokens,
-        cache_write_tokens: ad.total_cache_write_tokens,
-        cache_hit_ratio: totalInput > 0 ? ad.total_cache_read_tokens / totalInput : 0,
-        cache_cost_saved: ad.total_cache_read_tokens / 1_000_000 * (3.0 - 0.3),
-      };
-      setAnalytics(monthly); setAnalyticsDaily(ad); setCacheEfficiency(ce);
-      _cache = { analytics: monthly, analyticsDaily: ad, cacheEfficiency: ce, datePreset };
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setLoading(false);
-    }
-  }, [datePreset, dailyPreset]);
-
-  useEffect(() => {
-    fetchData();
-  }, [fetchData]);
 
   const dataResolution = classifyDataResolution(
     analyticsDaily?.time_series ?? [],
