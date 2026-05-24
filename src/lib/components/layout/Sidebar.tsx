@@ -14,11 +14,13 @@ import {
   GitBranch as GithubIcon,
   X as XIcon,
   Coins,
+  FolderOpen,
 } from "lucide-react";
 import logoUrl from "$lib/assets/logo.png";
 
 const ICON_MAP: Record<string, React.ComponentType<{ size?: number; className?: string }>> = {
   sparkles: Sparkles,
+  folder: FolderOpen,
   gear: SettingsIcon,
   templates: LayoutGrid,
   tokens: Coins,

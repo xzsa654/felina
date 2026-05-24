@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router";
 import { Grid2x2, List, Loader2, Plus, RefreshCw, Sparkles, Undo2 } from "lucide-react";
 import ProjectPicker from "$lib/components/shared/ProjectPicker";
 import ConfirmDialog from "$lib/components/shared/ConfirmDialog";
@@ -45,6 +46,7 @@ export default function SkillsPage() {
     removeEntry,
   } = useSkillsStore();
 
+  const [searchParams, setSearchParams] = useSearchParams();
   const [viewMode, setViewMode] = useState<"list" | "summary">("list");
   const [selectedName, setSelectedName] = useState<string | null>(null);
   const [activeSkill, setActiveSkill] = useState<CanonicalSkill | null>(null);
@@ -87,6 +89,26 @@ export default function SkillsPage() {
     void loadEntries();
     void refreshImportCount();
   }, [loadEntries, refreshImportCount, projectPath]);
+
+  // Deep-link selection: the Projects view navigates here with
+  // `?select=<skill-name>` to open a managed skill for editing. Consume the
+  // param once entries are loaded and the skill exists, then clear it so a
+  // later manual selection isn't overridden on re-render.
+  useEffect(() => {
+    const want = searchParams.get("select");
+    if (!want || !loaded) return;
+    const exists = entries.some(
+      (e) => e.kind === "ok" && e.skill.name === want,
+    );
+    if (exists) {
+      setViewMode("list");
+      setCreatingNew(false);
+      setSelectedName(want);
+    }
+    const next = new URLSearchParams(searchParams);
+    next.delete("select");
+    setSearchParams(next, { replace: true });
+  }, [searchParams, loaded, entries, setSearchParams]);
 
   // Known Projects list backs the "project not found" degradation check. Each
   // entry's `exists` flag is a filesystem-stat snapshot, so we refresh it at

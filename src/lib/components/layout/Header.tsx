@@ -3,6 +3,7 @@ import { type Page } from "$lib/stores/navigation";
 
 const PAGE_TITLES: Record<Page, string> = {
   skills: "Skills & Agents",
+  projects: "Projects",
   settings: "Settings",
   tokens: "Tokens",
   templates: "Templates",
@@ -11,6 +12,7 @@ const PAGE_TITLES: Record<Page, string> = {
 
 const PAGE_DESCRIPTIONS: Record<Page, string> = {
   skills: "Custom skills and agent definitions",
+  projects: "Per-project skill management inventory",
   settings: "Global and project configuration",
   tokens: "Token analytics across all AI coding agents",
   templates: "Browse and add pre-built configurations",
