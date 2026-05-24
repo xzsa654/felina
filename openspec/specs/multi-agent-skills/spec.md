@@ -8,78 +8,53 @@ TBD - created by archiving change 'multi-agent-skills-foundation'. Update Purpos
 
 ### Requirement: Canonical Skill Storage
 
-The system SHALL store skill main files in a canonical location separate from any agent-native skill directory. The global scope canonical path SHALL be `~/.glyphic/skills/<name>/SKILL.md` and the project scope canonical path SHALL be `<project>/.glyphic/skills/<name>/SKILL.md`. The canonical SKILL.md SHALL be the single source of truth: it contains YAML frontmatter using snake_case field names plus a Markdown body. The frontmatter SHALL include the required fields `name`, `description`, and `agents` (a list whose values are a subset of `anthropic`, `codex`, `gemini`), and MAY include any optional fields defined by the agent-skills-schema canonical schema.
+Canonical skill master files SHALL be stored exclusively under the global location `~/.felina/skills/<skill-name>/`. The system SHALL NOT maintain a separate project-scoped canonical storage; the previously supported `<project>/.felina/skills/` location is removed.
 
-#### Scenario: Create a canonical skill
+`canonical_skills_dir_for_scope` and any caller that derived a canonical directory from a scope+project pair SHALL be replaced by a single `canonical_skills_dir` accessor that returns the global path. `paths::felina_project_skills_dir` SHALL be removed entirely. The system SHALL NOT provide any migration of legacy `<project>/.felina/skills/` content: that storage format was never released, so there is no existing user data to migrate; legacy directories are simply ignored and left untouched on disk.
 
-- **WHEN** a user creates a new skill named `search-helper` in global scope
-- **THEN** the system SHALL write `~/.glyphic/skills/search-helper/SKILL.md` containing snake_case YAML frontmatter and a Markdown body
-- **AND** the frontmatter SHALL contain `name`, `description`, and `agents`
+The `SkillScope` enum SHALL remain a two-value enum (`global` and `project`) but its only valid use is as the `scope` field of `SkillTarget`, where `project` means "push destination is a particular project's agent directory", not "canonical master file location".
 
-#### Scenario: List canonical skills by scope
+#### Scenario: Skill is created in global canonical storage
 
-- **WHEN** a user views the Skills page filtered to project scope
-- **THEN** the system SHALL list only skills found under `<project>/.glyphic/skills/`
-- **AND** a canonical directory that does not yet exist SHALL produce an empty list rather than an error
+- **GIVEN** the user creates a new skill named "my-skill" through the Skills view
+- **WHEN** the create action succeeds
+- **THEN** `~/.felina/skills/my-skill/SKILL.md` is created and no file is written to any `<project>/.felina/skills/` location
 
-#### Scenario: Canonical directory absent on first write
+#### Scenario: Legacy project canonical directory is ignored by Skills view
 
-- **WHEN** a user creates the first skill and `~/.glyphic/skills/` does not exist
-- **THEN** the system SHALL create the directory before writing the SKILL.md
-- **AND** the write SHALL succeed without requiring a separate setup step
-
-#### Scenario: Frontmatter fails to parse
-
-- **WHEN** a canonical SKILL.md contains YAML frontmatter that cannot be parsed
-- **THEN** the read operation SHALL return an error for that skill
-- **AND** the Skills page SHALL mark the skill as broken rather than crashing the list
+- **GIVEN** a directory `<project>/.felina/skills/git/SKILL.md` exists on disk before this change ships
+- **WHEN** the Skills view loads its canonical skill list
+- **THEN** the legacy directory is NOT included in the list, is NOT modified, and is NOT deleted
 
 
 <!-- @trace
-source: multi-agent-skills-foundation
-updated: 2026-05-22
+source: scope-model-simplification
+updated: 2026-05-24
 code:
-  - src/lib/types/index.ts
-  - package.json
-  - src-tauri/src/lib.rs
+  - src/lib/components/layout/Header.tsx
+  - src/lib/components/projects/ManagedInventory.tsx
   - src-tauri/Cargo.toml
-  - src/lib/components/shared/OnboardingWelcome.tsx
-  - src/lib/stores/locale.ts
-  - .knowledge/knowledge-base/_index.json
-  - src-tauri/tauri.conf.json
-  - src/lib/components/layout/UpdateBanner.tsx
-  - src/lib/components/settings/SettingsPage.tsx
-  - index.html
-  - src/lib/components/shared/PageScaffold.tsx
-  - .knowledge/experience/_index.json
-  - src-tauri/src/commands/fan_out/mod.rs
-  - src/lib/components/skills/SkillList.tsx
-  - src/lib/tauri/commands.ts
-  - src/lib/components/skills/SkillImportWizard.tsx
-  - src/lib/types/skills.ts
-  - src-tauri/src/commands/fan_out/codex.rs
-  - src-tauri/src/commands/skills.rs
-  - src-tauri/src/commands/fan_out/gemini.rs
-  - src/lib/components/skills/SkillImportBanner.tsx
-  - src-tauri/src/paths.rs
-  - src-tauri/src/commands/canonical_skills.rs
-  - src-tauri/src/main.rs
-  - src/lib/components/layout/Sidebar.tsx
-  - .session/design-backlog.md
-  - src/lib/components/skills/PendingPushBar.tsx
-  - src/lib/components/skills/SkillsPage.tsx
-  - src/router.tsx
-  - src/lib/components/settings/AgentPathsSection.tsx
-  - src-tauri/src/commands/fan_out/anthropic.rs
-  - src-tauri/src/commands/agent_paths.rs
+  - src/lib/components/projects/ProjectsPage.tsx
   - src/lib/components/skills/SkillEditor.tsx
+  - src-tauri/src/commands/canonical_skills.rs
+  - src-tauri/src/commands/fan_out/mod.rs
+  - src/lib/components/layout/Sidebar.tsx
+  - src/lib/types/skills.ts
+  - src/lib/components/skills/SkillImportWizard.tsx
   - src-tauri/src/commands/skill_import.rs
-  - src/lib/stores/skills-store.ts
-  - src/lib/stores/theme.ts
+  - src-tauri/src/paths.rs
+  - src/lib/components/settings/AgentPathsSection.tsx
   - .session/product-backlog.md
-  - .knowledge/_catalog.json
-  - .knowledge/knowledge-base/dev-docs.md
-  - src-tauri/src/commands/mod.rs
+  - src/lib/components/projects/ProjectsList.tsx
+  - src/lib/components/skills/AddTargetDialog.tsx
+  - .session/agent-capability-research.md
+  - src/lib/components/skills/SkillList.tsx
+  - src/lib/components/skills/SkillsPage.tsx
+  - src/lib/components/skills/TargetEditor.tsx
+  - src/lib/stores/navigation.ts
+  - src/lib/stores/skills-store.ts
+  - src/lib/tauri/commands.ts
+  - src/router.tsx
 -->
 
 ---
@@ -222,82 +197,43 @@ code:
 ---
 ### Requirement: Initial Skill Import
 
-The system SHALL detect existing skills in known agent-native directories and offer a manual import path into canonical storage. On the Skills page, when the canonical store is empty and at least one known agent directory contains skill subdirectories, the system SHALL display a dismissable banner reporting the count of detected skills. The detection SHALL count directories without reading their contents. Import SHALL be user-initiated through a wizard that presents candidates, shows a difference summary for any name that already exists in canonical, and lets the user choose a resolution per candidate. Importing a skill SHALL NOT delete the original agent-native file. Dismissing the banner SHALL persist so it is not shown again until the user re-enables it.
+The initial skill import feature SHALL write canonical master files only to `~/.felina/skills/`. The wizard SHALL no longer offer a project-scope import destination. Imports from a specific project's agent directories (e.g. `<project>/.claude/skills/`) result in a global master file plus a `SkillTarget` row whose `scope=project` points back at that originating project, recorded in the master file's sync-meta sidecar.
 
-#### Scenario: Banner appears when existing skills are detected
+#### Scenario: Import from a project's agent directory writes the global master plus a project target
 
-- **WHEN** the canonical store is empty and `~/.claude/skills/` contains two skill directories
-- **THEN** the Skills page SHALL display a dismissable banner reporting two detected skills
-- **AND** the banner SHALL offer an action to open the import wizard
-
-#### Scenario: Banner suppressed when nothing to import
-
-- **WHEN** the canonical store is empty and no known agent directory contains any skill subdirectory
-- **THEN** the Skills page SHALL NOT display the import banner
-
-#### Scenario: Import resolves a name conflict
-
-- **WHEN** a user imports a skill whose name already exists in canonical
-- **THEN** the wizard SHALL show a difference summary between the candidate and the existing canonical skill
-- **AND** the user SHALL choose to keep canonical, overwrite canonical, skip, or rename before the import proceeds
-
-#### Scenario: Import preserves the source file
-
-- **WHEN** a user imports a skill from `~/.claude/skills/foo/SKILL.md`
-- **THEN** the system SHALL write the canonical copy
-- **AND** the system SHALL leave `~/.claude/skills/foo/SKILL.md` unchanged
-
-#### Scenario: Dismissed banner stays dismissed
-
-- **WHEN** a user dismisses the import banner
-- **THEN** the system SHALL NOT show the banner again on subsequent visits until the user re-enables it
+- **GIVEN** skill "shared-util" exists in `<projectA>/.claude/skills/shared-util/SKILL.md` and no global canonical master named "shared-util" exists
+- **WHEN** the user imports it through either the Skills import wizard or the Projects view "Import to global" action
+- **THEN** `~/.felina/skills/shared-util/SKILL.md` is created and its sync-meta sidecar includes a target with `agent=anthropic`, `scope=project`, `project=<projectA absolute path>`
 
 
 <!-- @trace
-source: multi-agent-skills-foundation
-updated: 2026-05-22
+source: scope-model-simplification
+updated: 2026-05-24
 code:
-  - src/lib/types/index.ts
-  - package.json
-  - src-tauri/src/lib.rs
+  - src/lib/components/layout/Header.tsx
+  - src/lib/components/projects/ManagedInventory.tsx
   - src-tauri/Cargo.toml
-  - src/lib/components/shared/OnboardingWelcome.tsx
-  - src/lib/stores/locale.ts
-  - .knowledge/knowledge-base/_index.json
-  - src-tauri/tauri.conf.json
-  - src/lib/components/layout/UpdateBanner.tsx
-  - src/lib/components/settings/SettingsPage.tsx
-  - index.html
-  - src/lib/components/shared/PageScaffold.tsx
-  - .knowledge/experience/_index.json
-  - src-tauri/src/commands/fan_out/mod.rs
-  - src/lib/components/skills/SkillList.tsx
-  - src/lib/tauri/commands.ts
-  - src/lib/components/skills/SkillImportWizard.tsx
-  - src/lib/types/skills.ts
-  - src-tauri/src/commands/fan_out/codex.rs
-  - src-tauri/src/commands/skills.rs
-  - src-tauri/src/commands/fan_out/gemini.rs
-  - src/lib/components/skills/SkillImportBanner.tsx
-  - src-tauri/src/paths.rs
-  - src-tauri/src/commands/canonical_skills.rs
-  - src-tauri/src/main.rs
-  - src/lib/components/layout/Sidebar.tsx
-  - .session/design-backlog.md
-  - src/lib/components/skills/PendingPushBar.tsx
-  - src/lib/components/skills/SkillsPage.tsx
-  - src/router.tsx
-  - src/lib/components/settings/AgentPathsSection.tsx
-  - src-tauri/src/commands/fan_out/anthropic.rs
-  - src-tauri/src/commands/agent_paths.rs
+  - src/lib/components/projects/ProjectsPage.tsx
   - src/lib/components/skills/SkillEditor.tsx
+  - src-tauri/src/commands/canonical_skills.rs
+  - src-tauri/src/commands/fan_out/mod.rs
+  - src/lib/components/layout/Sidebar.tsx
+  - src/lib/types/skills.ts
+  - src/lib/components/skills/SkillImportWizard.tsx
   - src-tauri/src/commands/skill_import.rs
-  - src/lib/stores/skills-store.ts
-  - src/lib/stores/theme.ts
+  - src-tauri/src/paths.rs
+  - src/lib/components/settings/AgentPathsSection.tsx
   - .session/product-backlog.md
-  - .knowledge/_catalog.json
-  - .knowledge/knowledge-base/dev-docs.md
-  - src-tauri/src/commands/mod.rs
+  - src/lib/components/projects/ProjectsList.tsx
+  - src/lib/components/skills/AddTargetDialog.tsx
+  - .session/agent-capability-research.md
+  - src/lib/components/skills/SkillList.tsx
+  - src/lib/components/skills/SkillsPage.tsx
+  - src/lib/components/skills/TargetEditor.tsx
+  - src/lib/stores/navigation.ts
+  - src/lib/stores/skills-store.ts
+  - src/lib/tauri/commands.ts
+  - src/router.tsx
 -->
 
 ---

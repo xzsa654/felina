@@ -8,204 +8,70 @@ TBD - created by archiving change 'cleanup-glyphic-base'. Update Purpose after a
 
 ### Requirement: Registered Pages
 
-The desktop app SHALL register exactly four pages in its navigation: `skills`, `settings`, `templates`, and `memory`. The route table in `src/router.tsx`, the `NAV_ITEMS` array and `Page` type union in `src/lib/stores/navigation.ts`, and the `PAGE_TITLES` / `PAGE_DESCRIPTIONS` maps in `src/lib/components/layout/Header.tsx` MUST all be consistent and contain exactly these four entries and no others.
+The desktop app SHALL register exactly six pages in its navigation: `skills`, `projects`, `settings`, `templates`, `tokens`, and `memory`. The route table in `src/router.tsx`, the `NAV_ITEMS` array and `Page` type union in `src/lib/stores/navigation.ts`, and the `PAGE_TITLES` / `PAGE_DESCRIPTIONS` maps in `src/lib/components/layout/Header.tsx` MUST all be consistent and contain exactly these six entries and no others. (`tokens` is the pre-existing Token analytics page; `scope-model-simplification` only adds `projects` as a sibling of `skills` and does not remove `tokens`.)
+
+The `skills` and `projects` pages SHALL be siblings; the prior pattern of using an in-page Global/Project toggle on the Skills page to switch between two canonical-scope views SHALL be removed. The Skills page SHALL show only global canonical master files; the Projects page SHALL show a per-project managed-inventory view defined by the `projects-view` capability.
 
 #### Scenario: User opens the app
 
 - **WHEN** the user launches the app via `npm run tauri dev` or the bundled binary
-- **THEN** the Sidebar SHALL display nav items only for `skills`, `settings`, `templates`, and `memory`
+- **THEN** the Sidebar SHALL display nav items only for `skills`, `projects`, `settings`, `templates`, `tokens`, and `memory`
 - **AND** each nav item SHALL navigate to its route defined in `src/router.tsx`
 
 #### Scenario: Navigation registration sources are consistent
 
 - **WHEN** an inspector compares the route paths in `src/router.tsx`, the `NAV_ITEMS` ids and `Page` type members in `src/lib/stores/navigation.ts`, and the keys of `PAGE_TITLES` / `PAGE_DESCRIPTIONS` in `src/lib/components/layout/Header.tsx`
-- **THEN** all four sources SHALL contain exactly the set `{skills, settings, templates, memory}`
+- **THEN** all four sources SHALL contain exactly the set `{skills, projects, settings, templates, tokens, memory}`
 - **AND** none SHALL contain a page id outside this set
 
 #### Scenario: User invokes the Command Palette
 
 - **WHEN** the user presses Cmd+K (macOS) or Ctrl+K (Windows/Linux)
-- **THEN** the palette SHALL list only the four registered pages as navigation targets
+- **THEN** the palette SHALL list only the six registered pages as navigation targets
 - **AND** entries for any removed or retained-but-unregistered page MUST NOT appear
 
-##### Example: command palette navigation entries
+##### Example: Command Palette navigation targets
 
-- **GIVEN** the cleanup is complete
-- **WHEN** the palette renders its navigation section from `NAV_ITEMS`
-- **THEN** the visible navigation entries are exactly: Skills & Agents, Settings, Templates, Memory
+- **GIVEN** `NAV_ITEMS` contains ids `[skills, projects, settings, templates, tokens, memory]`
+- **WHEN** the user opens the Command Palette
+- **THEN** the navigation section lists exactly: `Skills & Agents`, `Projects`, `Settings`, `Templates`, `Tokens`, `Memory`
+- **AND** no `hooks`, `mcp`, `rules`, or `instructions` entry appears (those modules are retained-for-reference, unregistered)
+
+#### Scenario: Skills page does not show a canonical-scope toggle
+
+- **WHEN** the user opens the Skills page
+- **THEN** the page header SHALL NOT render a Global/Project toggle
+- **AND** the page SHALL list canonical skills sourced exclusively from `~/.felina/skills/`
 
 
 <!-- @trace
-source: cleanup-glyphic-base
-updated: 2026-05-21
+source: scope-model-simplification
+updated: 2026-05-24
 code:
-  - src-tauri/src/tokens/pricing.rs
-  - src-tauri/src/commands/keybindings.rs
-  - src/lib/components/pipelines/CodeEditor.svelte
-  - src/lib/components/pipelines/nodes/WriteFileNode.svelte
-  - src/lib/components/rules/RulesPage.svelte
-  - src/lib/components/sessions/SessionMonitor.tsx
-  - src/lib/components/terminal/TerminalPage.tsx
-  - src/lib/components/tokens/components/LanguageSwitcher.tsx
-  - SECURITY.md
-  - src/lib/stores/navigation.ts
-  - src/lib/components/hooks/HookHandlerForm.svelte
-  - src-tauri/src/tokens/parsers/gemini_cli.rs
-  - src/lib/components/layout/Sidebar.tsx
-  - CONTRIBUTING.md
-  - src/lib/components/git/GitPage.svelte
-  - src/lib/components/hooks/HookEditor.svelte
-  - src-tauri/src/tokens/aggregator.rs
-  - src/lib/components/tokens/components/AgentDistribution.tsx
-  - README.md
-  - src-tauri/src/tokens/scanner.rs
-  - package.json
-  - src/lib/i18n/locales/zh-TW.ts
-  - src/lib/components/dashboard/AchievementGrid.svelte
-  - src/lib/components/dashboard/StreakCard.svelte
-  - src/lib/components/hooks/HooksPage.svelte
-  - src/lib/components/pipelines/nodes/FilterNode.svelte
-  - src/lib/components/plugins/PluginsPage.svelte
-  - src/lib/components/sessions/SessionsPage.tsx
-  - src/lib/components/settings/EnvVarsEditor.svelte
-  - src-tauri/src/bin/glyphic_ctx.rs
-  - src/lib/components/settings/SettingsPage.svelte
-  - src/lib/components/shared/ConfirmDialog.svelte
-  - src/lib/components/token-savings/TokenSavingsPage.svelte
-  - src/lib/stores/pipeline-execution.ts
-  - src-tauri/src/paths.rs
-  - src/lib/components/shared/CommandPalette.svelte
-  - src/lib/components/shared/ProjectPicker.svelte
-  - screenshots/plugins.png
-  - src/lib/components/pipelines/nodes/NotificationNode.svelte
-  - src/lib/components/dashboard/AchievementGrid.tsx
-  - src-tauri/src/filter/builtin.rs
-  - src/lib/stores/project-context.svelte.ts
-  - screenshots/rules.png
-  - src/lib/components/tokens/components/GranularityPicker.tsx
-  - src-tauri/src/ctx/virtualize.rs
-  - src-tauri/src/tokens/parsers/mod.rs
-  - src/lib/components/keybindings/KeybindingsPage.svelte
-  - src-tauri/src/tokens/parsers/codex_cli.rs
-  - src/lib/components/settings/GeneralSettings.svelte
-  - src/lib/components/shared/TemplateGallery.svelte
-  - screenshots/hooks.png
-  - src/lib/components/dashboard/ConfigCompletenessRing.tsx
-  - .session/product-backlog.md
-  - src/lib/components/memory/MemoryPage.svelte
-  - src/lib/components/pipelines/nodes/BaseNode.svelte
-  - src-tauri/src/bin/glyphic_filter.rs
-  - src-tauri/src/tokens/types.rs
-  - screenshots/mcp.png
-  - src/App.tsx
-  - src/lib/components/tokens/components/CostBudgetCard.tsx
-  - src-tauri/src/commands/token_savings.rs
-  - src-tauri/src/commands/tokens.rs
-  - src/lib/utils/format.ts
-  - src/lib/components/hooks/HookCard.svelte
-  - src/lib/components/shared/OnboardingWelcome.svelte
-  - src/lib/components/skills/SkillsPage.svelte
-  - src-tauri/src/commands/plugins.rs
-  - src/lib/components/shared/PageLoader.tsx
-  - src/lib/components/terminal/TerminalPage.svelte
-  - src-tauri/src/ctx/retrieve.rs
-  - src/lib/components/mcp/McpPage.svelte
-  - src/lib/components/tokens/components/TokenStatCards.tsx
-  - src/lib/components/dashboard/ActivityHeatmap.svelte
-  - src/lib/components/pipelines/nodes/GitNode.svelte
-  - src/lib/components/pipelines/PipelinesPage.tsx
-  - src-tauri/src/tokens/parsers/claude_code.rs
-  - .session/handoff/2026-05-20.md
-  - src/lib/components/pipelines/nodes/HttpNode.svelte
-  - src/lib/components/plugins/PluginsPage.tsx
-  - src/lib/components/sessions/SessionMonitor.svelte
-  - src/lib/components/templates/TemplatesPage.svelte
-  - src/lib/components/context-engine/ContextEnginePage.tsx
-  - src/lib/i18n/locales/en.ts
-  - src/lib/components/tokens/components/CacheEfficiencyCard.tsx
-  - screenshots/analytics.png
-  - screenshots/instructions.png
-  - src/App.svelte
-  - src/lib/components/dashboard/StatsOverview.svelte
-  - src/lib/components/pipelines/nodes/JsonExtractNode.svelte
-  - src/lib/components/tokens/TokensPage.tsx
-  - src/lib/components/dashboard/ConfigCompletenessRing.svelte
-  - src/lib/components/layout/Sidebar.svelte
-  - src/lib/components/pipelines/nodes/ReadFileNode.svelte
-  - src/lib/components/dashboard/DashboardPage.svelte
-  - src/lib/components/layout/ContextGauge.svelte
-  - src/lib/components/shared/OnboardingWelcome.tsx
-  - src-tauri/src/ctx/config.rs
-  - src/lib/components/pipelines/nodes/ClaudeNode.svelte
-  - src-tauri/src/tokens/mod.rs
-  - src/lib/components/settings/PermissionsEditor.svelte
-  - src/lib/components/dashboard/StreakCard.tsx
-  - src/lib/components/dashboard/StatsOverview.tsx
-  - CHANGELOG.md
-  - src/lib/stores/locale.ts
-  - src/lib/components/tokens/components/DateRangeFilter.tsx
-  - src/lib/components/shared/CommandPalette.tsx
-  - src-tauri/src/pty.rs
-  - src/lib/components/pipelines/nodes/GithubNode.svelte
-  - src/lib/components/pipelines/nodes/InputNode.svelte
-  - src/lib/components/context-engine/ContextEnginePage.svelte
-  - src/lib/components/sessions/SessionsPage.svelte
-  - src/lib/components/tokens/components/TokenCostTimeSeries.tsx
-  - src/lib/components/pipelines/PipelinesPage.svelte
-  - src/router.tsx
-  - src-tauri/gen/schemas/windows-schema.json
-  - src/lib/components/token-savings/TokenSavingsPage.tsx
-  - src/lib/stores/pipeline-execution.svelte.ts
-  - src-tauri/src/filter/pipeline.rs
   - src/lib/components/layout/Header.tsx
-  - screenshots/git.png
-  - src/lib/components/pipelines/nodes/OutputNode.svelte
-  - src/lib/stores/terminal.ts
-  - src-tauri/src/ctx/mod.rs
-  - svelte.config.js
-  - src-tauri/src/tokens/storage.rs
-  - src-tauri/src/commands/pipelines.rs
-  - src-tauri/src/filter/tracker.rs
-  - src/lib/components/tokens/components/ModelBreakdownTable.tsx
-  - src/lib/stores/terminal.svelte.ts
-  - RELEASE_NOTES.md
-  - src/lib/components/tokens/components/TokenTimeSeries.tsx
-  - src/lib/i18n/index.ts
+  - src/lib/components/projects/ManagedInventory.tsx
   - src-tauri/Cargo.toml
-  - src-tauri/src/commands/mod.rs
-  - src-tauri/src/commands/sessions.rs
-  - src/lib/components/pipelines/nodes/TransformNode.svelte
-  - src/lib/components/tokens/components/RefreshButton.tsx
-  - src/lib/components/tokens/components/ModelBreakdownChart.tsx
-  - screenshots/terminal.png
+  - src/lib/components/projects/ProjectsPage.tsx
+  - src/lib/components/skills/SkillEditor.tsx
+  - src-tauri/src/commands/canonical_skills.rs
+  - src-tauri/src/commands/fan_out/mod.rs
+  - src/lib/components/layout/Sidebar.tsx
+  - src/lib/types/skills.ts
+  - src/lib/components/skills/SkillImportWizard.tsx
+  - src-tauri/src/commands/skill_import.rs
+  - src-tauri/src/paths.rs
+  - src/lib/components/settings/AgentPathsSection.tsx
+  - .session/product-backlog.md
+  - src/lib/components/projects/ProjectsList.tsx
+  - src/lib/components/skills/AddTargetDialog.tsx
+  - .session/agent-capability-research.md
+  - src/lib/components/skills/SkillList.tsx
+  - src/lib/components/skills/SkillsPage.tsx
+  - src/lib/components/skills/TargetEditor.tsx
+  - src/lib/stores/navigation.ts
+  - src/lib/stores/skills-store.ts
   - src/lib/tauri/commands.ts
-  - src/lib/components/tokens/components/AgentStatusPanel.tsx
-  - src/lib/components/pipelines/nodes/BashNode.svelte
-  - src-tauri/src/commands/context_engine.rs
-  - src/lib/components/keybindings/KeybindingsPage.tsx
-  - src-tauri/src/lib.rs
-  - src-tauri/src/ctx/db.rs
-  - src-tauri/src/filter/mod.rs
-  - src/lib/components/layout/UpdateBanner.svelte
-  - src-tauri/gen/schemas/desktop-schema.json
-  - src/lib/components/tokens/components/HourlyHeatmap.tsx
-  - src-tauri/src/commands/scheduler.rs
-  - src/lib/stores/navigation.svelte.ts
-  - src/lib/stores/theme.svelte.ts
-  - src-tauri/src/commands/git.rs
-  - src/lib/components/instructions/InstructionsPage.svelte
-  - src/lib/components/analytics/AnalyticsPage.tsx
-  - src/lib/components/dashboard/ActivityHeatmap.tsx
-  - src/lib/components/analytics/AnalyticsPage.svelte
-  - CODE_OF_CONDUCT.md
-  - src/lib/components/git/GitPage.tsx
-  - src/lib/components/dashboard/DashboardPage.tsx
-  - src/lib/components/layout/Header.svelte
-  - src-tauri/src/ctx/embed.rs
-  - src/lib/components/pipelines/nodes/DelayNode.svelte
-  - src/lib/components/pipelines/PipelineCanvas.svelte
-  - screenshots/dashboard.png
-  - src-tauri/src/ctx/hook.rs
+  - src/router.tsx
 -->
 
 ---
