@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
 import { Grid2x2, List, Loader2, Plus, RefreshCw, Sparkles, Undo2 } from "lucide-react";
-import ProjectPicker from "$lib/components/shared/ProjectPicker";
 import ConfirmDialog from "$lib/components/shared/ConfirmDialog";
 import { PageBody, PageHeader } from "$lib/components/shared/PageScaffold";
 import { useProjectContextStore } from "$lib/stores/project-context";
@@ -32,6 +31,10 @@ import { isProjectMissing } from "$lib/utils/path";
  *   └──────────────────────┴─────────────────────────────────┘
  */
 export default function SkillsPage() {
+  // App-wide current project (no in-page picker). Used only as the default
+  // destination when adding a project-scope target in the editor and to drive
+  // the "project not found" indicator — NOT as a canonical scope. The
+  // canonical list and import scan are global.
   const projectPath = useProjectContextStore((s) => s.selectedProjectPath);
   const {
     entries,
@@ -39,7 +42,6 @@ export default function SkillsPage() {
     error,
     bannerDismissed,
     detectedImportCount,
-    setProjectPath,
     loadEntries,
     refreshImportCount,
     resetBannerDismissed,
@@ -77,18 +79,13 @@ export default function SkillsPage() {
     }
   }
 
-  // Push the project path into the store whenever it changes upstream.
-  useEffect(() => {
-    setProjectPath(projectPath ?? null);
-  }, [projectPath, setProjectPath]);
-
-  // Initial load + reload when the import-scan project hint changes. The
-  // canonical list itself is global and project-independent, but the import
-  // banner count scans the selected project's agent dirs.
+  // Canonical list + import scan are both global (the store keeps
+  // projectPath=null, so the import banner counts global agent-dir skills).
+  // Per-project import lives in the Projects view, not here.
   useEffect(() => {
     void loadEntries();
     void refreshImportCount();
-  }, [loadEntries, refreshImportCount, projectPath]);
+  }, [loadEntries, refreshImportCount]);
 
   // Deep-link selection: the Projects view navigates here with
   // `?select=<skill-name>` to open a managed skill for editing. Consume the
@@ -199,7 +196,6 @@ export default function SkillsPage() {
         actions={
           <>
             <ViewModeToggle value={viewMode} onChange={setViewMode} />
-            <ProjectPicker />
             {bannerDismissed && (
               <button
                 type="button"

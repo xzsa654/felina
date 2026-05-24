@@ -396,6 +396,23 @@ pub(crate) fn read_sync_meta_v2(
     (meta, v1.last_synced)
 }
 
+/// Read the on-disk v2 sidecar WITHOUT backfilling from the skill's `agents`
+/// field. Returns `SyncMetaV2::default()` (empty targets) when the sidecar is
+/// absent, legacy v1, or corrupt.
+///
+/// Use this (not `read_sync_meta_v2`) when composing a target list explicitly
+/// — import / future scope moves — so a freshly written skill does NOT inherit
+/// a synthetic global target per `agents` entry (which would otherwise appear
+/// alongside the intended target, e.g. "global + projectA" after importing
+/// projectA's copy).
+pub(crate) fn read_sync_meta_v2_no_backfill(skill_dir: &Path) -> SyncMetaV2 {
+    let path = skill_dir.join(SYNC_META_FILENAME);
+    match fs::read_to_string(&path) {
+        Ok(raw) => serde_json::from_str::<SyncMetaV2>(&raw).unwrap_or_default(),
+        Err(_) => SyncMetaV2::default(),
+    }
+}
+
 /// Write a v2 sync-meta sidecar. Overwrites the existing file completely
 /// (no field-level merge — callers compose the desired SyncMetaV2 first).
 pub(crate) fn write_sync_meta_v2(skill_dir: &Path, meta: &SyncMetaV2) -> Result<(), String> {

@@ -46,6 +46,14 @@ The row SHALL provide exactly the following actions:
 
 The Projects view SHALL NOT provide any in-place target editing, "manage this skill" toggle, or skill deletion action; all target and master-file mutations remain in the Skills view's editor.
 
+Inventory rows SHALL be ordered by, in priority: (1) management status — Managed rows before Unmanaged; (2) action kind — importable (Unmanaged, single-source) before editable (Managed) before multi-source (deferred); (3) skill name, alphabetical. Because status is the primary key, the net order is: Managed rows (alphabetical), then Unmanaged importable rows (alphabetical), then multi-source deferred rows (alphabetical).
+
+#### Scenario: Inventory row ordering
+
+- **GIVEN** the selected project yields rows: `zed` (Managed), `alpha` (Unmanaged, single-source), `beta` (Unmanaged, single-source), `multi` (Unmanaged, multi-source/deferred)
+- **WHEN** the inventory renders
+- **THEN** the row order is `zed`, `alpha`, `beta`, `multi` (Managed first despite "zed" sorting last alphabetically; importable before deferred within Unmanaged)
+
 #### Scenario: Row appears for a project-only skill not yet managed globally
 
 - **GIVEN** `<projectA>/.claude/skills/local-only/SKILL.md` exists, no `~/.felina/skills/local-only` exists, and no global master targets `projectA`

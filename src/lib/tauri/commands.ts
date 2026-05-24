@@ -23,9 +23,6 @@ import type {
   KnownProject,
   SkillTarget,
   OrphanFile,
-  MigrationCandidate,
-  MigrationAction,
-  MigrationResult,
 } from "$lib/types";
 
 // Retained-for-reference wrappers (hooks / instructions / mcp / rules / budget / stats):
@@ -154,16 +151,6 @@ export const api = {
       invoke<void>("known_projects_remove", { path }),
   },
 
-  // Project→global canonical migration (scope-model-simplification).
-  // Non-destructive one-shot: scan lists legacy <project>/.felina/skills/*,
-  // apply copies the chosen ones to global + adds a project target. Legacy
-  // dirs are never deleted.
-  migration: {
-    scan: () =>
-      invoke<MigrationCandidate[]>("migrate_project_canonicals_scan"),
-    apply: (items: MigrationAction[]) =>
-      invoke<MigrationResult[]>("migrate_project_canonicals_apply", { items }),
-  },
 
   // Per-skill target editor. Canonical lives in the single global dir;
   // `SkillTarget.scope` decides each push destination.

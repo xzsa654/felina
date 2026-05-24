@@ -104,6 +104,7 @@ export default function ProjectsPage() {
               loaded={loaded}
               selectedPath={selectedPath}
               onSelect={setSelectedPath}
+              onRemoved={() => void refresh()}
             />
           </div>
           <div className="border border-border rounded overflow-y-auto">

@@ -1,20 +1,19 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router";
-import { ArrowRight, Download, PackageOpen } from "lucide-react";
+import { ArrowRight, Download } from "lucide-react";
 import { api } from "$lib/tauri/commands";
 import type {
   AgentId,
   ImportCandidate,
   KnownProject,
-  MigrationCandidate,
   SkillListEntry,
 } from "$lib/types";
 import { normalizeProjectPath } from "$lib/utils/path";
-import MigrationPanel from "./MigrationPanel";
+import ConfirmDialog from "$lib/components/shared/ConfirmDialog";
 
 interface Props {
   project: KnownProject | null;
-  /** Called after an import / migration so the page can re-stat projects. */
+  /** Called after an import so the page can re-stat projects. */
   onChanged: () => void;
 }
 
@@ -42,14 +41,37 @@ function candidateAgents(c: ImportCandidate): AgentId[] {
   return c.deferred ? c.deferred.agents : [c.sourceAgent];
 }
 
+/** A row's action kind, used as the secondary sort key. */
+function actionRank(r: InventoryRow): number {
+  if (!r.managed && !r.deferred) return 0; // import (Unmanaged, importable)
+  if (r.managed) return 1; // edit (Managed → click to edit)
+  return 2; // multi-source (deferred, not importable)
+}
+
+/**
+ * Row order: status first (Managed before Unmanaged), then action
+ * (import → edit → multi-source), then alphabetical by skill name.
+ */
+function compareRows(a: InventoryRow, b: InventoryRow): number {
+  const statusA = a.managed ? 0 : 1;
+  const statusB = b.managed ? 0 : 1;
+  if (statusA !== statusB) return statusA - statusB;
+  const actA = actionRank(a);
+  const actB = actionRank(b);
+  if (actA !== actB) return actA - actB;
+  return a.skillName.localeCompare(b.skillName);
+}
+
 export default function ManagedInventory({ project, onChanged }: Props) {
   const navigate = useNavigate();
   const [rows, setRows] = useState<InventoryRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [importing, setImporting] = useState<string | null>(null);
-  const [legacyCandidates, setLegacyCandidates] = useState<MigrationCandidate[]>([]);
-  const [migrationOpen, setMigrationOpen] = useState(false);
+  // Names of existing global canonical masters — used to detect collisions
+  // before a per-row import silently overwrites one.
+  const [globalNames, setGlobalNames] = useState<Set<string>>(new Set());
+  const [pendingImport, setPendingImport] = useState<InventoryRow | null>(null);
 
   const projectPath = project?.path ?? null;
   const projectExists = project?.exists ?? false;
@@ -57,23 +79,24 @@ export default function ManagedInventory({ project, onChanged }: Props) {
   const load = useCallback(async () => {
     if (!projectPath || !projectExists) {
       setRows([]);
-      setLegacyCandidates([]);
       return;
     }
     setLoading(true);
     setError(null);
     try {
-      const [scan, canonical, legacy] = await Promise.all([
+      const [scan, canonical] = await Promise.all([
         api.skillImport.scan(projectPath),
         api.canonicalSkills.list(),
-        api.migration.scan(),
       ]);
 
       // Managed names: canonical masters with a target at this project.
+      // Also collect ALL global master names for import collision detection.
       const want = normalizeProjectPath(projectPath);
       const managedNames = new Set<string>();
+      const allGlobalNames = new Set<string>();
       for (const e of canonical as SkillListEntry[]) {
         if (e.kind !== "ok") continue;
+        allGlobalNames.add(e.skill.name);
         const hit = e.skill.targets.some(
           (t) => t.scope === "project" && normalizeProjectPath(t.project ?? "") === want,
         );
@@ -92,7 +115,7 @@ export default function ManagedInventory({ project, onChanged }: Props) {
 
       // Union of scan names ∪ managed names.
       const names = new Set<string>([...presence.keys(), ...managedNames]);
-      const built: InventoryRow[] = [...names].sort().map((skillName) => {
+      const built: InventoryRow[] = [...names].map((skillName) => {
         const cand = candMap.get(skillName) ?? null;
         return {
           skillName,
@@ -102,11 +125,10 @@ export default function ManagedInventory({ project, onChanged }: Props) {
           deferred: cand?.deferred != null,
         };
       });
+      built.sort(compareRows);
 
       setRows(built);
-      setLegacyCandidates(
-        legacy.filter((l) => normalizeProjectPath(l.projectPath) === want),
-      );
+      setGlobalNames(allGlobalNames);
     } catch (e) {
       setError(String(e));
       setRows([]);
@@ -119,7 +141,19 @@ export default function ManagedInventory({ project, onChanged }: Props) {
     void load();
   }, [load]);
 
-  async function handleImport(row: InventoryRow) {
+  // Entry point: if a global master with the same name already exists,
+  // importing would overwrite it — confirm first instead of silently
+  // clobbering. Otherwise import directly.
+  function handleImport(row: InventoryRow) {
+    if (!row.candidate || row.deferred || !projectPath) return;
+    if (globalNames.has(row.skillName)) {
+      setPendingImport(row);
+      return;
+    }
+    void performImport(row);
+  }
+
+  async function performImport(row: InventoryRow) {
     if (!row.candidate || row.deferred || !projectPath) return;
     setImporting(row.skillName);
     try {
@@ -140,8 +174,6 @@ export default function ManagedInventory({ project, onChanged }: Props) {
     navigate(`/skills?select=${encodeURIComponent(name)}`);
   }
 
-  const hasLegacy = legacyCandidates.length > 0;
-
   if (!project) {
     return (
       <div className="p-6 text-sm text-text-secondary">
@@ -161,24 +193,6 @@ export default function ManagedInventory({ project, onChanged }: Props) {
 
   return (
     <div className="flex flex-col">
-      {hasLegacy && (
-        <div className="m-3 rounded border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs">
-          <div className="flex items-center justify-between gap-2">
-            <span className="text-amber-300">
-              此 project 有 {legacyCandidates.length} 個舊版 project 主檔（
-              <code>.felina/skills/</code>），可一鍵 migrate 到 global。
-            </span>
-            <button
-              type="button"
-              onClick={() => setMigrationOpen(true)}
-              className="inline-flex items-center gap-1 px-2 py-1 rounded bg-amber-500/20 text-amber-200 hover:bg-amber-500/30 shrink-0"
-            >
-              <PackageOpen size={12} /> Migrate…
-            </button>
-          </div>
-        </div>
-      )}
-
       {error && (
         <div className="m-3 text-xs text-red-400 bg-red-500/10 border border-red-500/30 rounded px-3 py-2">
           {error}
@@ -268,18 +282,22 @@ export default function ManagedInventory({ project, onChanged }: Props) {
         </table>
       )}
 
-      {migrationOpen && projectPath && (
-        <MigrationPanel
-          projectPath={projectPath}
-          candidates={legacyCandidates}
-          onClose={() => setMigrationOpen(false)}
-          onApplied={async () => {
-            setMigrationOpen(false);
-            await load();
-            onChanged();
-          }}
-        />
-      )}
+      <ConfirmDialog
+        open={pendingImport !== null}
+        title="Global 已有同名主檔"
+        message={
+          pendingImport
+            ? `global（~/.felina/skills/）已存在同名主檔「${pendingImport.skillName}」。\n\n繼續會用此 project 的版本覆蓋 global 主檔內容。\n\n⚠ 若該主檔已有指向其他 project 的 target，下次對它 Push 時，會把這份新內容一併蓋到那些 project 的 agent 目錄。若兩邊其實是不同的 skill 只是同名，請改用不同名稱（取消後到 Skills 頁處理），不要覆蓋。`
+            : ""
+        }
+        confirmLabel="仍要覆蓋"
+        onconfirm={() => {
+          const row = pendingImport;
+          setPendingImport(null);
+          if (row) void performImport(row);
+        }}
+        oncancel={() => setPendingImport(null)}
+      />
     </div>
   );
 }

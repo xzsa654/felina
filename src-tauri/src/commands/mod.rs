@@ -26,5 +26,3 @@ pub mod agent_paths;
 pub mod fan_out;
 pub mod skill_import;
 pub mod known_projects;
-// scope-model-simplification: one-shot project→global canonical migration.
-pub mod migration;

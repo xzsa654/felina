@@ -129,9 +129,6 @@ pub fn run() {
             commands::known_projects::known_projects_list,
             commands::known_projects::known_projects_add,
             commands::known_projects::known_projects_remove,
-            // Project→global canonical migration (scope-model-simplification).
-            commands::migration::migrate_project_canonicals_scan,
-            commands::migration::migrate_project_canonicals_apply,
             // Maintenance
             commands::maintenance::get_disk_usage,
             commands::maintenance::cleanup_directory,

@@ -2,7 +2,7 @@ import { useMatch } from "react-router";
 import { type Page } from "$lib/stores/navigation";
 
 const PAGE_TITLES: Record<Page, string> = {
-  skills: "Skills & Agents",
+  skills: "Skills",
   projects: "Projects",
   settings: "Settings",
   tokens: "Tokens",

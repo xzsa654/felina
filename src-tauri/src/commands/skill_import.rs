@@ -5,8 +5,8 @@
 
 use crate::commands::agent_paths::{agent_paths_get, AgentPathPair};
 use crate::commands::canonical_skills::{
-    canonical_skills_dir, parse_skill_md, read_sync_meta_v2, write_sync_meta_v2, AgentId,
-    SkillScope, SkillTarget, TargetMode,
+    canonical_skills_dir, parse_skill_md, read_sync_meta_v2_no_backfill, write_sync_meta_v2,
+    AgentId, SkillScope, SkillTarget, TargetMode,
 };
 use crate::commands::fan_out::{expand_user_path, resolve_pair};
 use serde::{Deserialize, Serialize};
@@ -444,10 +444,11 @@ fn write_canonical_from_source(
     // Record a SkillTarget for the source location so a subsequent push can
     // fan back out to it. The scope of the target mirrors where the import
     // came from: `Some(project_path)` → scope=Project (`project=path`),
-    // `None` → scope=Global. Preserve any existing meta (e.g. when
-    // overwriting): add or replace the matching target rather than wiping.
-    let parsed = parse_skill_md(&body_and_fm)?;
-    let (mut meta, _legacy) = read_sync_meta_v2(&target_dir, &parsed);
+    // `None` → scope=Global. Read the existing sidecar WITHOUT backfill so a
+    // fresh import gets EXACTLY the source target (not a synthetic global
+    // target per `agents` + the source target); an overwrite preserves the
+    // existing target list and just adds/keeps the source target.
+    let mut meta = read_sync_meta_v2_no_backfill(&target_dir);
     let new_target = match project_path {
         Some(pp) => SkillTarget {
             agent: candidate.source_agent,
@@ -785,5 +786,56 @@ mod tests {
             !tmp.join(".felina").join("skills").join("shared").exists(),
             "deferred candidate must not be written to canonical"
         );
+    }
+
+    /// Regression: importing a skill from a project must produce EXACTLY one
+    /// target (the project source) in the global sidecar — not a synthetic
+    /// global target (from the skill's `agents` backfill) plus the project
+    /// target. Reproduces the "target shows global + projectA" bug.
+    #[test]
+    fn import_from_project_writes_single_project_target() {
+        let home = unique_tmp("import-home");
+        let project = unique_tmp("import-proj");
+        crate::paths::set_felina_home_override_for_test(Some(home.join(".felina")));
+        struct G;
+        impl Drop for G {
+            fn drop(&mut self) {
+                crate::paths::set_felina_home_override_for_test(None);
+            }
+        }
+        let _g = G;
+
+        // Source skill on disk in the project's .claude/skills dir.
+        let src_dir = project.join(".claude").join("skills").join("skill-a");
+        fs::create_dir_all(&src_dir).unwrap();
+        fs::write(
+            src_dir.join("SKILL.md"),
+            "---\nname: skill-a\ndescription: a\nagents: [anthropic]\n---\nbody-a\n",
+        )
+        .unwrap();
+
+        let mut c = candidate("skill-a", AgentId::Anthropic);
+        c.source_path = src_dir.join("SKILL.md").to_string_lossy().to_string();
+        let project_str = project.to_string_lossy().to_string();
+        skill_import_apply(
+            Some(project_str.clone()),
+            vec![ImportSelection {
+                candidate: c,
+                resolution: ImportResolution::OverwriteCanonical,
+            }],
+        )
+        .expect("apply");
+
+        // Global master exists with EXACTLY one project target.
+        let meta_raw = fs::read_to_string(
+            home.join(".felina").join("skills").join("skill-a").join(".felina-sync-meta.json"),
+        )
+        .expect("sidecar");
+        let meta: serde_json::Value = serde_json::from_str(&meta_raw).unwrap();
+        let targets = meta["targets"].as_array().expect("targets array");
+        assert_eq!(targets.len(), 1, "import must write a single target, got: {targets:?}");
+        assert_eq!(targets[0]["scope"], "project");
+        assert_eq!(targets[0]["project"], project_str);
+        assert_eq!(targets[0]["agent"], "anthropic");
     }
 }
