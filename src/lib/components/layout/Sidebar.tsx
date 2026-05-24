@@ -3,6 +3,7 @@ import { Link, useMatch } from "react-router";
 import { getVersion } from "@tauri-apps/api/app";
 import { NAV_ITEMS } from "$lib/stores/navigation";
 import { useThemeStore } from "$lib/stores/theme";
+import LanguageSwitcher from "$lib/components/shared/LanguageSwitcher";
 import {
   Settings as SettingsIcon,
   Brain,
@@ -82,24 +83,23 @@ export default function Sidebar() {
         })}
       </nav>
 
-      {/* Theme toggle */}
+      {/* Global UI preferences */}
       <div className="px-4 py-2 border-t border-border">
+        <div className="flex items-center gap-2">
+          <LanguageSwitcher />
         <button
-          className="w-full flex items-center gap-3 px-3 py-2 text-sm text-text-secondary hover:bg-bg-hover hover:text-text-primary rounded-md transition-colors"
+          className="shrink-0 flex items-center justify-center w-8 h-8 text-text-secondary hover:bg-bg-hover hover:text-text-primary rounded-md transition-colors"
           onClick={toggleTheme}
+          title={theme === "dark" ? "Light Mode" : "Dark Mode"}
+          aria-label={theme === "dark" ? "Light Mode" : "Dark Mode"}
         >
           {theme === "dark" ? (
-            <>
-              <Sun size={16} />
-              <span>Light Mode</span>
-            </>
+            <Sun size={16} />
           ) : (
-            <>
-              <Moon size={16} />
-              <span>Dark Mode</span>
-            </>
+            <Moon size={16} />
           )}
         </button>
+        </div>
       </div>
 
       {/* About Dialog */}

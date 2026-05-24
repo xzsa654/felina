@@ -3,6 +3,8 @@ import { ChevronDown, ChevronRight, Plus, Save, Trash2 } from "lucide-react";
 import type { CanonicalSkill } from "$lib/types";
 import { api } from "$lib/tauri/commands";
 import { useSkillsStore } from "$lib/stores/skills-store";
+import { useLocaleStore } from "$lib/stores/locale";
+import { t } from "$lib/i18n";
 
 interface Props {
   /** `null` when creating a new skill; otherwise the skill being edited. */
@@ -45,6 +47,7 @@ function makeRowId(): string {
  *   - Plain textarea, no syntax highlighting (per Non-Goals).
  */
 export default function SkillEditor({ skill, onSaved, onCancel, onDelete }: Props) {
+  const locale = useLocaleStore((s) => s.locale);
   const upsertEntry = useSkillsStore((s) => s.upsertEntry);
   const loadEntries = useSkillsStore((s) => s.loadEntries);
 
@@ -67,7 +70,7 @@ export default function SkillEditor({ skill, onSaved, onCancel, onDelete }: Prop
     setError(null);
   }, [skill?.name]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const nameError = useMemo(() => validateName(name), [name]);
+  const nameError = useMemo(() => validateName(name, locale), [name, locale]);
   const canSave =
     nameError === null && description.trim() !== "" && !saving;
 
@@ -99,7 +102,7 @@ export default function SkillEditor({ skill, onSaved, onCancel, onDelete }: Prop
         agents: skill?.agents ?? [],
         frontmatterExtras: {},
         body,
-        dirty: currentTargets.some((t) => t.enabled && t.mode === "tracked"),
+        dirty: currentTargets.some((tgt) => tgt.enabled && tgt.mode === "tracked"),
         lastSynced: skill?.lastSynced ?? null,
         targets: currentTargets,
         lastSync: skill?.lastSync ?? {},
@@ -119,8 +122,8 @@ export default function SkillEditor({ skill, onSaved, onCancel, onDelete }: Prop
       <div className="flex items-center justify-between gap-2 border-b border-border pb-3">
         <div className="text-xs text-text-secondary truncate">
           {isNew
-            ? "Creating new canonical skill"
-            : `Editing ${skill?.name ?? ""}`}
+            ? t(locale, "skills.editor.creatingNew")
+            : t(locale, "skills.editor.editing", { name: skill?.name ?? "" })}
         </div>
         <div className="flex items-center gap-2 shrink-0">
           {isNew && onCancel && (
@@ -129,7 +132,7 @@ export default function SkillEditor({ skill, onSaved, onCancel, onDelete }: Prop
               onClick={onCancel}
               className="text-xs px-3 py-1.5 rounded border border-border text-text-secondary hover:text-text-primary"
             >
-              Cancel
+              {t(locale, "skills.editor.cancel")}
             </button>
           )}
           {!isNew && onDelete && (
@@ -137,9 +140,9 @@ export default function SkillEditor({ skill, onSaved, onCancel, onDelete }: Prop
               type="button"
               onClick={onDelete}
               className="inline-flex items-center gap-1 text-xs px-2 py-1.5 rounded text-red-400 hover:bg-red-500/10"
-              title="Delete skill"
+              title={t(locale, "skills.editor.deleteTitle")}
             >
-              <Trash2 size={12} /> Delete
+              <Trash2 size={12} /> {t(locale, "skills.editor.delete")}
             </button>
           )}
           <button
@@ -149,7 +152,7 @@ export default function SkillEditor({ skill, onSaved, onCancel, onDelete }: Prop
             className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded bg-accent text-white hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <Save size={12} />
-            {saving ? "Saving…" : "Save"}
+            {saving ? t(locale, "skills.editor.saving") : t(locale, "skills.editor.save")}
           </button>
         </div>
       </div>
@@ -163,35 +166,35 @@ export default function SkillEditor({ skill, onSaved, onCancel, onDelete }: Prop
       {/* ------- Properties ------- */}
       <section className="flex flex-col gap-3">
         <h3 className="text-xs font-semibold uppercase tracking-wide text-text-secondary">
-          Properties
+          {t(locale, "skills.editor.properties")}
         </h3>
 
         <label className="flex flex-col gap-1 text-sm">
-          <span className="text-text-secondary">Name</span>
+          <span className="text-text-secondary">{t(locale, "skills.editor.name")}</span>
           <input
             type="text"
             value={name}
             disabled={!isNew}
             onChange={(e) => setName(e.target.value)}
             className="w-full px-2 py-1.5 rounded bg-bg-primary border border-border text-sm focus:outline-none focus:border-accent disabled:opacity-60"
-            placeholder="my-skill"
+            placeholder={t(locale, "skills.editor.namePlaceholder")}
           />
           {nameError && <span className="text-xs text-red-400">{nameError}</span>}
           {!isNew && (
             <span className="text-xs text-text-secondary">
-              Renaming requires delete + recreate (Phase 2).
+              {t(locale, "skills.editor.renameHint")}
             </span>
           )}
         </label>
 
         <label className="flex flex-col gap-1 text-sm">
-          <span className="text-text-secondary">Description</span>
+          <span className="text-text-secondary">{t(locale, "skills.editor.description")}</span>
           <textarea
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             rows={2}
             className="w-full px-2 py-1.5 rounded bg-bg-primary border border-border text-sm focus:outline-none focus:border-accent"
-            placeholder="What does this skill do? Used by the model for auto-invocation."
+            placeholder={t(locale, "skills.editor.descriptionPlaceholder")}
           />
         </label>
 
@@ -205,14 +208,12 @@ export default function SkillEditor({ skill, onSaved, onCancel, onDelete }: Prop
           className="flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-text-secondary hover:text-text-primary"
         >
           {advancedOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-          Advanced fields
+          {t(locale, "skills.editor.advancedFields")}
         </button>
         {advancedOpen && (
           <div className="flex flex-col gap-2">
             <p className="text-xs text-text-secondary">
-              Extra frontmatter fields preserved verbatim into canonical
-              storage. Values that look like JSON (arrays, booleans,
-              numbers) round-trip as YAML structures.
+              {t(locale, "skills.editor.advancedHint")}
             </p>
             {extras.map((row, idx) => (
               <div key={row.id} className="flex items-center gap-2">
@@ -224,7 +225,7 @@ export default function SkillEditor({ skill, onSaved, onCancel, onDelete }: Prop
                       prev.map((r, i) => (i === idx ? { ...r, key: e.target.value } : r)),
                     )
                   }
-                  placeholder="effort"
+                  placeholder={t(locale, "skills.editor.keyPlaceholder")}
                   className="px-2 py-1 rounded bg-bg-primary border border-border text-xs w-1/3"
                 />
                 <input
@@ -235,7 +236,7 @@ export default function SkillEditor({ skill, onSaved, onCancel, onDelete }: Prop
                       prev.map((r, i) => (i === idx ? { ...r, value: e.target.value } : r)),
                     )
                   }
-                  placeholder='high  /  ["Read","Edit"]  /  true'
+                  placeholder={t(locale, "skills.editor.valuePlaceholder")}
                   className="px-2 py-1 rounded bg-bg-primary border border-border text-xs flex-1"
                 />
                 <button
@@ -244,7 +245,7 @@ export default function SkillEditor({ skill, onSaved, onCancel, onDelete }: Prop
                     setExtras((prev) => prev.filter((_, i) => i !== idx))
                   }
                   className="p-1 text-text-secondary hover:text-red-400"
-                  title="Remove row"
+                  title={t(locale, "skills.editor.removeRow")}
                 >
                   <Trash2 size={14} />
                 </button>
@@ -257,7 +258,7 @@ export default function SkillEditor({ skill, onSaved, onCancel, onDelete }: Prop
               }
               className="self-start inline-flex items-center gap-1 text-xs px-2 py-1 rounded border border-border text-text-secondary hover:text-text-primary hover:border-accent"
             >
-              <Plus size={12} /> Add field
+              <Plus size={12} /> {t(locale, "skills.editor.addField")}
             </button>
           </div>
         )}
@@ -266,14 +267,14 @@ export default function SkillEditor({ skill, onSaved, onCancel, onDelete }: Prop
       {/* ------- Body ------- */}
       <section className="flex flex-col gap-2">
         <h3 className="text-xs font-semibold uppercase tracking-wide text-text-secondary">
-          Body (Markdown)
+          {t(locale, "skills.editor.bodyLabel")}
         </h3>
         <textarea
           value={body}
           onChange={(e) => setBody(e.target.value)}
           rows={16}
           className="w-full block resize-y px-3 py-2 rounded bg-bg-primary border border-border text-sm font-mono focus:outline-none focus:border-accent"
-          placeholder="# When to use this skill&#10;&#10;Describe the workflow."
+          placeholder={t(locale, "skills.editor.bodyPlaceholder")}
         />
       </section>
 
@@ -328,12 +329,12 @@ function parseExtraValue(raw: string): unknown {
  * Same allowlist as the Rust validator. Reject empty / leading-dot / non-alnum
  * (except `-` and `_`). Returns an error message or null.
  */
-function validateName(name: string): string | null {
-  if (name.length === 0) return "Name is required.";
-  if (name.startsWith(".")) return "Name must not start with '.'.";
+function validateName(name: string, locale: import("$lib/i18n").Locale): string | null {
+  if (name.length === 0) return t(locale, "skills.editor.nameRequired");
+  if (name.startsWith(".")) return t(locale, "skills.editor.nameNoDot");
   for (const ch of name) {
     const ok = /[A-Za-z0-9_-]/.test(ch);
-    if (!ok) return `Invalid character: '${ch}'. Allowed: A-Z a-z 0-9 - _`;
+    if (!ok) return t(locale, "skills.editor.nameInvalidChar", { ch });
   }
   return null;
 }

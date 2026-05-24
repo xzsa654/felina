@@ -7,6 +7,8 @@ import type {
 } from "$lib/types";
 import { api } from "$lib/tauri/commands";
 import { useSkillsStore } from "$lib/stores/skills-store";
+import { useLocaleStore } from "$lib/stores/locale";
+import { t } from "$lib/i18n";
 
 interface Props {
   /** When set, scan that project's agent dirs and tag imported skills with a
@@ -34,6 +36,7 @@ interface RowState {
  *   - rename:  write the candidate under a different canonical name
  */
 export default function SkillImportWizard({ projectPath, onClose }: Props) {
+  const locale = useLocaleStore((s) => s.locale);
   const loadEntries = useSkillsStore((s) => s.loadEntries);
   const refreshImportCount = useSkillsStore((s) => s.refreshImportCount);
 
@@ -101,9 +104,9 @@ export default function SkillImportWizard({ projectPath, onClose }: Props) {
       <div className="bg-bg-primary border border-border rounded-lg shadow-xl max-w-3xl w-full max-h-[85vh] flex flex-col">
         <div className="flex items-center justify-between px-5 py-3 border-b border-border">
           <div>
-            <h2 className="text-sm font-semibold text-text-primary">Import skills</h2>
+            <h2 className="text-sm font-semibold text-text-primary">{t(locale, "skills.importWizard.title")}</h2>
             <p className="text-xs text-text-secondary">
-              Choose how each detected skill becomes canonical. Source files are never deleted.
+              {t(locale, "skills.importWizard.subtitle")}
             </p>
           </div>
           <button
@@ -116,7 +119,7 @@ export default function SkillImportWizard({ projectPath, onClose }: Props) {
         </div>
 
         <div className="flex-1 overflow-y-auto px-5 py-3 flex flex-col gap-3">
-          {loading && <div className="text-sm text-text-secondary">Scanning…</div>}
+          {loading && <div className="text-sm text-text-secondary">{t(locale, "skills.importWizard.scanning")}</div>}
           {error && (
             <div className="text-xs text-red-400 bg-red-500/10 border border-red-500/30 rounded px-3 py-2">
               {error}
@@ -124,7 +127,7 @@ export default function SkillImportWizard({ projectPath, onClose }: Props) {
           )}
           {!loading && candidates.length === 0 && !error && (
             <div className="text-sm text-text-secondary py-6 text-center">
-              Nothing to import.
+              {t(locale, "skills.importWizard.nothingToImport")}
             </div>
           )}
           {candidates.map((c, idx) => {
@@ -140,12 +143,12 @@ export default function SkillImportWizard({ projectPath, onClose }: Props) {
                       <div className="text-sm font-medium text-text-primary">
                         {c.skillName}{" "}
                         <span className="text-xs font-normal text-text-secondary">
-                          found in {c.deferred.agents.join(", ")}
+                          {t(locale, "skills.importWizard.foundIn", { agents: c.deferred.agents.join(", ") })}
                         </span>
                       </div>
                     </div>
                     <div className="shrink-0 inline-flex items-center gap-1 text-xs text-text-secondary">
-                      <AlertTriangle size={12} /> Deferred
+                      <AlertTriangle size={12} /> {t(locale, "skills.importWizard.deferred")}
                     </div>
                   </div>
                   <div className="text-xs text-text-secondary">{c.deferred.reason}</div>
@@ -162,7 +165,7 @@ export default function SkillImportWizard({ projectPath, onClose }: Props) {
                     <div className="text-sm font-medium text-text-primary">
                       {c.skillName}{" "}
                       <span className="text-xs font-normal text-text-secondary">
-                        from {c.sourceAgent}
+                        {t(locale, "skills.importWizard.from", { agent: c.sourceAgent })}
                       </span>
                     </div>
                     <div className="text-[10px] font-mono text-text-secondary truncate">
@@ -171,14 +174,14 @@ export default function SkillImportWizard({ projectPath, onClose }: Props) {
                   </div>
                   {c.conflict && (
                     <div className="shrink-0 inline-flex items-center gap-1 text-xs text-amber-400">
-                      <AlertTriangle size={12} /> Conflict
+                      <AlertTriangle size={12} /> {t(locale, "skills.importWizard.conflict")}
                     </div>
                   )}
                 </div>
 
                 {c.conflict && (
                   <div className="text-xs bg-amber-500/10 border border-amber-500/30 rounded p-2 text-amber-200">
-                    <div className="font-medium mb-1">Name collides with canonical skill</div>
+                    <div className="font-medium mb-1">{t(locale, "skills.importWizard.conflictTitle")}</div>
                     <div className="font-mono text-[10px] text-amber-100/80">
                       {c.conflict.canonicalPath}
                     </div>
@@ -212,10 +215,10 @@ export default function SkillImportWizard({ projectPath, onClose }: Props) {
                           )
                         }
                       />
-                      {kind === "keepCanonical" && "Keep canonical"}
-                      {kind === "overwriteCanonical" && (c.conflict ? "Overwrite canonical" : "Import")}
-                      {kind === "skip" && "Skip"}
-                      {kind === "rename" && "Rename"}
+                      {kind === "keepCanonical" && t(locale, "skills.importWizard.keepCanonical")}
+                      {kind === "overwriteCanonical" && (c.conflict ? t(locale, "skills.importWizard.overwriteCanonical") : t(locale, "skills.importWizard.import"))}
+                      {kind === "skip" && t(locale, "skills.importWizard.skip")}
+                      {kind === "rename" && t(locale, "skills.importWizard.rename")}
                     </label>
                   ))}
                   {row.resolution.kind === "rename" && (
@@ -235,7 +238,7 @@ export default function SkillImportWizard({ projectPath, onClose }: Props) {
                           ),
                         )
                       }
-                      placeholder="new-name"
+                      placeholder={t(locale, "skills.importWizard.renamePlaceholder")}
                       className="px-2 py-0.5 rounded bg-bg-primary border border-border text-xs"
                     />
                   )}
@@ -251,7 +254,7 @@ export default function SkillImportWizard({ projectPath, onClose }: Props) {
             onClick={onClose}
             className="text-xs px-3 py-1.5 rounded border border-border text-text-secondary hover:text-text-primary"
           >
-            Cancel
+            {t(locale, "skills.importWizard.cancel")}
           </button>
           <button
             type="button"
@@ -259,7 +262,7 @@ export default function SkillImportWizard({ projectPath, onClose }: Props) {
             onClick={handleApply}
             className="text-xs px-3 py-1.5 rounded bg-accent text-white hover:bg-accent-hover disabled:opacity-50"
           >
-            {applying ? "Importing…" : "Apply"}
+            {applying ? t(locale, "skills.importWizard.applying") : t(locale, "skills.importWizard.apply")}
           </button>
         </div>
       </div>

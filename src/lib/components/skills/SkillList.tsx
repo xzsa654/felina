@@ -2,6 +2,8 @@ import { useMemo } from "react";
 import { AlertCircle, Send } from "lucide-react";
 import type { SkillListEntry } from "$lib/types";
 import { useSkillsStore } from "$lib/stores/skills-store";
+import { useLocaleStore } from "$lib/stores/locale";
+import { t } from "$lib/i18n";
 
 interface Props {
   entries: SkillListEntry[];
@@ -34,6 +36,7 @@ function entryName(e: SkillListEntry): string {
  * a pure presenter of the current scope's entries.
  */
 export default function SkillList({ entries, selectedName, onSelect }: Props) {
+  const locale = useLocaleStore((s) => s.locale);
   const pushingNames = useSkillsStore((s) => s.pushingNames);
   const syncOne = useSkillsStore((s) => s.syncOne);
 
@@ -48,7 +51,7 @@ export default function SkillList({ entries, selectedName, onSelect }: Props) {
   if (entries.length === 0) {
     return (
       <div className="text-sm text-text-secondary px-3 py-6">
-        No canonical skills yet. Create one or import existing skills.
+        {t(locale, "skills.list.empty")}
       </div>
     );
   }
@@ -69,7 +72,7 @@ export default function SkillList({ entries, selectedName, onSelect }: Props) {
                   {entry.name}
                 </div>
                 <div className="text-xs text-red-400 truncate">
-                  Frontmatter unreadable — open raw file
+                  {t(locale, "skills.list.frontmatterBroken")}
                 </div>
                 <div className="text-[10px] text-text-secondary truncate font-mono">
                   {entry.path}
@@ -99,18 +102,18 @@ export default function SkillList({ entries, selectedName, onSelect }: Props) {
                 className={`w-2 h-2 rounded-full shrink-0 ${
                   skill.dirty ? "bg-red-500" : "bg-transparent"
                 }`}
-                aria-label={skill.dirty ? "Has unpushed changes" : undefined}
+                aria-label={skill.dirty ? t(locale, "skills.list.hasUnpushed") : undefined}
               />
               <div className="min-w-0 flex-1">
                 <div className="text-sm font-medium text-text-primary truncate">
                   {skill.name}
                 </div>
                 <div className="text-xs text-text-secondary truncate">
-                  {skill.description || <span className="italic">(no description)</span>}
+                  {skill.description || <span className="italic">{t(locale, "skills.list.noDescription")}</span>}
                 </div>
                 {skill.targets.length > 0 && (
                   <div className="mt-1 flex gap-1 flex-wrap">
-                    {[...new Set(skill.targets.map((t) => t.agent))].map((a) => (
+                    {[...new Set(skill.targets.map((tgt) => tgt.agent))].map((a) => (
                       <span
                         key={a}
                         className="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-accent/10 text-accent"
@@ -134,10 +137,10 @@ export default function SkillList({ entries, selectedName, onSelect }: Props) {
                       ? "text-text-secondary opacity-50 cursor-wait"
                       : "bg-accent text-white hover:bg-accent-hover"
                   }`}
-                  title="Push this skill to its agent targets"
+                  title={t(locale, "skills.list.pushTitle")}
                 >
                   <Send size={12} />
-                  {isPushing ? "Pushing…" : "Push"}
+                  {isPushing ? t(locale, "skills.list.pushing") : t(locale, "skills.list.push")}
                 </button>
               )}
             </button>

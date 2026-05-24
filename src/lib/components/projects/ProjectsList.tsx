@@ -3,6 +3,8 @@ import { AlertTriangle, Trash2 } from "lucide-react";
 import type { KnownProject, ProjectSource } from "$lib/types";
 import { api } from "$lib/tauri/commands";
 import ConfirmDialog from "$lib/components/shared/ConfirmDialog";
+import { useLocaleStore } from "$lib/stores/locale";
+import { t } from "$lib/i18n";
 
 interface Props {
   projects: KnownProject[];
@@ -13,10 +15,10 @@ interface Props {
   onRemoved: () => void;
 }
 
-const SOURCE_LABEL: Record<ProjectSource, string> = {
-  cwd: "cwd",
-  detected: "detected",
-  saved: "saved",
+const SOURCE_KEY: Record<ProjectSource, "projects.list.source.cwd" | "projects.list.source.detected" | "projects.list.source.saved"> = {
+  cwd: "projects.list.source.cwd",
+  detected: "projects.list.source.detected",
+  saved: "projects.list.source.saved",
 };
 
 /**
@@ -25,6 +27,7 @@ const SOURCE_LABEL: Record<ProjectSource, string> = {
  * "project not found" indicator (reusing the target-degradation visual).
  */
 export default function ProjectsList({ projects, loaded, selectedPath, onSelect, onRemoved }: Props) {
+  const locale = useLocaleStore((s) => s.locale);
   const [pendingRemove, setPendingRemove] = useState<string | null>(null);
 
   async function confirmRemove() {
@@ -35,19 +38,18 @@ export default function ProjectsList({ projects, loaded, selectedPath, onSelect,
       await api.knownProjects.remove(path);
       onRemoved();
     } catch (e) {
-      window.alert(`Remove failed: ${e}`);
+      window.alert(t(locale, "projects.list.removeFailed", { error: String(e) }));
     }
   }
 
   if (!loaded) {
-    return <div className="text-sm text-text-secondary p-4">Loading…</div>;
+    return <div className="text-sm text-text-secondary p-4">{t(locale, "projects.list.loading")}</div>;
   }
 
   if (projects.length === 0) {
     return (
       <div className="text-xs text-text-secondary p-4 leading-relaxed">
-        No known projects yet. Add one via the Skills import flow / Browse, or
-        manage global skills on the Skills page.
+        {t(locale, "projects.list.empty")}
       </div>
     );
   }
@@ -85,9 +87,9 @@ export default function ProjectsList({ projects, loaded, selectedPath, onSelect,
                 {!p.exists && (
                   <span
                     className="inline-flex items-center gap-1 text-red-400 shrink-0 text-[11px]"
-                    title="此 project 資料夾不存在（已被刪除/改名/卸載）"
+                    title={t(locale, "projects.list.notFoundTooltip")}
                   >
-                    <AlertTriangle size={11} /> not found
+                    <AlertTriangle size={11} /> {t(locale, "projects.list.notFound")}
                   </span>
                 )}
               </div>
@@ -100,7 +102,7 @@ export default function ProjectsList({ projects, loaded, selectedPath, onSelect,
                     key={s}
                     className="text-[10px] px-1.5 py-0.5 rounded bg-bg-secondary border border-border text-text-muted"
                   >
-                    {SOURCE_LABEL[s]}
+                    {t(locale, SOURCE_KEY[s])}
                   </span>
                 ))}
               </div>
@@ -109,7 +111,7 @@ export default function ProjectsList({ projects, loaded, selectedPath, onSelect,
               <button
                 type="button"
                 onClick={() => setPendingRemove(p.path)}
-                title="從 Known Projects 清單移除此 saved 條目（不會刪除任何實際資料夾）"
+                title={t(locale, "projects.list.removeTooltip")}
                 className="px-2 shrink-0 text-text-muted hover:text-red-400"
               >
                 <Trash2 size={14} />
@@ -121,13 +123,13 @@ export default function ProjectsList({ projects, loaded, selectedPath, onSelect,
     </ul>
     <ConfirmDialog
       open={pendingRemove !== null}
-      title="從清單移除 project"
+      title={t(locale, "projects.removeDialog.title")}
       message={
         pendingRemove
-          ? `將「${pendingRemove}」從 Known Projects 清單（saved 條目）移除。\n\n只會移除清單記錄，不會刪除任何實際資料夾。`
+          ? t(locale, "projects.removeDialog.message", { path: pendingRemove })
           : ""
       }
-      confirmLabel="移除"
+      confirmLabel={t(locale, "projects.removeDialog.confirm")}
       onconfirm={() => void confirmRemove()}
       oncancel={() => setPendingRemove(null)}
     />

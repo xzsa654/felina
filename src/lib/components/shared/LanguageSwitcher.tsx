@@ -2,15 +2,10 @@ import { useLocaleStore } from "$lib/stores/locale";
 import { t } from "$lib/i18n";
 import type { Locale } from "$lib/i18n";
 
-const OPTIONS: { value: Locale; labelKey: "en" | "zh-TW" }[] = [
-  { value: "en", labelKey: "en" },
-  { value: "zh-TW", labelKey: "zh-TW" },
+const OPTIONS: { value: Locale; label: string }[] = [
+  { value: "en", label: "English" },
+  { value: "zh-TW", label: "繁體中文" },
 ];
-
-const NATIVE_LABELS: Record<Locale, string> = {
-  en: "English",
-  "zh-TW": "繁體中文",
-};
 
 export default function LanguageSwitcher() {
   const locale = useLocaleStore((s) => s.locale);
@@ -32,10 +27,10 @@ export default function LanguageSwitcher() {
           }`}
           role="radio"
           aria-checked={locale === opt.value}
-          aria-label={NATIVE_LABELS[opt.value]}
+          aria-label={opt.label}
           onClick={() => setLocale(opt.value)}
         >
-          {NATIVE_LABELS[opt.value]}
+          {opt.label}
         </button>
       ))}
     </div>

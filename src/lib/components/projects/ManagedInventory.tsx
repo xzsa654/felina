@@ -10,6 +10,8 @@ import type {
 } from "$lib/types";
 import { normalizeProjectPath } from "$lib/utils/path";
 import ConfirmDialog from "$lib/components/shared/ConfirmDialog";
+import { useLocaleStore } from "$lib/stores/locale";
+import { t } from "$lib/i18n";
 
 interface Props {
   project: KnownProject | null;
@@ -63,6 +65,7 @@ function compareRows(a: InventoryRow, b: InventoryRow): number {
 }
 
 export default function ManagedInventory({ project, onChanged }: Props) {
+  const locale = useLocaleStore((s) => s.locale);
   const navigate = useNavigate();
   const [rows, setRows] = useState<InventoryRow[]>([]);
   const [loading, setLoading] = useState(false);
@@ -98,7 +101,7 @@ export default function ManagedInventory({ project, onChanged }: Props) {
         if (e.kind !== "ok") continue;
         allGlobalNames.add(e.skill.name);
         const hit = e.skill.targets.some(
-          (t) => t.scope === "project" && normalizeProjectPath(t.project ?? "") === want,
+          (tgt) => tgt.scope === "project" && normalizeProjectPath(tgt.project ?? "") === want,
         );
         if (hit) managedNames.add(e.skill.name);
       }
@@ -177,7 +180,7 @@ export default function ManagedInventory({ project, onChanged }: Props) {
   if (!project) {
     return (
       <div className="p-6 text-sm text-text-secondary">
-        Select a project on the left to see its skill inventory.
+        {t(locale, "projects.selectProject")}
       </div>
     );
   }
@@ -185,8 +188,7 @@ export default function ManagedInventory({ project, onChanged }: Props) {
   if (!projectExists) {
     return (
       <div className="p-6 text-sm text-red-400">
-        找不到該 project 資料夾（{project.path}）。請還原資料夾，或在 Known
-        Projects 中移除此條目。
+        {t(locale, "projects.notFoundMessage", { path: project.path })}
       </div>
     );
   }
@@ -200,19 +202,19 @@ export default function ManagedInventory({ project, onChanged }: Props) {
       )}
 
       {loading ? (
-        <div className="p-4 text-sm text-text-secondary">Loading inventory…</div>
+        <div className="p-4 text-sm text-text-secondary">{t(locale, "projects.loadingInventory")}</div>
       ) : rows.length === 0 ? (
         <div className="p-6 text-sm text-text-secondary">
-          此 project 沒有任何已納管或散落的 skill。
+          {t(locale, "projects.emptyInventory")}
         </div>
       ) : (
         <table className="w-full text-xs">
           <thead>
             <tr className="text-text-muted border-b border-border">
-              <th className="text-left font-medium px-3 py-2">Skill</th>
-              <th className="text-left font-medium px-3 py-2 w-24">Status</th>
-              <th className="text-left font-medium px-3 py-2 w-40">Agents</th>
-              <th className="text-right font-medium px-3 py-2 w-40">Action</th>
+              <th className="text-left font-medium px-3 py-2">{t(locale, "projects.inventory.skill")}</th>
+              <th className="text-left font-medium px-3 py-2 w-24">{t(locale, "projects.inventory.status")}</th>
+              <th className="text-left font-medium px-3 py-2 w-40">{t(locale, "projects.inventory.agents")}</th>
+              <th className="text-right font-medium px-3 py-2 w-40">{t(locale, "projects.inventory.action")}</th>
             </tr>
           </thead>
           <tbody>
@@ -227,9 +229,9 @@ export default function ManagedInventory({ project, onChanged }: Props) {
                 <td className="px-3 py-2 font-mono text-text-primary">{row.skillName}</td>
                 <td className="px-3 py-2">
                   {row.managed ? (
-                    <span className="text-emerald-400">Managed</span>
+                    <span className="text-emerald-400">{t(locale, "projects.inventory.managed")}</span>
                   ) : (
-                    <span className="text-text-muted">Unmanaged</span>
+                    <span className="text-text-muted">{t(locale, "projects.inventory.unmanaged")}</span>
                   )}
                 </td>
                 <td className="px-3 py-2">
@@ -239,7 +241,7 @@ export default function ManagedInventory({ project, onChanged }: Props) {
                       return (
                         <span
                           key={a}
-                          title={`${AGENT_CHIP_LABEL[a]}: ${present ? "present" : "absent"}`}
+                          title={`${AGENT_CHIP_LABEL[a]}: ${present ? t(locale, "projects.inventory.present") : t(locale, "projects.inventory.absent")}`}
                           className={`text-[10px] px-1.5 py-0.5 rounded border ${
                             present
                               ? "bg-accent/15 border-accent/40 text-accent"
@@ -255,11 +257,11 @@ export default function ManagedInventory({ project, onChanged }: Props) {
                 <td className="px-3 py-2 text-right">
                   {row.managed ? (
                     <span className="inline-flex items-center gap-1 text-text-muted">
-                      Edit <ArrowRight size={12} />
+                      {t(locale, "projects.inventory.edit")} <ArrowRight size={12} />
                     </span>
                   ) : row.deferred ? (
-                    <span className="text-text-muted italic" title="多來源 skill，import 由後續 change 處理">
-                      multi-source
+                    <span className="text-text-muted italic" title={t(locale, "projects.inventory.multiSourceTitle")}>
+                      {t(locale, "projects.inventory.multiSource")}
                     </span>
                   ) : (
                     <button
@@ -272,7 +274,9 @@ export default function ManagedInventory({ project, onChanged }: Props) {
                       className="inline-flex items-center gap-1 px-2 py-1 rounded bg-accent text-white hover:bg-accent-hover disabled:opacity-60"
                     >
                       <Download size={12} />
-                      {importing === row.skillName ? "Importing…" : "Import to global"}
+                      {importing === row.skillName
+                        ? t(locale, "projects.inventory.importing")
+                        : t(locale, "projects.inventory.importToGlobal")}
                     </button>
                   )}
                 </td>
@@ -284,13 +288,13 @@ export default function ManagedInventory({ project, onChanged }: Props) {
 
       <ConfirmDialog
         open={pendingImport !== null}
-        title="Global 已有同名主檔"
+        title={t(locale, "projects.importConflictDialog.title")}
         message={
           pendingImport
-            ? `global（~/.felina/skills/）已存在同名主檔「${pendingImport.skillName}」。\n\n繼續會用此 project 的版本覆蓋 global 主檔內容。\n\n⚠ 若該主檔已有指向其他 project 的 target，下次對它 Push 時，會把這份新內容一併蓋到那些 project 的 agent 目錄。若兩邊其實是不同的 skill 只是同名，請改用不同名稱（取消後到 Skills 頁處理），不要覆蓋。`
+            ? t(locale, "projects.importConflictDialog.message", { name: pendingImport.skillName })
             : ""
         }
-        confirmLabel="仍要覆蓋"
+        confirmLabel={t(locale, "projects.importConflictDialog.confirm")}
         onconfirm={() => {
           const row = pendingImport;
           setPendingImport(null);

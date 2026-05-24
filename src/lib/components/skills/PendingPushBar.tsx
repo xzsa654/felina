@@ -1,6 +1,8 @@
 import { useMemo, useState } from "react";
 import { Send } from "lucide-react";
 import { useSkillsStore } from "$lib/stores/skills-store";
+import { useLocaleStore } from "$lib/stores/locale";
+import { t } from "$lib/i18n";
 
 /**
  * Banner at the top of the Skills page that summarises how many canonical
@@ -11,6 +13,7 @@ import { useSkillsStore } from "$lib/stores/skills-store";
  * so it never overlaps the scrolling list/editor columns below it.
  */
 export default function PendingPushBar() {
+  const locale = useLocaleStore((s) => s.locale);
   const entries = useSkillsStore((s) => s.entries);
   const syncAll = useSkillsStore((s) => s.syncAll);
   const [pushing, setPushing] = useState(false);
@@ -25,7 +28,9 @@ export default function PendingPushBar() {
   }
 
   const label =
-    dirtyCount === 1 ? "1 skill changed since last sync" : `${dirtyCount} skills changed since last sync`;
+    dirtyCount === 1
+      ? t(locale, "skills.pendingPush.changedSingle")
+      : t(locale, "skills.pendingPush.changed", { n: dirtyCount });
 
   return (
     <div
@@ -50,7 +55,7 @@ export default function PendingPushBar() {
         className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded bg-accent text-white hover:bg-accent-hover disabled:opacity-50"
       >
         <Send size={12} />
-        {pushing ? "Pushing…" : "Push all"}
+        {pushing ? t(locale, "skills.pendingPush.pushing") : t(locale, "skills.pendingPush.pushAll")}
       </button>
     </div>
   );

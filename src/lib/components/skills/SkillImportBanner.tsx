@@ -1,5 +1,7 @@
 import { Download, X } from "lucide-react";
 import { useSkillsStore } from "$lib/stores/skills-store";
+import { useLocaleStore } from "$lib/stores/locale";
+import { t } from "$lib/i18n";
 
 interface Props {
   onImport: () => void;
@@ -17,10 +19,13 @@ interface Props {
  * This component is a pure presenter; dismissal persists via the store.
  */
 export default function SkillImportBanner({ onImport }: Props) {
+  const locale = useLocaleStore((s) => s.locale);
   const detected = useSkillsStore((s) => s.detectedImportCount);
   const dismissBanner = useSkillsStore((s) => s.dismissBanner);
 
-  const label = detected === 1 ? "1 existing skill detected" : `${detected} existing skills detected`;
+  const label = detected === 1
+    ? t(locale, "skills.importBanner.detectedSingle")
+    : t(locale, "skills.importBanner.detected", { n: detected });
 
   return (
     <div className="rounded-lg border border-accent/40 bg-accent/5 px-4 py-3 mb-4 flex items-start gap-3">
@@ -28,9 +33,7 @@ export default function SkillImportBanner({ onImport }: Props) {
       <div className="flex-1 min-w-0">
         <div className="text-sm font-medium text-text-primary">{label}</div>
         <p className="text-xs text-text-secondary mt-0.5">
-          Felina found skills in your agent-native skill directories. Import
-          them into the canonical store to manage them in one place. Original
-          files will not be modified.
+          {t(locale, "skills.importBanner.description")}
         </p>
       </div>
       <div className="flex items-center gap-2 shrink-0">
@@ -39,13 +42,13 @@ export default function SkillImportBanner({ onImport }: Props) {
           onClick={onImport}
           className="text-xs px-3 py-1.5 rounded bg-accent text-white hover:bg-accent-hover"
         >
-          Import…
+          {t(locale, "skills.importBanner.import")}
         </button>
         <button
           type="button"
           onClick={dismissBanner}
           className="p-1 text-text-secondary hover:text-text-primary"
-          title="Dismiss"
+          title={t(locale, "skills.importBanner.dismiss")}
         >
           <X size={14} />
         </button>

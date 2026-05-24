@@ -5,6 +5,8 @@ import ConfirmDialog from "$lib/components/shared/ConfirmDialog";
 import { PageBody, PageHeader } from "$lib/components/shared/PageScaffold";
 import { useProjectContextStore } from "$lib/stores/project-context";
 import { useSkillsStore } from "$lib/stores/skills-store";
+import { useLocaleStore } from "$lib/stores/locale";
+import { t } from "$lib/i18n";
 import { api } from "$lib/tauri/commands";
 import type { CanonicalSkill, KnownProject, SkillTarget } from "$lib/types";
 import SkillList from "./SkillList";
@@ -35,6 +37,7 @@ export default function SkillsPage() {
   // destination when adding a project-scope target in the editor and to drive
   // the "project not found" indicator — NOT as a canonical scope. The
   // canonical list and import scan are global.
+  const locale = useLocaleStore((s) => s.locale);
   const projectPath = useProjectContextStore((s) => s.selectedProjectPath);
   const {
     entries,
@@ -183,27 +186,27 @@ export default function SkillsPage() {
       setSelectedName((cur) => (cur === name ? null : cur));
       setActiveSkill((cur) => (cur?.name === name ? null : cur));
     } catch (e) {
-      window.alert(`Delete failed: ${e}`);
+      window.alert(t(locale, "skills.deleteDialog.failed", { error: String(e) }));
     }
   }
 
   return (
     <>
       <PageHeader
-        title="Skills"
-        subtitle="Canonical multi-agent skill manager."
+        title={t(locale, "skills.title")}
+        subtitle={t(locale, "skills.subtitle")}
         icon={Sparkles}
         actions={
           <>
-            <ViewModeToggle value={viewMode} onChange={setViewMode} />
+            <ViewModeToggle value={viewMode} onChange={setViewMode} locale={locale} />
             {bannerDismissed && (
               <button
                 type="button"
                 onClick={resetBannerDismissed}
-                title="Show import banner again"
+                title={t(locale, "skills.showBanner")}
                 className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded border border-border text-text-secondary hover:text-text-primary"
               >
-                <Undo2 size={12} /> Banner
+                <Undo2 size={12} /> {t(locale, "skills.showBanner")}
               </button>
             )}
             <button
@@ -217,7 +220,7 @@ export default function SkillsPage() {
               ) : (
                 <RefreshCw size={12} />
               )}
-              {reloading ? "Reloading…" : "Reload"}
+              {reloading ? t(locale, "skills.reloading") : t(locale, "skills.reload")}
             </button>
             <button
               type="button"
@@ -228,7 +231,7 @@ export default function SkillsPage() {
               }}
               className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded bg-accent text-white hover:bg-accent-hover"
             >
-              <Plus size={12} /> New skill
+              <Plus size={12} /> {t(locale, "skills.newSkill")}
             </button>
           </>
         }
@@ -247,21 +250,21 @@ export default function SkillsPage() {
         {viewMode === "list" && selectedSkill && selectedSkill.targets.length > 0 && (
           <div className="mb-4 text-xs rounded border border-border bg-bg-secondary px-3 py-2">
             <div className="text-text-secondary mb-1.5">
-              Sync info:{" "}
+              {t(locale, "skills.syncInfo")}{" "}
               <span className="text-text-primary font-mono">
                 {selectedSkill.name}
               </span>
             </div>
             <ul className="flex flex-col gap-1">
-              {selectedSkill.targets.map((t, i) => {
+              {selectedSkill.targets.map((tgt, i) => {
                 const key =
-                  t.scope === "global"
-                    ? `${t.agent}:global`
-                    : `${t.agent}:project:${t.project ?? ""}`;
+                  tgt.scope === "global"
+                    ? `${tgt.agent}:global`
+                    : `${tgt.agent}:project:${tgt.project ?? ""}`;
                 const entry = selectedSkill.lastSync[key];
                 const projectNotFound =
-                  t.scope === "project" &&
-                  isProjectMissing(knownProjects, t.project ?? "");
+                  tgt.scope === "project" &&
+                  isProjectMissing(knownProjects, tgt.project ?? "");
                 return (
                   <li
                     key={`${key}-${i}`}
@@ -278,18 +281,18 @@ export default function SkillsPage() {
                     >
                       {projectNotFound ? "!" : entry ? "✓" : "—"}
                     </span>
-                    <span className="capitalize">{t.agent}</span>
-                    <span className="text-text-secondary">{t.scope}</span>
+                    <span className="capitalize">{tgt.agent}</span>
+                    <span className="text-text-secondary">{tgt.scope}</span>
                     <span
                       className={
                         projectNotFound ? "text-red-400" : "text-text-secondary"
                       }
                     >
                       {projectNotFound
-                        ? "project not found"
+                        ? t(locale, "skills.projectNotFound")
                         : entry
                           ? formatLocalTime(entry.at)
-                          : "Not synced"}
+                          : t(locale, "skills.notSynced")}
                     </span>
                   </li>
                 );
@@ -315,7 +318,7 @@ export default function SkillsPage() {
                   }}
                 />
               ) : (
-                <div className="text-sm text-text-secondary p-4">Loading…</div>
+                <div className="text-sm text-text-secondary p-4">{t(locale, "skills.loading")}</div>
               )}
             </div>
 
@@ -368,7 +371,7 @@ export default function SkillsPage() {
                 </div>
               ) : (
                 <div className="flex items-center justify-center h-full text-sm text-text-secondary p-8">
-                  Select a skill or create a new one.
+                  {t(locale, "skills.selectOrCreate")}
                 </div>
               )}
             </div>
@@ -386,13 +389,13 @@ export default function SkillsPage() {
 
       <ConfirmDialog
         open={pendingDelete !== null}
-        title="Delete canonical skill"
+        title={t(locale, "skills.deleteDialog.title")}
         message={
           pendingDelete
-            ? `"${pendingDelete}" will be removed from canonical storage. Existing agent-side copies (e.g. .claude/skills/, .agents/skills/) are NOT touched.`
+            ? t(locale, "skills.deleteDialog.message", { name: pendingDelete })
             : ""
         }
-        confirmLabel="Delete"
+        confirmLabel={t(locale, "skills.deleteDialog.confirm")}
         onconfirm={confirmDelete}
         oncancel={() => setPendingDelete(null)}
       />
@@ -414,13 +417,15 @@ function formatLocalTime(iso: string): string {
 function ViewModeToggle({
   value,
   onChange,
+  locale,
 }: {
   value: "list" | "summary";
   onChange: (v: "list" | "summary") => void;
+  locale: import("$lib/i18n").Locale;
 }) {
   const items = [
-    { id: "list" as const, icon: List, title: "List view" },
-    { id: "summary" as const, icon: Grid2x2, title: "Summary view" },
+    { id: "list" as const, icon: List, title: t(locale, "skills.viewMode.list") },
+    { id: "summary" as const, icon: Grid2x2, title: t(locale, "skills.viewMode.summary") },
   ];
   return (
     <div className="inline-flex rounded border border-border overflow-hidden text-xs">

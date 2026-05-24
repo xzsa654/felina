@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import { FolderOpen, Loader2, RefreshCw } from "lucide-react";
 import { PageBody, PageHeader } from "$lib/components/shared/PageScaffold";
 import { useProjectContextStore } from "$lib/stores/project-context";
+import { useLocaleStore } from "$lib/stores/locale";
+import { t } from "$lib/i18n";
 import { api } from "$lib/tauri/commands";
 import type { KnownProject } from "$lib/types";
 import { normalizeProjectPath } from "$lib/utils/path";
@@ -16,6 +18,7 @@ import ManagedInventory from "./ManagedInventory";
  * rows — all editing happens on the Skills page.
  */
 export default function ProjectsPage() {
+  const locale = useLocaleStore((s) => s.locale);
   const cwd = useProjectContextStore((s) => s.selectedProjectPath);
   const [projects, setProjects] = useState<KnownProject[]>([]);
   const [loaded, setLoaded] = useState(false);
@@ -77,8 +80,8 @@ export default function ProjectsPage() {
   return (
     <>
       <PageHeader
-        title="Projects"
-        subtitle="Per-project skill management inventory."
+        title={t(locale, "projects.title")}
+        subtitle={t(locale, "projects.subtitle")}
         icon={FolderOpen}
         actions={
           <button
@@ -92,7 +95,7 @@ export default function ProjectsPage() {
             ) : (
               <RefreshCw size={12} />
             )}
-            {reloading ? "Reloading…" : "Reload"}
+            {reloading ? t(locale, "projects.reloading") : t(locale, "projects.reload")}
           </button>
         }
       />

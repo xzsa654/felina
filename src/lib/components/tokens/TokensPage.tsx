@@ -9,7 +9,6 @@ import type {
 import { useLocaleStore } from "$lib/stores/locale";
 import { t } from "$lib/i18n";
 import { PageHeader, PageBody } from "$lib/components/shared/PageScaffold";
-import LanguageSwitcher from "./components/LanguageSwitcher";
 import TokenStatCards from "./components/TokenStatCards";
 import TokenTimeSeries from "./components/TokenTimeSeries";
 import TokenCostTimeSeries from "./components/TokenCostTimeSeries";
@@ -102,10 +101,7 @@ export default function TokensPage() {
 
   return (
     <div className="p-6 space-y-4 overflow-y-auto h-full">
-      <div className="flex items-center justify-between">
-        <PageHeader title={t(locale, "tokens.title")} />
-        <LanguageSwitcher />
-      </div>
+      <PageHeader title={t(locale, "tokens.title")} />
       <PageBody>
       {error && (
         <div className="mb-4 px-4 py-2 bg-red-500/10 border border-red-500/30 rounded-md text-sm text-red-400">

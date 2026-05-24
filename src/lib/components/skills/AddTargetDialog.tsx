@@ -4,6 +4,8 @@ import { open } from "@tauri-apps/plugin-dialog";
 import type { AgentId, KnownProject, SkillTarget } from "$lib/types";
 import { api } from "$lib/tauri/commands";
 import { normalizeProjectPath } from "$lib/utils/path";
+import { useLocaleStore } from "$lib/stores/locale";
+import { t } from "$lib/i18n";
 
 const AGENTS: AgentId[] = ["anthropic", "codex", "gemini"];
 
@@ -45,6 +47,7 @@ export default function AddTargetDialog({
   onAdd,
   onClose,
 }: Props) {
+  const locale = useLocaleStore((s) => s.locale);
   const [agent, setAgent] = useState<AgentId>("anthropic");
   const [targetScope, setTargetScope] = useState<"global" | "project">("global");
   const [selectedProject, setSelectedProject] = useState<string | null>(
@@ -63,11 +66,11 @@ export default function AddTargetDialog({
   }, [projectPath]);
 
   const isDuplicate = existingTargets.some(
-    (t) =>
-      t.agent === agent &&
-      t.scope === targetScope &&
+    (tgt) =>
+      tgt.agent === agent &&
+      tgt.scope === targetScope &&
       (targetScope === "global" ||
-        normalizeProjectPath(t.project ?? "") ===
+        normalizeProjectPath(tgt.project ?? "") ===
           normalizeProjectPath(selectedProject ?? "")),
   );
 
@@ -90,14 +93,14 @@ export default function AddTargetDialog({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
       <div className="bg-bg-secondary border border-border rounded-lg shadow-lg w-96 p-5 flex flex-col gap-4">
         <div className="flex items-center justify-between">
-          <h3 className="text-sm font-semibold">Add Target</h3>
+          <h3 className="text-sm font-semibold">{t(locale, "skills.addTargetDialog.title")}</h3>
           <button type="button" onClick={onClose} className="text-text-secondary hover:text-text-primary">
             <X size={16} />
           </button>
         </div>
 
         <label className="flex flex-col gap-1 text-sm">
-          <span className="text-text-secondary">Agent</span>
+          <span className="text-text-secondary">{t(locale, "skills.addTargetDialog.agent")}</span>
           <select
             value={agent}
             onChange={(e) => setAgent(e.target.value as AgentId)}
@@ -112,20 +115,20 @@ export default function AddTargetDialog({
         </label>
 
         <label className="flex flex-col gap-1 text-sm">
-          <span className="text-text-secondary">Scope</span>
+          <span className="text-text-secondary">{t(locale, "skills.addTargetDialog.scope")}</span>
           <select
             value={targetScope}
             onChange={(e) => setTargetScope(e.target.value as "global" | "project")}
             className="px-2 py-1.5 rounded bg-bg-primary border border-border text-sm"
           >
-            <option value="global">Global</option>
-            <option value="project">Project</option>
+            <option value="global">{t(locale, "skills.addTargetDialog.scopeGlobal")}</option>
+            <option value="project">{t(locale, "skills.addTargetDialog.scopeProject")}</option>
           </select>
         </label>
 
         {targetScope === "project" && (
           <div className="flex flex-col gap-1 text-sm">
-            <span className="text-text-secondary">Project</span>
+            <span className="text-text-secondary">{t(locale, "skills.addTargetDialog.project")}</span>
             <div className="flex gap-1.5">
               <select
                 value={selectedProject ?? ""}
@@ -149,7 +152,7 @@ export default function AddTargetDialog({
                   setSelectedProject(matchOption(refreshed, dir));
                 }}
                 className="px-2 py-1.5 rounded border border-border text-text-secondary hover:text-text-primary hover:bg-bg-primary shrink-0"
-                title="Browse for project folder"
+                title={t(locale, "skills.addTargetDialog.browseTitle")}
               >
                 <FolderOpen size={14} />
               </button>
@@ -159,7 +162,7 @@ export default function AddTargetDialog({
 
         {isDuplicate && (
           <div className="text-xs text-amber-400">
-            This target already exists.
+            {t(locale, "skills.addTargetDialog.duplicate")}
           </div>
         )}
 
@@ -169,7 +172,7 @@ export default function AddTargetDialog({
             onClick={onClose}
             className="text-xs px-3 py-1.5 rounded border border-border text-text-secondary hover:text-text-primary"
           >
-            Cancel
+            {t(locale, "skills.addTargetDialog.cancel")}
           </button>
           <button
             type="button"
@@ -177,7 +180,7 @@ export default function AddTargetDialog({
             onClick={handleConfirm}
             className="text-xs px-3 py-1.5 rounded bg-accent text-white hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            Add
+            {t(locale, "skills.addTargetDialog.add")}
           </button>
         </div>
       </div>

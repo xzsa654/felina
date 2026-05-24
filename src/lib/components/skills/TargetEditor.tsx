@@ -3,6 +3,8 @@ import { AlertTriangle, Plus, Search, Trash2 } from "lucide-react";
 import type { KnownProject, OrphanFile, SkillTarget } from "$lib/types";
 import { api } from "$lib/tauri/commands";
 import { useSkillsStore } from "$lib/stores/skills-store";
+import { useLocaleStore } from "$lib/stores/locale";
+import { t } from "$lib/i18n";
 import { isProjectMissing } from "$lib/utils/path";
 import ConfirmDialog from "$lib/components/shared/ConfirmDialog";
 import AddTargetDialog from "./AddTargetDialog";
@@ -24,10 +26,12 @@ function applyUIState(t: SkillTarget, state: UIState): SkillTarget {
   }
 }
 
-const STATES: { value: UIState; label: string }[] = [
-  { value: "tracked", label: "Tracked" },
-  { value: "disabled", label: "Disabled" },
-];
+const STATE_KEYS: Record<UIState, "skills.targets.tracked" | "skills.targets.disabled"> = {
+  tracked: "skills.targets.tracked",
+  disabled: "skills.targets.disabled",
+};
+
+const STATES: UIState[] = ["tracked", "disabled"];
 
 interface Props {
   skillName: string;
@@ -42,6 +46,7 @@ interface Props {
 }
 
 export default function TargetEditor({ skillName, projectPath, targets, onTargetsChange, knownProjects }: Props) {
+  const locale = useLocaleStore((s) => s.locale);
   const loadEntries = useSkillsStore((s) => s.loadEntries);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [pruneOrphans, setPruneOrphans] = useState<OrphanFile[] | null>(null);
@@ -76,13 +81,13 @@ export default function TargetEditor({ skillName, projectPath, targets, onTarget
     try {
       const orphans = await api.skillPrune.scan(skillName);
       if (orphans.length === 0) {
-        setPruneMessage("No orphans found.");
+        setPruneMessage(t(locale, "skills.targets.noOrphans"));
         setTimeout(() => setPruneMessage(null), 2000);
       } else {
         setPruneOrphans(orphans);
       }
     } catch (e) {
-      setPruneMessage(`Scan failed: ${e}`);
+      setPruneMessage(t(locale, "skills.targets.scanFailed", { error: String(e) }));
       setTimeout(() => setPruneMessage(null), 3000);
     }
   }
@@ -95,7 +100,7 @@ export default function TargetEditor({ skillName, projectPath, targets, onTarget
       await api.skillPrune.apply(skillName, confirmed);
       await loadEntries();
     } catch (e) {
-      setPruneMessage(`Prune failed: ${e}`);
+      setPruneMessage(t(locale, "skills.targets.pruneFailed", { error: String(e) }));
       setTimeout(() => setPruneMessage(null), 3000);
     }
   }
@@ -104,7 +109,7 @@ export default function TargetEditor({ skillName, projectPath, targets, onTarget
     <div className="flex flex-col gap-2">
       <div className="flex items-center justify-between">
         <h4 className="text-xs font-semibold uppercase tracking-wide text-text-secondary">
-          Targets
+          {t(locale, "skills.targets.title")}
         </h4>
         <div className="flex items-center gap-1">
           {!buffered && (
@@ -113,7 +118,7 @@ export default function TargetEditor({ skillName, projectPath, targets, onTarget
               onClick={() => void handlePruneScan()}
               className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded border border-border text-text-secondary hover:text-text-primary hover:border-accent"
             >
-              <Search size={12} /> Prune orphans
+              <Search size={12} /> {t(locale, "skills.targets.pruneOrphans")}
             </button>
           )}
           <button
@@ -121,7 +126,7 @@ export default function TargetEditor({ skillName, projectPath, targets, onTarget
             onClick={() => setDialogOpen(true)}
             className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded border border-border text-text-secondary hover:text-text-primary hover:border-accent"
           >
-            <Plus size={12} /> Add target
+            <Plus size={12} /> {t(locale, "skills.targets.addTarget")}
           </button>
         </div>
       </div>
@@ -132,34 +137,34 @@ export default function TargetEditor({ skillName, projectPath, targets, onTarget
 
       {targets.length === 0 ? (
         <div className="text-xs text-text-secondary italic py-3 text-center border border-dashed border-border rounded">
-          No targets yet — add one to push this skill.
+          {t(locale, "skills.targets.empty")}
         </div>
       ) : (
         <div className="flex flex-col gap-1">
-          {targets.map((t, i) => {
-            const current = toUIState(t);
+          {targets.map((tgt, i) => {
+            const current = toUIState(tgt);
             const projectNotFound =
-              t.scope === "project" &&
+              tgt.scope === "project" &&
               knownProjects !== undefined &&
-              isProjectMissing(knownProjects, t.project ?? "");
+              isProjectMissing(knownProjects, tgt.project ?? "");
             return (
               <div
-                key={`${t.agent}-${t.scope}-${t.project ?? ""}-${i}`}
+                key={`${tgt.agent}-${tgt.scope}-${tgt.project ?? ""}-${i}`}
                 className="flex items-center gap-2 text-xs border border-border rounded px-2 py-1.5"
               >
-                <span className="capitalize font-medium w-20">{t.agent}</span>
-                <span className="text-text-secondary w-14">{t.scope}</span>
-                {t.scope === "project" && (
-                  <span className="text-text-secondary truncate max-w-[10rem]" title={t.project ?? ""}>
-                    {t.project ?? ""}
+                <span className="capitalize font-medium w-20">{tgt.agent}</span>
+                <span className="text-text-secondary w-14">{tgt.scope}</span>
+                {tgt.scope === "project" && (
+                  <span className="text-text-secondary truncate max-w-[10rem]" title={tgt.project ?? ""}>
+                    {tgt.project ?? ""}
                   </span>
                 )}
                 {projectNotFound && (
                   <span
                     className="inline-flex items-center gap-1 text-red-400 shrink-0"
-                    title="此 target 的 project 資料夾不存在（已被刪除/改名/卸載）。請還原資料夾，或刪除此 target 後重新指向新路徑。"
+                    title={t(locale, "skills.targets.projectNotFoundTooltip")}
                   >
-                    <AlertTriangle size={12} /> project not found
+                    <AlertTriangle size={12} /> {t(locale, "skills.projectNotFound")}
                   </span>
                 )}
 
@@ -167,40 +172,40 @@ export default function TargetEditor({ skillName, projectPath, targets, onTarget
                   <div className="inline-flex rounded border border-border overflow-hidden">
                     {STATES.map((s) => (
                       <button
-                        key={s.value}
+                        key={s}
                         type="button"
-                        onClick={() => handleStateChange(i, s.value)}
+                        onClick={() => handleStateChange(i, s)}
                         className={`px-2 py-0.5 text-[11px] ${
-                          current === s.value
+                          current === s
                             ? "bg-accent text-white"
                             : "bg-bg-primary text-text-secondary hover:text-text-primary"
                         }`}
                       >
-                        {s.label}
+                        {t(locale, STATE_KEYS[s])}
                       </button>
                     ))}
                     <button
                       type="button"
                       disabled
                       className="px-2 py-0.5 text-[11px] bg-bg-primary text-text-secondary opacity-40 cursor-not-allowed"
-                      title="Phase 2: drift detection"
+                      title={t(locale, "skills.targets.detachedTitle")}
                     >
-                      Detached
+                      {t(locale, "skills.targets.detached")}
                     </button>
                     <button
                       type="button"
                       disabled
                       className="px-2 py-0.5 text-[11px] bg-bg-primary text-text-secondary opacity-40 cursor-not-allowed"
-                      title="Phase 2: overlay rendering"
+                      title={t(locale, "skills.targets.forkedTitle")}
                     >
-                      Forked
+                      {t(locale, "skills.targets.forked")}
                     </button>
                   </div>
                   <button
                     type="button"
                     onClick={() => handleRemove(i)}
                     className="p-1 text-text-secondary hover:text-red-400"
-                    title="Remove target"
+                    title={t(locale, "skills.targets.removeTarget")}
                   >
                     <Trash2 size={12} />
                   </button>
@@ -222,13 +227,16 @@ export default function TargetEditor({ skillName, projectPath, targets, onTarget
 
       <ConfirmDialog
         open={pruneOrphans !== null}
-        title="Prune orphan files"
+        title={t(locale, "skills.pruneDialog.title")}
         message={
           pruneOrphans
-            ? `Delete ${pruneOrphans.length} orphaned agent-side file(s)?\n\n${pruneOrphans.map((o) => o.path).join("\n")}`
+            ? t(locale, "skills.pruneDialog.message", {
+                count: pruneOrphans.length,
+                paths: pruneOrphans.map((o) => o.path).join("\n"),
+              })
             : ""
         }
-        confirmLabel="Delete"
+        confirmLabel={t(locale, "skills.pruneDialog.confirm")}
         onconfirm={() => void handlePruneConfirm()}
         oncancel={() => setPruneOrphans(null)}
       />

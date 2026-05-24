@@ -1,18 +1,26 @@
 import { Fragment, useMemo } from "react";
 import type { CanonicalSkill, KnownProject, SkillListEntry } from "$lib/types";
 import { isProjectMissing } from "$lib/utils/path";
+import { useLocaleStore } from "$lib/stores/locale";
+import { t } from "$lib/i18n";
 
 type SyncState = "synced" | "dirty" | "not-synced" | "disabled" | "no-target";
+type StateTranslationKey =
+  | "skills.coverageMatrix.state.synced"
+  | "skills.coverageMatrix.state.dirty"
+  | "skills.coverageMatrix.state.notSynced"
+  | "skills.coverageMatrix.state.disabled"
+  | "skills.coverageMatrix.state.noTarget";
 
 function cellSyncState(
   skill: CanonicalSkill,
   targetKey: string,
 ): SyncState {
-  const target = skill.targets.find((t) => {
+  const target = skill.targets.find((tgt) => {
     const k =
-      t.scope === "global"
-        ? `${t.agent}:global`
-        : `${t.agent}:project:${t.project ?? ""}`;
+      tgt.scope === "global"
+        ? `${tgt.agent}:global`
+        : `${tgt.agent}:project:${tgt.project ?? ""}`;
     return k === targetKey;
   });
   if (!target) return "no-target";
@@ -39,6 +47,14 @@ const STATE_CLASS: Record<SyncState, string> = {
   "no-target": "",
 };
 
+const STATE_TITLE: Record<SyncState, StateTranslationKey> = {
+  synced: "skills.coverageMatrix.state.synced",
+  dirty: "skills.coverageMatrix.state.dirty",
+  "not-synced": "skills.coverageMatrix.state.notSynced",
+  disabled: "skills.coverageMatrix.state.disabled",
+  "no-target": "skills.coverageMatrix.state.noTarget",
+};
+
 interface ColumnDef {
   key: string;
   agent: string;
@@ -48,21 +64,21 @@ interface ColumnDef {
 function buildColumns(skills: CanonicalSkill[]): ColumnDef[] {
   const seen = new Map<string, ColumnDef>();
   for (const skill of skills) {
-    for (const t of skill.targets) {
+    for (const tgt of skill.targets) {
       const key =
-        t.scope === "global"
-          ? `${t.agent}:global`
-          : `${t.agent}:project:${t.project ?? ""}`;
+        tgt.scope === "global"
+          ? `${tgt.agent}:global`
+          : `${tgt.agent}:project:${tgt.project ?? ""}`;
       if (!seen.has(key)) {
         let label: string;
-        if (t.scope === "global") {
-          label = `${t.agent} / global`;
+        if (tgt.scope === "global") {
+          label = `${tgt.agent} / global`;
         } else {
-          const segments = (t.project ?? "").replace(/\\/g, "/").split("/");
-          const short = segments.filter(Boolean).pop() ?? t.project ?? "";
-          label = `${t.agent} / ${short}`;
+          const segments = (tgt.project ?? "").replace(/\\/g, "/").split("/");
+          const short = segments.filter(Boolean).pop() ?? tgt.project ?? "";
+          label = `${tgt.agent} / ${short}`;
         }
-        seen.set(key, { key, agent: t.agent, label });
+        seen.set(key, { key, agent: tgt.agent, label });
       }
     }
   }
@@ -75,6 +91,7 @@ interface Props {
 }
 
 export default function CoverageMatrix({ entries, knownProjects }: Props) {
+  const locale = useLocaleStore((s) => s.locale);
   const skills = useMemo(
     () =>
       entries
@@ -89,7 +106,7 @@ export default function CoverageMatrix({ entries, knownProjects }: Props) {
   if (skills.length === 0) {
     return (
       <div className="flex items-center justify-center h-full text-sm text-text-secondary p-8">
-        No skills to display
+        {t(locale, "skills.coverageMatrix.empty")}
       </div>
     );
   }
@@ -104,7 +121,7 @@ export default function CoverageMatrix({ entries, knownProjects }: Props) {
       >
         {/* Header row */}
         <div className="sticky left-0 bg-bg-secondary px-2 py-1.5 font-semibold text-text-secondary border-b border-border z-10">
-          Skill
+          {t(locale, "skills.coverageMatrix.skillHeader")}
         </div>
         {columns.map((col) => (
           <div
@@ -146,8 +163,8 @@ export default function CoverageMatrix({ entries, knownProjects }: Props) {
                   }`}
                   title={
                     isProjectNotFound
-                      ? "project not found"
-                      : state
+                      ? t(locale, "skills.projectNotFound")
+                      : t(locale, STATE_TITLE[state])
                   }
                 >
                   {isProjectNotFound ? "!" : STATE_ICON[state]}
