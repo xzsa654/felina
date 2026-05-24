@@ -1,12 +1,12 @@
 {
-  "lastUpdated": "2026-05-22",
+  "lastUpdated": "2026-05-25",
   "categories": [
     {
       "id": "dev-docs",
       "name": "Dev Docs",
-      "keywords": ["convention", "workflow", "setup", "config", "ci", "cd", "build", "deploy", "ui", "ui consistency", "layout", "flexbox", "tailwind", "component reuse", "design review", "modal", "scaffold", "pagebody"],
+      "keywords": ["convention", "workflow", "setup", "config", "ci", "cd", "build", "deploy", "ui", "ui consistency", "layout", "flexbox", "tailwind", "component reuse", "design review", "modal", "scaffold", "pagebody", "react", "zustand", "useEffect", "race condition", "identity migration", "canonical id", "rename", "async save", "store mutation"],
       "file": "dev-docs.md",
-      "count": 2
+      "count": 4
     },
     {
       "id": "platform",

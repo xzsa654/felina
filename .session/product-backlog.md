@@ -70,6 +70,7 @@ Architecture note:
 | description | Lifecycle safety: push dry-run, drift detection, cascade-vs-detach prompts, multi-source import resolution, arbitrary-folder import, scope moves. |
 
 Scope:
+- **Import resolution 選項收斂**: wizard 的「保留 canonical」與「跳過」目前對有衝突的 candidate 執行結果完全相同（都 no-op 不寫入），是語意冗餘。應收斂或重新設計衝突解決選項，讓每個選項有明確不同的行為。
 - **Push dry-run**: preview write paths + create/overwrite/no-op counts; user confirms to commit.
 - **Push-time drift check**: compare target SKILL.md hash with `last_sync.pushed_hash`; drift → prompt override / detach / cancel.
 - **Canonical delete prompt**: Cascade (delete agent files) / Detach (leave orphaned) / Cancel.

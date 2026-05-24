@@ -108,6 +108,7 @@ mod tests {
         );
 
         CanonicalSkill {
+            canonical_id: "demo".into(),
             name: "demo".into(),
             description: "Demo skill".into(),
             agents: vec![AgentId::Anthropic, AgentId::Codex, AgentId::Gemini],

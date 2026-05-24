@@ -109,7 +109,9 @@ pub fn skill_sync_one(name: String) -> Result<Vec<SyncResult>, String> {
     }
     let raw = fs::read_to_string(&skill_md)
         .map_err(|e| format!("failed to read canonical SKILL.md: {e}"))?;
-    let skill = parse_skill_md(&raw)?;
+    let mut skill = parse_skill_md(&raw)?;
+    skill.canonical_id = name.clone();
+    skill.name = name.clone();
 
     // Driver of fan-out is the per-skill target list (sync-meta v2). v1
     // sidecars are backfilled at read time from skill.agents (defaulting to
@@ -217,9 +219,9 @@ pub fn skill_sync_all() -> Result<Vec<SyncResult>, String> {
     let entries = super::canonical_skills::canonical_skills_list()?;
     let mut out = Vec::new();
     for entry in entries {
-        if let super::canonical_skills::SkillListEntry::Ok { skill } = entry {
+        if let super::canonical_skills::SkillListEntry::Ok { canonical_id, skill } = entry {
             // Re-use skill_sync_one for consistent semantics (meta update etc).
-            match skill_sync_one(skill.name.clone()) {
+            match skill_sync_one(canonical_id) {
                 Ok(mut r) => out.append(&mut r),
                 Err(e) => {
                     // Pre-render failure (e.g. missing file): surface as a
@@ -240,6 +242,38 @@ pub fn skill_sync_all() -> Result<Vec<SyncResult>, String> {
         }
     }
     Ok(out)
+}
+
+/// Resolved fan-out destination directory for one target, plus an on-disk
+/// existence flag. Powers the TargetEditor per-row "Open target folder"
+/// button, which is disabled when `exists` is false.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TargetDirInfo {
+    pub path: String,
+    pub exists: bool,
+}
+
+/// Resolve the fan-out destination `<target>/<skill_name>/` for a single
+/// target and report whether it currently exists on disk. The skill name is
+/// the canonical directory identity (the same value fan-out writes under), so
+/// the resolved path matches what a push produces — not parsed `frontmatter.name`.
+#[tauri::command]
+pub fn skill_target_dir_resolve(
+    skill_name: String,
+    agent: AgentId,
+    scope: SkillScope,
+    project: Option<String>,
+) -> Result<TargetDirInfo, String> {
+    let cfg = super::agent_paths::agent_paths_get()?;
+    let pair = pair_for(&cfg, agent);
+    let target_dir = resolve_pair(scope, project.as_deref(), pair)?;
+    let dir = target_dir.join(&skill_name);
+    let exists = dir.is_dir();
+    Ok(TargetDirInfo {
+        path: dir.to_string_lossy().to_string(),
+        exists,
+    })
 }
 
 /// Best-effort ISO-8601 UTC timestamp without pulling chrono. Format:
@@ -678,7 +712,7 @@ mod tests {
 
         let before = canonical_skills_list().expect("list before");
         match &before[0] {
-            SkillListEntry::Ok { skill } => assert!(skill.dirty, "expected dirty=true before push"),
+            SkillListEntry::Ok { skill, .. } => assert!(skill.dirty, "expected dirty=true before push"),
             other => panic!("expected Ok entry, got {other:?}"),
         }
 
@@ -694,11 +728,158 @@ mod tests {
 
         let after = canonical_skills_list().expect("list after");
         match &after[0] {
-            SkillListEntry::Ok { skill } => {
+            SkillListEntry::Ok { skill, .. } => {
                 assert!(!skill.dirty, "expected dirty=false after push");
                 assert!(skill.last_synced.is_some(), "expected last_synced populated");
             }
             other => panic!("expected Ok entry, got {other:?}"),
         }
+    }
+
+    /// Task 4.1: a broken (unparseable) canonical skill is never fanned out.
+    /// `skill_sync_one` errors with the parse error; `skill_sync_all` skips it
+    /// (no agent file written, no SyncResult attributed to it).
+    #[test]
+    fn broken_canonical_skill_is_not_pushed() {
+        use crate::commands::canonical_skills::parse_skill_md;
+        let tmp = smoke_tempdir("pushguard");
+        let _g = override_felina_home(&tmp);
+
+        // Plant a broken canonical skill directly (non-mapping frontmatter root).
+        let broken_dir = tmp.join(".felina").join("skills").join("broken-push");
+        fs::create_dir_all(&broken_dir).unwrap();
+        let broken_content = "---\n- not\n- a mapping\n---\n# Body\n";
+        fs::write(broken_dir.join("SKILL.md"), broken_content).unwrap();
+        assert!(parse_skill_md(broken_content).is_err(), "fixture must be unparseable");
+
+        // Give it a tracked target so, absent the guard, push would write.
+        let project = tmp.to_string_lossy().to_string();
+        write_sync_meta_v2(
+            &broken_dir,
+            &SyncMetaV2 {
+                version: 2,
+                targets: vec![SkillTarget {
+                    agent: AgentId::Anthropic,
+                    scope: SkillScope::Project,
+                    project: Some(project),
+                    enabled: true,
+                    mode: TargetMode::Tracked,
+                }],
+                last_sync: std::collections::BTreeMap::new(),
+                dirty: true,
+            },
+        )
+        .unwrap();
+
+        // sync_one must error (parse gate), not push.
+        let one = skill_sync_one("broken-push".into());
+        assert!(one.is_err(), "broken skill must not push via sync_one: {one:?}");
+
+        // sync_all must skip the broken entry entirely.
+        let all = skill_sync_all().expect("sync_all returns Ok overall");
+        let agent_dir = tmp.join(".claude").join("skills").join("broken-push");
+        assert!(
+            !agent_dir.join("SKILL.md").exists(),
+            "broken skill must not be fanned out to an agent dir"
+        );
+        assert!(
+            all.iter().all(|r| !r.target_path.contains("broken-push")),
+            "no SyncResult should target the broken skill: {all:#?}"
+        );
+    }
+
+    /// Task 8.3: fan-out uses the canonical directory identity, not parsed
+    /// frontmatter `name`. A skill at `~/.felina/skills/smoke-nested/` with
+    /// frontmatter `name: real` must push to `smoke-nested/`, not `real/`.
+    #[test]
+    fn fan_out_uses_canonical_directory_not_parsed_name() {
+        let tmp = smoke_tempdir("id-fanout");
+        let _g = override_felina_home(&tmp);
+
+        let skills_root = tmp.join(".felina").join("skills");
+        let skill_dir = skills_root.join("smoke-nested");
+        fs::create_dir_all(&skill_dir).unwrap();
+        fs::write(
+            skill_dir.join("SKILL.md"),
+            "---\nname: real\ndescription: test\nagents:\n  - anthropic\n---\nbody\n",
+        )
+        .unwrap();
+
+        let project = tmp.to_string_lossy().to_string();
+        write_sync_meta_v2(
+            &skill_dir,
+            &SyncMetaV2 {
+                version: 2,
+                targets: vec![SkillTarget {
+                    agent: AgentId::Anthropic,
+                    scope: SkillScope::Project,
+                    project: Some(project.clone()),
+                    enabled: true,
+                    mode: TargetMode::Tracked,
+                }],
+                last_sync: std::collections::BTreeMap::new(),
+                dirty: true,
+            },
+        )
+        .unwrap();
+
+        let results = skill_sync_one("smoke-nested".into()).expect("sync");
+        assert_eq!(results.len(), 1);
+        assert!(results[0].success, "push failed: {:?}", results[0].error);
+
+        let correct_dir = tmp.join(".claude").join("skills").join("smoke-nested");
+        assert!(
+            correct_dir.join("SKILL.md").is_file(),
+            "push must write to canonical dir name 'smoke-nested'"
+        );
+
+        let wrong_dir = tmp.join(".claude").join("skills").join("real");
+        assert!(
+            !wrong_dir.exists(),
+            "push must NOT write to parsed frontmatter name 'real'"
+        );
+
+        let rendered = fs::read_to_string(correct_dir.join("SKILL.md")).unwrap();
+        assert!(
+            rendered.contains("name: smoke-nested"),
+            "rendered SKILL.md must contain canonical name: {rendered}"
+        );
+    }
+
+    /// Task 10.3: the per-row "Open target folder" resolver reports the
+    /// canonical-identity destination and its on-disk existence, so the UI can
+    /// disable the button until a push has actually created the folder.
+    #[test]
+    fn target_dir_resolve_reports_canonical_path_and_existence() {
+        let tmp = smoke_tempdir("resolvedir");
+        let _g = override_felina_home(&tmp);
+        let project = tmp.to_string_lossy().to_string();
+
+        // Before any push the destination does not exist.
+        let before = skill_target_dir_resolve(
+            "smoke-nested".into(),
+            AgentId::Anthropic,
+            SkillScope::Project,
+            Some(project.clone()),
+        )
+        .expect("resolve");
+        assert!(!before.exists, "destination should not exist before push");
+        assert!(
+            before.path.replace('\\', "/").ends_with(".claude/skills/smoke-nested"),
+            "path must use canonical identity: {}",
+            before.path,
+        );
+
+        // Create the destination; existence flips true.
+        let dest = tmp.join(".claude").join("skills").join("smoke-nested");
+        fs::create_dir_all(&dest).unwrap();
+        let after = skill_target_dir_resolve(
+            "smoke-nested".into(),
+            AgentId::Anthropic,
+            SkillScope::Project,
+            Some(project),
+        )
+        .expect("resolve");
+        assert!(after.exists, "destination should exist after creation");
     }
 }

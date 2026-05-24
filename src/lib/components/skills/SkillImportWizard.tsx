@@ -75,7 +75,8 @@ export default function SkillImportWizard({ projectPath, onClose }: Props) {
     setError(null);
     try {
       const selections: ImportSelection[] = candidates
-        // Multi-source skills are deferred — never import them in this version.
+        // Multi-source skills are deferred. Validation-error candidates ARE
+        // imported — they land as broken canonical skills (import-as-broken).
         .filter((c) => !c.deferred)
         .map((candidate) => {
           const idx = candidates.indexOf(candidate);
@@ -172,12 +173,26 @@ export default function SkillImportWizard({ projectPath, onClose }: Props) {
                       {c.sourcePath}
                     </div>
                   </div>
-                  {c.conflict && (
-                    <div className="shrink-0 inline-flex items-center gap-1 text-xs text-amber-400">
-                      <AlertTriangle size={12} /> {t(locale, "skills.importWizard.conflict")}
-                    </div>
-                  )}
+                  <div className="shrink-0 flex items-center gap-2">
+                    {c.validationError && (
+                      <div className="inline-flex items-center gap-1 text-xs text-red-400">
+                        <AlertTriangle size={12} /> {t(locale, "skills.importWizard.validationError")}
+                      </div>
+                    )}
+                    {c.conflict && (
+                      <div className="inline-flex items-center gap-1 text-xs text-amber-400">
+                        <AlertTriangle size={12} /> {t(locale, "skills.importWizard.conflict")}
+                      </div>
+                    )}
+                  </div>
                 </div>
+
+                {c.validationError && (
+                  <div className="text-xs bg-red-500/10 border border-red-500/30 rounded p-2 text-red-300">
+                    <div className="font-medium mb-1">{t(locale, "skills.importWizard.importsAsBroken")}</div>
+                    <div className="font-mono text-[10px] text-red-200/80">{c.validationError}</div>
+                  </div>
+                )}
 
                 {c.conflict && (
                   <div className="text-xs bg-amber-500/10 border border-amber-500/30 rounded p-2 text-amber-200">

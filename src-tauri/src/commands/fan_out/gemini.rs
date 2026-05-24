@@ -75,6 +75,7 @@ mod tests {
         );
 
         let skill = CanonicalSkill {
+            canonical_id: "demo".into(),
             name: "demo".into(),
             description: "Demo".into(),
             agents: vec![AgentId::Gemini],

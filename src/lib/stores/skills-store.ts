@@ -15,7 +15,13 @@
  */
 import { create } from "zustand";
 import { api } from "$lib/tauri/commands";
-import type { CanonicalSkill, SkillListEntry, SyncResult } from "$lib/types";
+import {
+  canonicalSkillId,
+  skillListEntryCanonicalId,
+  type CanonicalSkill,
+  type SkillListEntry,
+  type SyncResult,
+} from "$lib/types";
 
 const BANNER_DISMISSED_KEY = "felina.skills.importBannerDismissed";
 
@@ -64,8 +70,8 @@ interface SkillsStore {
   resetBannerDismissed: () => void;
   markEntryDirty: (name: string) => void;
   upsertEntry: (skill: CanonicalSkill) => void;
-  removeEntry: (name: string) => void;
-  syncOne: (name: string) => Promise<SyncResult[]>;
+  removeEntry: (canonicalId: string) => void;
+  syncOne: (canonicalId: string) => Promise<SyncResult[]>;
   syncAll: () => Promise<SyncResult[]>;
 }
 
@@ -88,7 +94,7 @@ export const useSkillsStore = create<SkillsStore>((set, get) => ({
   loadEntries: async () => {
     try {
       const entries = await api.canonicalSkills.list();
-      set({ entries, loaded: true, error: null });
+      set({ entries: entries.map(normalizeEntry), loaded: true, error: null });
     } catch (e) {
       set({ entries: [], loaded: true, error: String(e) });
     }
@@ -125,36 +131,46 @@ export const useSkillsStore = create<SkillsStore>((set, get) => ({
 
   upsertEntry: (skill) => {
     set((s) => {
+      const normalizedSkill = normalizeSkill(skill);
+      const canonicalId = canonicalSkillId(normalizedSkill);
       const next = s.entries.filter(
-        (e) => !(e.kind === "ok" && e.skill.name === skill.name),
+        (e) => !(e.kind === "ok" && skillListEntryCanonicalId(e) === canonicalId),
       );
-      next.push({ kind: "ok", skill });
+      next.push({ kind: "ok", canonicalId, skill: normalizedSkill });
       next.sort((a, b) => entryName(a).localeCompare(entryName(b)));
       return { entries: next };
     });
   },
 
-  removeEntry: (name) => {
+  removeEntry: (canonicalId) => {
     set((s) => ({
-      entries: s.entries.filter((e) => entryName(e) !== name),
+      entries: s.entries.filter((e) =>
+        skillListEntryCanonicalId(e) !== canonicalId,
+      ),
     }));
   },
 
-  syncOne: async (name) => {
+  syncOne: async (canonicalId) => {
     set((s) => {
       const next = new Set(s.pushingNames);
-      next.add(name);
+      next.add(canonicalId);
       return { pushingNames: next };
     });
     try {
-      const results = await api.skillSync.one(name);
+      const results = await api.skillSync.one(canonicalId);
       await get().loadEntries();
-      set({ lastSyncResults: results });
+      set({ lastSyncResults: results, error: null });
       return results;
+    } catch (e) {
+      // A broken (unparseable) skill is rejected by the backend push guard.
+      // Surface the parse error on the page banner instead of letting it
+      // propagate as an unhandled rejection.
+      set({ error: String(e) });
+      return [];
     } finally {
       set((s) => {
         const next = new Set(s.pushingNames);
-        next.delete(name);
+        next.delete(canonicalId);
         return { pushingNames: next };
       });
     }
@@ -175,6 +191,19 @@ export const useSkillsStore = create<SkillsStore>((set, get) => ({
 
 function entryName(e: SkillListEntry): string {
   return e.kind === "ok" ? e.skill.name : e.name;
+}
+
+function normalizeSkill(skill: CanonicalSkill): CanonicalSkill {
+  const canonicalId = canonicalSkillId(skill);
+  return skill.canonicalId === canonicalId ? skill : { ...skill, canonicalId };
+}
+
+function normalizeEntry(entry: SkillListEntry): SkillListEntry {
+  const canonicalId = skillListEntryCanonicalId(entry);
+  if (entry.kind === "ok") {
+    return { ...entry, canonicalId, skill: normalizeSkill(entry.skill) };
+  }
+  return { ...entry, canonicalId };
 }
 
 // ---------------------------------------------------------------------------

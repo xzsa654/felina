@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { AlertCircle, Send } from "lucide-react";
-import type { SkillListEntry } from "$lib/types";
+import { skillListEntryCanonicalId, type SkillListEntry } from "$lib/types";
 import { useSkillsStore } from "$lib/stores/skills-store";
 import { useLocaleStore } from "$lib/stores/locale";
 import { t } from "$lib/i18n";
@@ -8,7 +8,7 @@ import { t } from "$lib/i18n";
 interface Props {
   entries: SkillListEntry[];
   selectedName: string | null;
-  onSelect: (name: string) => void;
+  onSelect: (canonicalId: string) => void;
 }
 
 /** Sort key: skills that need the user's attention float to the top —
@@ -59,38 +59,47 @@ export default function SkillList({ entries, selectedName, onSelect }: Props) {
   return (
     <ul className="flex flex-col">
       {sortedEntries.map((entry) => {
+        const canonicalId = skillListEntryCanonicalId(entry);
         if (entry.kind === "broken") {
+          const isSelected = selectedName === canonicalId;
           return (
-            <li
-              key={`broken-${entry.name}`}
-              className="flex items-start gap-2 px-3 py-2 border-l-2 border-red-500/60 bg-red-500/5"
-              title={entry.error}
-            >
-              <AlertCircle className="text-red-400 shrink-0 mt-0.5" size={16} />
-              <div className="min-w-0 flex-1">
-                <div className="text-sm font-medium text-text-primary truncate">
-                  {entry.name}
+            <li key={`broken-${canonicalId}`}>
+              <button
+                type="button"
+                onClick={() => onSelect(canonicalId)}
+                title={entry.error}
+                className={`w-full flex items-start gap-2 px-3 py-2 text-left border-l-2 transition-colors ${
+                  isSelected
+                    ? "border-red-500 bg-red-500/10"
+                    : "border-red-500/60 bg-red-500/5 hover:bg-red-500/10"
+                }`}
+              >
+                <AlertCircle className="text-red-400 shrink-0 mt-0.5" size={16} />
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-medium text-text-primary truncate">
+                    {entry.name}
+                  </div>
+                  <div className="text-xs text-red-400 truncate">
+                    {t(locale, "skills.list.frontmatterBroken")}
+                  </div>
+                  <div className="text-[10px] text-text-secondary truncate font-mono">
+                    {entry.path}
+                  </div>
                 </div>
-                <div className="text-xs text-red-400 truncate">
-                  {t(locale, "skills.list.frontmatterBroken")}
-                </div>
-                <div className="text-[10px] text-text-secondary truncate font-mono">
-                  {entry.path}
-                </div>
-              </div>
+              </button>
             </li>
           );
         }
 
         const { skill } = entry;
-        const isSelected = selectedName === skill.name;
-        const isPushing = pushingNames.has(skill.name);
+        const isSelected = selectedName === canonicalId;
+        const isPushing = pushingNames.has(canonicalId);
 
         return (
-          <li key={skill.name}>
+          <li key={canonicalId}>
             <button
               type="button"
-              onClick={() => onSelect(skill.name)}
+              onClick={() => onSelect(canonicalId)}
               className={`w-full flex items-center gap-2 px-3 py-2 text-left border-l-2 transition-colors ${
                 isSelected
                   ? "border-accent bg-accent/10"
@@ -130,7 +139,7 @@ export default function SkillList({ entries, selectedName, onSelect }: Props) {
                   disabled={isPushing}
                   onClick={(e) => {
                     e.stopPropagation();
-                    void syncOne(skill.name);
+                    void syncOne(canonicalId);
                   }}
                   className={`shrink-0 inline-flex items-center gap-1 text-xs px-2 py-1 rounded transition-colors ${
                     isPushing

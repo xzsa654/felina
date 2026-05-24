@@ -1,6 +1,42 @@
 {
-  "lastUpdated": "2026-05-22",
+  "lastUpdated": "2026-05-25",
   "entries": [
+    {
+      "id": "kb-frontend-identity-migration-display-vs-storage",
+      "title": "Identity migration: storage key first, display lags behind",
+      "type": "knowledge",
+      "status": "active",
+      "confidence": "confirmed",
+      "keywords": ["identity migration", "canonical id", "display vs storage", "rename", "scope migration", "UI consistency", "skill identity", "alias"],
+      "appliesWhen": "Any change that introduces a new true identity alongside an existing display identity (rename, scope-move, identity-normalization, alias migration) with multiple consuming UI surfaces",
+      "file": "knowledge-base/dev-docs.md",
+      "anchor": "identity-migration-storage-key-first-display-lags-behind",
+      "updated": "2026-05-25"
+    },
+    {
+      "id": "kb-react-async-save-store-race",
+      "title": "Async child save handler must not mutate store before parent onSaved",
+      "type": "knowledge",
+      "status": "active",
+      "confidence": "confirmed",
+      "keywords": ["react", "zustand", "useEffect", "async save", "race condition", "cancelled flag", "store mutation", "parent-child callback", "placeholder bug", "loadEntries"],
+      "appliesWhen": "React + external store; child takes onSaved prop and has direct access to store mutator; parent useEffect depends on store and drives visible render",
+      "file": "knowledge-base/dev-docs.md",
+      "anchor": "async-child-save-handler-must-not-mutate-store-before-parent-onsaved",
+      "updated": "2026-05-25"
+    },
+    {
+      "id": "exp-spectra-analyze-keyword-coverage",
+      "title": "spectra analyze Consistency check uses literal keyword matching against task descriptions",
+      "type": "experience",
+      "status": "active",
+      "confidence": "confirmed",
+      "keywords": ["spectra", "spectra analyze", "Consistency dimension", "keyword matching", "design topic", "tasks coverage", "false positive", "ingest", "propose"],
+      "appliesWhen": "Ingesting/proposing a Spectra change where design.md gets new Decision headings and tasks describe coverage in their own wording without quoting the Decision title verbatim",
+      "file": "experience/spectra.md",
+      "anchor": "spectra-analyze-consistency-check-uses-literal-keyword-matching-against-task-descriptions",
+      "updated": "2026-05-25"
+    },
     {
       "id": "kb-react-pagebody-layout",
       "title": "Page layout scaffold height contract (PageHeader + PageBody)",

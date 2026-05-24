@@ -23,6 +23,8 @@ import type {
   KnownProject,
   SkillTarget,
   OrphanFile,
+  AgentId,
+  SkillScope,
 } from "$lib/types";
 
 // Retained-for-reference wrappers (hooks / instructions / mcp / rules / budget / stats):
@@ -102,6 +104,7 @@ export const api = {
   canonicalSkills: {
     list: () => invoke<SkillListEntry[]>("canonical_skills_list"),
     read: (name: string) => invoke<CanonicalSkill>("canonical_skills_read", { name }),
+    readRaw: (name: string) => invoke<string>("canonical_skills_read_raw", { name }),
     write: (
       name: string,
       frontmatter: Record<string, unknown>,
@@ -112,6 +115,8 @@ export const api = {
         frontmatter,
         body,
       }),
+    writeRaw: (name: string, content: string) =>
+      invoke<{ normalizedFrom: string | null }>("canonical_skills_write_raw", { name, content }),
     delete: (name: string) => invoke<void>("canonical_skills_delete", { name }),
   },
 
@@ -120,6 +125,18 @@ export const api = {
   skillSync: {
     one: (name: string) => invoke<SyncResult[]>("skill_sync_one", { name }),
     all: () => invoke<SyncResult[]>("skill_sync_all"),
+    resolveTargetDir: (
+      skillName: string,
+      agent: AgentId,
+      scope: SkillScope,
+      project: string | null,
+    ) =>
+      invoke<{ path: string; exists: boolean }>("skill_target_dir_resolve", {
+        skillName,
+        agent,
+        scope,
+        project,
+      }),
   },
 
   // Initial skill import (passive scan + manual wizard).

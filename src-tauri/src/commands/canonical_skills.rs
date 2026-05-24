@@ -50,6 +50,9 @@ pub enum SkillScope {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CanonicalSkill {
+    /// Stable canonical directory identity used for app actions.
+    #[serde(default)]
+    pub canonical_id: String,
     pub name: String,
     pub description: String,
     pub agents: Vec<AgentId>,
@@ -85,7 +88,7 @@ pub fn canonical_skills_dir() -> PathBuf {
 /// - `---\n<yaml>\n---\n<body>` — standard YAML frontmatter
 /// - `---\r\n<yaml>\r\n---\r\n<body>` — CRLF (Windows)
 /// - text with no leading `---` — entire content treated as body
-fn split_frontmatter(raw: &str) -> (String, String) {
+pub(crate) fn split_frontmatter(raw: &str) -> (String, String) {
     // Tolerate optional BOM + leading whitespace before the opening fence.
     let trimmed = raw.trim_start_matches('\u{feff}');
     let trimmed = trimmed.trim_start_matches(['\n', '\r']);
@@ -147,6 +150,7 @@ pub fn parse_skill_md(raw: &str) -> Result<CanonicalSkill, String> {
     let agents = take_required_agents(map)?;
 
     Ok(CanonicalSkill {
+        canonical_id: String::new(),
         name,
         description,
         agents,
@@ -219,9 +223,11 @@ fn take_required_agents(map: &mut serde_yaml::Mapping) -> Result<Vec<AgentId>, S
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum SkillListEntry {
     Ok {
+        canonical_id: String,
         skill: CanonicalSkill,
     },
     Broken {
+        canonical_id: String,
         /// Directory name (best-available identifier when frontmatter is unreadable).
         name: String,
         /// Absolute path to the broken SKILL.md (for the "open raw file" link).
@@ -508,6 +514,7 @@ pub fn canonical_skills_list() -> Result<Vec<SkillListEntry>, String> {
             Ok(s) => s,
             Err(e) => {
                 out.push(SkillListEntry::Broken {
+                    canonical_id: dir_name.clone(),
                     name: dir_name,
                     path: skill_md.to_string_lossy().to_string(),
                     error: format!("read failed: {e}"),
@@ -518,15 +525,20 @@ pub fn canonical_skills_list() -> Result<Vec<SkillListEntry>, String> {
 
         match parse_skill_md(&raw) {
             Ok(mut skill) => {
+                skill.canonical_id = dir_name.clone();
                 let (meta, legacy_last) = read_sync_meta_v2(&skill_dir, &skill);
                 skill.dirty = meta.dirty;
                 skill.last_synced = legacy_last.or_else(|| pick_latest_at(&meta.last_sync));
                 skill.targets = meta.targets;
                 skill.last_sync = meta.last_sync;
-                out.push(SkillListEntry::Ok { skill });
+                out.push(SkillListEntry::Ok {
+                    canonical_id: dir_name,
+                    skill,
+                });
             }
             Err(e) => {
                 out.push(SkillListEntry::Broken {
+                    canonical_id: dir_name.clone(),
                     name: dir_name,
                     path: skill_md.to_string_lossy().to_string(),
                     error: e,
@@ -541,7 +553,7 @@ pub fn canonical_skills_list() -> Result<Vec<SkillListEntry>, String> {
 
 fn entry_name(e: &SkillListEntry) -> &str {
     match e {
-        SkillListEntry::Ok { skill } => &skill.name,
+        SkillListEntry::Ok { skill, .. } => &skill.name,
         SkillListEntry::Broken { name, .. } => name,
     }
 }
@@ -560,12 +572,84 @@ pub fn canonical_skills_read(name: String) -> Result<CanonicalSkill, String> {
     let raw = fs::read_to_string(&skill_md)
         .map_err(|e| format!("failed to read SKILL.md: {e}"))?;
     let mut skill = parse_skill_md(&raw)?;
+    skill.canonical_id = name.clone();
     let (meta, legacy_last) = read_sync_meta_v2(&skill_dir, &skill);
     skill.dirty = meta.dirty;
     skill.last_synced = legacy_last.or_else(|| pick_latest_at(&meta.last_sync));
     skill.targets = meta.targets;
     skill.last_sync = meta.last_sync;
     Ok(skill)
+}
+
+/// Read the raw `SKILL.md` text of a canonical skill by name, regardless of
+/// whether its frontmatter parses. Used by the editor's raw repair mode to
+/// open a `Broken` skill — `canonical_skills_read` cannot be reused because it
+/// errors on parse failure. Errors only when the file is missing or unreadable.
+#[tauri::command]
+pub fn canonical_skills_read_raw(name: String) -> Result<String, String> {
+    validate_skill_name(&name)?;
+    let skill_md = canonical_skills_dir().join(&name).join("SKILL.md");
+    if !skill_md.is_file() {
+        return Err(format!("skill not found: {name}"));
+    }
+    fs::read_to_string(&skill_md).map_err(|e| format!("failed to read SKILL.md: {e}"))
+}
+
+/// Result of a raw `SKILL.md` write. Carries normalization info so the
+/// frontend can show an advisory when the YAML `name` was corrected.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WriteRawResult {
+    /// Set when the YAML `name` was normalized to the canonical directory
+    /// identity. Contains the original (pre-normalization) parsed `name`.
+    pub normalized_from: Option<String>,
+}
+
+/// Write raw `SKILL.md` text for a canonical skill by name (editor raw-mode
+/// save). After writing, if the content parses and its frontmatter `name`
+/// differs from the canonical directory identity, the `name` is rewritten to
+/// match the directory. Returns normalization info so the UI can show an
+/// advisory. Marks the skill dirty so a now-valid skill becomes pushable.
+#[tauri::command]
+pub fn canonical_skills_write_raw(name: String, content: String) -> Result<WriteRawResult, String> {
+    validate_skill_name(&name)?;
+    let skill_dir = canonical_skills_dir().join(&name);
+    fs::create_dir_all(&skill_dir)
+        .map_err(|e| format!("failed to create canonical skill dir: {e}"))?;
+    let skill_md = skill_dir.join("SKILL.md");
+    fs::write(&skill_md, &content)
+        .map_err(|e| format!("failed to write SKILL.md: {e}"))?;
+
+    let mut normalized_from: Option<String> = None;
+    if let Ok(skill) = parse_skill_md(&content) {
+        if skill.name != name {
+            normalized_from = Some(skill.name);
+            let (fm_text, body) = split_frontmatter(&content);
+            if !fm_text.is_empty() {
+                if let Ok(mut value) = serde_yaml::from_str::<serde_yaml::Value>(&fm_text) {
+                    if let Some(map) = value.as_mapping_mut() {
+                        map.insert(
+                            serde_yaml::Value::String("name".into()),
+                            serde_yaml::Value::String(name.clone()),
+                        );
+                        if let Ok(fm_yaml) = serde_yaml::to_string(&value) {
+                            let fm_trimmed = fm_yaml.trim_end_matches('\n');
+                            let body_normalized = if body.ends_with('\n') || body.is_empty() {
+                                body
+                            } else {
+                                format!("{body}\n")
+                            };
+                            let out = format!("---\n{fm_trimmed}\n---\n{body_normalized}");
+                            let _ = fs::write(&skill_md, out);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    mark_sync_meta_dirty(&skill_dir);
+    Ok(WriteRawResult { normalized_from })
 }
 
 /// Reject skill names that could escape the canonical skills directory.
@@ -595,8 +679,10 @@ fn validate_skill_name(name: &str) -> Result<(), String> {
 /// mapping containing `name`/`description`/`agents` plus any extras) and
 /// `body` to `<scope_dir>/<name>/SKILL.md`. Creates parents as needed.
 ///
-/// Note: the `name` parameter is the directory name and is validated;
-/// callers should ensure the frontmatter's `name` field matches.
+/// The `name` parameter is the canonical directory identity. If the
+/// frontmatter mapping's `name` field differs, it is silently normalized
+/// to match the directory — the directory identity is authoritative after
+/// creation.
 #[tauri::command]
 pub fn canonical_skills_write(
     name: String,
@@ -609,9 +695,16 @@ pub fn canonical_skills_write(
     fs::create_dir_all(&skill_dir)
         .map_err(|e| format!("failed to create canonical skill dir: {e}"))?;
 
-    let fm_yaml = serde_yaml::to_string(&frontmatter)
+    let mut fm = frontmatter;
+    if let serde_yaml::Value::Mapping(ref mut map) = fm {
+        map.insert(
+            serde_yaml::Value::String("name".into()),
+            serde_yaml::Value::String(name.clone()),
+        );
+    }
+
+    let fm_yaml = serde_yaml::to_string(&fm)
         .map_err(|e| format!("failed to serialize frontmatter: {e}"))?;
-    // `to_string` already emits trailing `\n`; trim then bracket with fences.
     let fm_trimmed = fm_yaml.trim_end_matches('\n');
     let body_normalized = if body.ends_with('\n') {
         body
@@ -984,15 +1077,24 @@ Hello.\n";
 
         // Sorted alphabetically by name. alpha + beta = Ok, broken = Broken.
         match &entries[0] {
-            SkillListEntry::Ok { skill } => assert_eq!(skill.name, "alpha"),
+            SkillListEntry::Ok { canonical_id, skill } => {
+                assert_eq!(canonical_id, "alpha");
+                assert_eq!(skill.canonical_id, "alpha");
+                assert_eq!(skill.name, "alpha");
+            }
             other => panic!("expected Ok(alpha), got {other:?}"),
         }
         match &entries[1] {
-            SkillListEntry::Ok { skill } => assert_eq!(skill.name, "beta"),
+            SkillListEntry::Ok { canonical_id, skill } => {
+                assert_eq!(canonical_id, "beta");
+                assert_eq!(skill.canonical_id, "beta");
+                assert_eq!(skill.name, "beta");
+            }
             other => panic!("expected Ok(beta), got {other:?}"),
         }
         match &entries[2] {
-            SkillListEntry::Broken { name, error, .. } => {
+            SkillListEntry::Broken { canonical_id, name, error, .. } => {
+                assert_eq!(canonical_id, "broken");
                 assert_eq!(name, "broken");
                 assert!(!error.is_empty());
             }
@@ -1050,6 +1152,7 @@ Hello.\n";
         assert!(tmp.join(".felina").join("skills").join("foo").join("SKILL.md").is_file());
 
         let skill = canonical_skills_read("foo".into()).expect("read back");
+        assert_eq!(skill.canonical_id, "foo");
         assert_eq!(skill.name, "foo");
         assert_eq!(skill.description, "Foo helper");
         assert_eq!(skill.agents, vec![AgentId::Anthropic]);
@@ -1109,11 +1212,69 @@ Hello.\n";
     }
 
     #[test]
+    fn delete_uses_canonical_directory_identity_even_when_name_mismatches() {
+        let tmp = tempdir();
+        let _g = override_felina_home(&tmp);
+        let skills_root = tmp.join(".felina").join("skills");
+        fs::create_dir_all(&skills_root).unwrap();
+        write_skill(
+            &skills_root,
+            "folder-name",
+            "---\nname: different-name\ndescription: x\nagents: [anthropic]\n---\nbody\n",
+        );
+        assert!(skills_root.join("folder-name").is_dir());
+
+        let listed = canonical_skills_list().expect("list");
+        match &listed[0] {
+            SkillListEntry::Ok { canonical_id, skill } => {
+                assert_eq!(canonical_id, "folder-name");
+                assert_eq!(skill.name, "different-name");
+            }
+            other => panic!("expected mismatched Ok entry, got {other:?}"),
+        }
+
+        canonical_skills_delete("folder-name".into()).expect("delete by canonical id");
+        assert!(!skills_root.join("folder-name").exists());
+    }
+
+    #[test]
     fn read_returns_err_for_missing_skill() {
         let tmp = tempdir();
         let _g = override_felina_home(&tmp);
         let err = canonical_skills_read("nope".into()).unwrap_err();
         assert!(err.contains("not found"), "err was: {err}");
+    }
+
+    /// Task 5.1: raw read/write round trip for editor repair. A broken skill's
+    /// raw text is readable (where `canonical_skills_read` errors), a corrected
+    /// raw write makes it parse, and an unchanged broken round-trip stays broken.
+    #[test]
+    fn raw_read_write_round_trip_repairs_broken_skill() {
+        let tmp = tempdir();
+        let _g = override_felina_home(&tmp);
+        let skills_root = tmp.join(".felina").join("skills");
+        fs::create_dir_all(&skills_root).unwrap();
+
+        // Plant a broken skill (non-mapping frontmatter root).
+        let broken = "---\n- not\n- a mapping\n---\n# Body\n";
+        write_skill(&skills_root, "fixme", broken);
+
+        // Structured read errors; raw read succeeds and returns the bytes.
+        assert!(canonical_skills_read("fixme".into()).is_err());
+        let raw = canonical_skills_read_raw("fixme".into()).expect("raw read");
+        assert_eq!(raw, broken);
+        assert!(parse_skill_md(&raw).is_err(), "still broken before repair");
+
+        // Unchanged round-trip stays broken.
+        canonical_skills_write_raw("fixme".into(), raw.clone()).expect("raw write unchanged");
+        assert!(parse_skill_md(&canonical_skills_read_raw("fixme".into()).unwrap()).is_err());
+
+        // Corrected raw write makes it parse and become a normal skill.
+        let fixed = "---\nname: fixme\ndescription: repaired\nagents:\n  - anthropic\n---\n# Body\n";
+        canonical_skills_write_raw("fixme".into(), fixed.into()).expect("raw write fixed");
+        let after = canonical_skills_read("fixme".into()).expect("structured read after repair");
+        assert_eq!(after.description, "repaired");
+        assert_eq!(after.agents, vec![AgentId::Anthropic]);
     }
 
     // ---------------------------------------------------------------------
@@ -1122,6 +1283,7 @@ Hello.\n";
 
     fn skill_with_agents(name: &str, agents: Vec<AgentId>) -> CanonicalSkill {
         CanonicalSkill {
+            canonical_id: name.to_string(),
             name: name.to_string(),
             description: "x".into(),
             agents,
@@ -1817,5 +1979,169 @@ Hello.\n";
             Some(prior_timestamp),
             "last_synced must survive the rewrite"
         );
+    }
+
+    /// Task 8.1: structured save normalizes frontmatter `name` to the canonical
+    /// directory identity. If the caller passes frontmatter with `name: wrong`,
+    /// the written SKILL.md must contain `name: dir-name`.
+    #[test]
+    fn write_normalizes_frontmatter_name_to_directory_identity() {
+        let tmp = tempdir();
+        let _g = override_felina_home(&tmp);
+
+        let mut fm = serde_yaml::Mapping::new();
+        fm.insert("name".into(), "wrong-name".into());
+        fm.insert("description".into(), "test".into());
+        fm.insert(
+            "agents".into(),
+            serde_yaml::Value::Sequence(vec!["anthropic".into()]),
+        );
+
+        canonical_skills_write(
+            "dir-name".into(),
+            serde_yaml::Value::Mapping(fm),
+            "body".into(),
+        )
+        .expect("write");
+
+        let skill = canonical_skills_read("dir-name".into()).expect("read back");
+        assert_eq!(skill.canonical_id, "dir-name");
+        assert_eq!(
+            skill.name, "dir-name",
+            "frontmatter name must be normalized to the directory identity"
+        );
+        let raw = canonical_skills_read_raw("dir-name".into()).unwrap();
+        assert!(
+            raw.contains("name: dir-name"),
+            "on-disk YAML must contain the normalized name: {raw}"
+        );
+        assert!(
+            !raw.contains("wrong-name"),
+            "on-disk YAML must NOT contain the original mismatched name: {raw}"
+        );
+    }
+
+    /// Task 8.2: raw repair normalizes YAML `name` to the canonical directory
+    /// identity when the content parses, and returns the original name.
+    #[test]
+    fn write_raw_normalizes_name_on_successful_parse() {
+        let tmp = tempdir();
+        let _g = override_felina_home(&tmp);
+        let skills_root = tmp.join(".felina").join("skills");
+        fs::create_dir_all(&skills_root).unwrap();
+
+        let broken = "---\n- not a mapping\n---\nbody\n";
+        write_skill(&skills_root, "smoke-nested", broken);
+
+        let fixed_with_wrong_name =
+            "---\nname: real\ndescription: repaired\nagents:\n  - anthropic\n---\n# Body\n";
+        let result = canonical_skills_write_raw(
+            "smoke-nested".into(),
+            fixed_with_wrong_name.into(),
+        )
+        .expect("raw write");
+
+        assert_eq!(
+            result.normalized_from.as_deref(),
+            Some("real"),
+            "must report the original name that was normalized"
+        );
+
+        let skill = canonical_skills_read("smoke-nested".into()).expect("read after repair");
+        assert_eq!(skill.canonical_id, "smoke-nested");
+        assert_eq!(
+            skill.name, "smoke-nested",
+            "repaired YAML name must be normalized to directory identity"
+        );
+
+        let on_disk = canonical_skills_read_raw("smoke-nested".into()).unwrap();
+        assert!(
+            on_disk.contains("name: smoke-nested"),
+            "on-disk must contain normalized name: {on_disk}"
+        );
+        assert!(
+            !on_disk.contains("name: real"),
+            "on-disk must NOT contain original mismatched name: {on_disk}"
+        );
+    }
+
+    /// Task 8.2: raw write that does NOT need normalization returns None.
+    #[test]
+    fn write_raw_returns_none_when_name_matches() {
+        let tmp = tempdir();
+        let _g = override_felina_home(&tmp);
+        let skills_root = tmp.join(".felina").join("skills");
+        fs::create_dir_all(&skills_root).unwrap();
+
+        let correct = "---\nname: my-skill\ndescription: ok\nagents:\n  - codex\n---\nbody\n";
+        write_skill(&skills_root, "my-skill", "placeholder");
+
+        let result = canonical_skills_write_raw("my-skill".into(), correct.into())
+            .expect("raw write");
+        assert!(
+            result.normalized_from.is_none(),
+            "no normalization needed: {result:?}"
+        );
+    }
+
+    /// Task 9.1: target list mutation is keyed on the canonical directory
+    /// identity, so `skill_targets_set` succeeds against a skill whose parsed
+    /// `frontmatter.name` differs from its directory name — and the parsed name
+    /// is NOT a valid lookup key.
+    #[test]
+    fn targets_set_succeeds_for_name_directory_mismatch() {
+        let tmp = tempdir();
+        let _g = override_felina_home(&tmp);
+        let skills_root = tmp.join(".felina").join("skills");
+        fs::create_dir_all(&skills_root).unwrap();
+        write_skill(
+            &skills_root,
+            "folder-id",
+            "---\nname: parsed-different\ndescription: x\nagents: [anthropic]\n---\nbody\n",
+        );
+
+        let target = SkillTarget {
+            agent: AgentId::Anthropic,
+            scope: SkillScope::Global,
+            project: None,
+            enabled: true,
+            mode: TargetMode::Tracked,
+        };
+
+        // Lookup by canonical directory identity succeeds despite the mismatch.
+        skill_targets_set("folder-id".into(), vec![target.clone()])
+            .expect("targets_set must succeed keyed on the canonical directory identity");
+
+        let raw = fs::read_to_string(skills_root.join("folder-id").join(SYNC_META_FILENAME)).unwrap();
+        let meta: SyncMetaV2 = serde_json::from_str(&raw).unwrap();
+        assert_eq!(meta.targets.len(), 1);
+        assert_eq!(meta.targets[0].agent, AgentId::Anthropic);
+
+        // The parsed frontmatter name is NOT a valid lookup key.
+        assert!(
+            skill_targets_set("parsed-different".into(), vec![target]).is_err(),
+            "parsed frontmatter name must not resolve a skill directory",
+        );
+    }
+
+    /// Task 8.2: raw write of content that doesn't parse (still broken) does
+    /// not crash and returns no normalization info.
+    #[test]
+    fn write_raw_still_broken_returns_none() {
+        let tmp = tempdir();
+        let _g = override_felina_home(&tmp);
+        let skills_root = tmp.join(".felina").join("skills");
+        fs::create_dir_all(&skills_root).unwrap();
+
+        let broken = "---\n- still broken\n---\nbody\n";
+        write_skill(&skills_root, "broken-skill", "placeholder");
+
+        let result = canonical_skills_write_raw("broken-skill".into(), broken.into())
+            .expect("raw write");
+        assert!(
+            result.normalized_from.is_none(),
+            "broken content has no name to normalize: {result:?}"
+        );
+        assert!(parse_skill_md(&canonical_skills_read_raw("broken-skill".into()).unwrap()).is_err());
     }
 }

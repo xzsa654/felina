@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
-import { Grid2x2, List, Loader2, Plus, RefreshCw, Sparkles, Undo2 } from "lucide-react";
+import { Download, Grid2x2, List, Loader2, Plus, RefreshCw, Sparkles, Undo2 } from "lucide-react";
 import ConfirmDialog from "$lib/components/shared/ConfirmDialog";
 import { PageBody, PageHeader } from "$lib/components/shared/PageScaffold";
 import { useProjectContextStore } from "$lib/stores/project-context";
@@ -8,7 +8,12 @@ import { useSkillsStore } from "$lib/stores/skills-store";
 import { useLocaleStore } from "$lib/stores/locale";
 import { t } from "$lib/i18n";
 import { api } from "$lib/tauri/commands";
-import type { CanonicalSkill, KnownProject, SkillTarget } from "$lib/types";
+import {
+  skillListEntryCanonicalId,
+  type CanonicalSkill,
+  type KnownProject,
+  type SkillTarget,
+} from "$lib/types";
 import SkillList from "./SkillList";
 import SkillEditor from "./SkillEditor";
 import PendingPushBar from "./PendingPushBar";
@@ -55,12 +60,14 @@ export default function SkillsPage() {
   const [viewMode, setViewMode] = useState<"list" | "summary">("list");
   const [selectedName, setSelectedName] = useState<string | null>(null);
   const [activeSkill, setActiveSkill] = useState<CanonicalSkill | null>(null);
+  const [brokenRaw, setBrokenRaw] = useState<{ name: string; content: string; path?: string } | null>(null);
   const [creatingNew, setCreatingNew] = useState(false);
   const [wizardOpen, setWizardOpen] = useState(false);
   const [reloading, setReloading] = useState(false);
-  const [pendingDelete, setPendingDelete] = useState<string | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<{ canonicalId: string; label: string } | null>(null);
   const [pendingTargets, setPendingTargets] = useState<SkillTarget[]>([]);
   const [knownProjects, setKnownProjects] = useState<KnownProject[]>([]);
+  const [nameAdvisory, setNameAdvisory] = useState<string | null>(null);
 
   // Reload the Known Projects list (each entry carries a backend `exists`
   // stat). Reused by the entries-driven effect and the window-focus listener.
@@ -97,13 +104,14 @@ export default function SkillsPage() {
   useEffect(() => {
     const want = searchParams.get("select");
     if (!want || !loaded) return;
-    const exists = entries.some(
-      (e) => e.kind === "ok" && e.skill.name === want,
-    );
-    if (exists) {
+    // Match by canonical directory identity (not parsed `frontmatter.name`) so a
+    // deep-link survives name-vs-directory drift. Resolve ok or broken entries;
+    // the selection effect routes a broken one into raw repair mode.
+    const selected = entries.find((e) => skillListEntryCanonicalId(e) === want);
+    if (selected) {
       setViewMode("list");
       setCreatingNew(false);
-      setSelectedName(want);
+      setSelectedName(skillListEntryCanonicalId(selected));
     }
     const next = new URLSearchParams(searchParams);
     next.delete("select");
@@ -132,26 +140,55 @@ export default function SkillsPage() {
     };
   }, [refreshKnownProjects]);
 
-  // When the selected name changes, fetch the full skill (list entries
-  // already include the data we need, but read keeps the path canonical).
+  // When the selected name changes, fetch the full skill. A broken entry
+  // can't parse, so route it into raw repair mode (load the raw SKILL.md);
+  // an ok entry loads structured.
   useEffect(() => {
     if (!selectedName) {
       setActiveSkill(null);
+      setBrokenRaw(null);
       return;
     }
+    const entry = entries.find((e) => skillListEntryCanonicalId(e) === selectedName);
+    const isBroken = entry?.kind === "broken";
     let cancelled = false;
     void (async () => {
+      if (isBroken) {
+        try {
+          const content = await api.canonicalSkills.readRaw(selectedName);
+          if (!cancelled) {
+            setBrokenRaw({
+              name: selectedName,
+              content,
+              path: entry?.kind === "broken" ? entry.path : undefined,
+            });
+            setActiveSkill(null);
+          }
+        } catch {
+          if (!cancelled) {
+            setBrokenRaw(null);
+            setActiveSkill(null);
+          }
+        }
+        return;
+      }
       try {
         const skill = await api.canonicalSkills.read(selectedName);
-        if (!cancelled) setActiveSkill(skill);
+        if (!cancelled) {
+          setActiveSkill(skill);
+          setBrokenRaw(null);
+        }
       } catch {
-        if (!cancelled) setActiveSkill(null);
+        if (!cancelled) {
+          setActiveSkill(null);
+          setBrokenRaw(null);
+        }
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [selectedName]);
+  }, [selectedName, entries]);
 
   const isCanonicalEmpty = useMemo(() => {
     return entries.filter((e) => e.kind === "ok").length === 0;
@@ -162,7 +199,7 @@ export default function SkillsPage() {
   const selectedSkill = useMemo(() => {
     if (!selectedName) return null;
     const e = entries.find(
-      (x) => x.kind === "ok" && x.skill.name === selectedName,
+      (x) => x.kind === "ok" && skillListEntryCanonicalId(x) === selectedName,
     );
     return e?.kind === "ok" ? e.skill : null;
   }, [entries, selectedName]);
@@ -173,18 +210,23 @@ export default function SkillsPage() {
 
   function handleDelete() {
     if (!selectedName) return;
-    setPendingDelete(selectedName);
+    const entry = entries.find((e) => skillListEntryCanonicalId(e) === selectedName);
+    setPendingDelete({
+      canonicalId: selectedName,
+      label: entry?.kind === "ok" ? entry.skill.name : entry?.name ?? selectedName,
+    });
   }
 
   async function confirmDelete() {
-    const name = pendingDelete;
-    if (!name) return;
+    const pending = pendingDelete;
+    if (!pending) return;
     setPendingDelete(null);
     try {
-      await api.canonicalSkills.delete(name);
-      removeEntry(name);
-      setSelectedName((cur) => (cur === name ? null : cur));
-      setActiveSkill((cur) => (cur?.name === name ? null : cur));
+      await api.canonicalSkills.delete(pending.canonicalId);
+      removeEntry(pending.canonicalId);
+      setSelectedName((cur) => (cur === pending.canonicalId ? null : cur));
+      setActiveSkill((cur) => (cur?.canonicalId === pending.canonicalId ? null : cur));
+      setBrokenRaw((cur) => (cur?.name === pending.canonicalId ? null : cur));
     } catch (e) {
       window.alert(t(locale, "skills.deleteDialog.failed", { error: String(e) }));
     }
@@ -224,6 +266,13 @@ export default function SkillsPage() {
             </button>
             <button
               type="button"
+              onClick={() => setWizardOpen(true)}
+              className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded border border-border text-text-secondary hover:text-text-primary"
+            >
+              <Download size={12} /> {t(locale, "skills.import")}
+            </button>
+            <button
+              type="button"
               onClick={() => {
                 setPendingTargets([]);
                 setCreatingNew(true);
@@ -244,6 +293,19 @@ export default function SkillsPage() {
         {error && (
           <div className="text-xs text-red-400 bg-red-500/10 border border-red-500/30 rounded px-3 py-2 mb-4">
             {error}
+          </div>
+        )}
+
+        {nameAdvisory && (
+          <div className="text-xs text-amber-400 bg-amber-500/10 border border-amber-500/30 rounded px-3 py-2 mb-4 flex items-center justify-between">
+            <span>{nameAdvisory}</span>
+            <button
+              type="button"
+              onClick={() => setNameAdvisory(null)}
+              className="ml-2 text-amber-400 hover:text-amber-300"
+            >
+              ×
+            </button>
           </div>
         )}
 
@@ -315,6 +377,7 @@ export default function SkillsPage() {
                   onSelect={(n) => {
                     setCreatingNew(false);
                     setSelectedName(n);
+                    setNameAdvisory(null);
                   }}
                 />
               ) : (
@@ -351,11 +414,37 @@ export default function SkillsPage() {
                     }}
                   />
                 </div>
+              ) : brokenRaw ? (
+                <SkillEditor
+                  skill={null}
+                  brokenRaw={brokenRaw}
+                  onSaved={async (name, normalizedFrom) => {
+                    if (normalizedFrom) {
+                      setNameAdvisory(
+                        t(locale, "skills.editor.nameNormalized", {
+                          from: normalizedFrom,
+                          to: name,
+                        }),
+                      );
+                    }
+                    try {
+                      const repaired = await api.canonicalSkills.read(name);
+                      setActiveSkill(repaired);
+                      setBrokenRaw(null);
+                      setSelectedName(name);
+                    } catch {
+                      setBrokenRaw(null);
+                      setSelectedName(name);
+                    }
+                    await loadEntries();
+                  }}
+                  onDelete={handleDelete}
+                />
               ) : activeSkill ? (
                 <div className="flex flex-col">
                   <div className="px-4 pt-4">
                     <TargetEditor
-                      skillName={activeSkill.name}
+                      skillName={activeSkill.canonicalId || activeSkill.name}
                       projectPath={projectPath ?? null}
                       targets={selectedSkill?.targets ?? activeSkill.targets}
                       knownProjects={knownProjects}
@@ -363,7 +452,15 @@ export default function SkillsPage() {
                   </div>
                   <SkillEditor
                     skill={activeSkill}
-                    onSaved={() => {
+                    onSaved={(name, normalizedFrom) => {
+                      if (normalizedFrom) {
+                        setNameAdvisory(
+                          t(locale, "skills.editor.nameNormalized", {
+                            from: normalizedFrom,
+                            to: name,
+                          }),
+                        );
+                      }
                       void loadEntries();
                     }}
                     onDelete={handleDelete}
@@ -392,7 +489,7 @@ export default function SkillsPage() {
         title={t(locale, "skills.deleteDialog.title")}
         message={
           pendingDelete
-            ? t(locale, "skills.deleteDialog.message", { name: pendingDelete })
+            ? t(locale, "skills.deleteDialog.message", { name: pendingDelete.label })
             : ""
         }
         confirmLabel={t(locale, "skills.deleteDialog.confirm")}

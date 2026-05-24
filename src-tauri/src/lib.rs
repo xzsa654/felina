@@ -110,7 +110,9 @@ pub fn run() {
             // Multi-agent skills foundation: canonical storage.
             commands::canonical_skills::canonical_skills_list,
             commands::canonical_skills::canonical_skills_read,
+            commands::canonical_skills::canonical_skills_read_raw,
             commands::canonical_skills::canonical_skills_write,
+            commands::canonical_skills::canonical_skills_write_raw,
             commands::canonical_skills::canonical_skills_delete,
             commands::canonical_skills::skill_targets_set,
             commands::canonical_skills::skill_prune_orphans_scan,
@@ -118,6 +120,7 @@ pub fn run() {
             // Fan-out push.
             commands::fan_out::skill_sync_one,
             commands::fan_out::skill_sync_all,
+            commands::fan_out::skill_target_dir_resolve,
             // Initial skill import.
             commands::skill_import::skill_import_scan_quick,
             commands::skill_import::skill_import_scan,
