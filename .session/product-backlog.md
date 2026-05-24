@@ -63,17 +63,48 @@ Architecture note:
 
 Expansion path:
 - After Skills stabilizes, verify official docs for hooks/subagents/workflows/tool definitions before proposing new capability kinds.
+- Agent capability research for future tabs is captured in `.session/agent-capability-research.md`.
 - Future control-plane views may include topology/dependency view, runbook view, and incident/trace view, but these should follow the registry/lifecycle foundation rather than precede it.
+
+### skills-tab-i18n-parity
+
+| Field | Value |
+|---|---|
+| type | planned-change |
+| status | planned |
+| flagged | 2026-05-24 |
+| last-seen | 2026-05-24 |
+| description | Bring the Skills tab to the same en / zh-TW language-switching model already used by the Tokens page. |
+
+Scope:
+- Reuse the existing frontend i18n system: `useLocaleStore`, `$lib/i18n`, and `t(locale, key)`.
+- Add a `skills` translation tree to `src/lib/i18n/locales/en.ts` and `src/lib/i18n/locales/zh-TW.ts`.
+- Replace hard-coded UI copy in `src/lib/components/skills/*` with translation keys, including `SkillsPage`, `SkillList`, `SkillEditor`, `TargetEditor`, `AddTargetDialog`, `SkillImportBanner`, `SkillImportWizard`, `CoverageMatrix`, and `PendingPushBar`.
+- Localize validation and user-facing error/confirmation messages where they are produced in the frontend.
+- Do not translate user/system data such as skill names, descriptions, paths, agent IDs, target scopes, timestamps, or backend error payloads unless the frontend owns the wording.
+
+Recommended sequencing:
+- Do not start with a full all-components translation pass while the Skills tab UI is still evolving.
+- First slice: establish the `skills.*` namespace and localize the outer shell / high-frequency copy: page title/subtitle, reload/new actions, list/summary tooltips, loading/empty states, sync status labels, and delete confirmation.
+- From that point forward, new Skills UI should not add hard-coded user-facing copy; add translation keys as part of each feature.
+- Deep components such as `SkillImportWizard`, `SkillEditor`, and `TargetEditor` can be localized when their workflows stabilize or when those components are already being touched for feature work.
+
+Notes:
+- Tokens page is the implementation reference: `src/lib/components/tokens/TokensPage.tsx` reads `useLocaleStore` and passes/uses `t(locale, "tokens.*")`.
+- Because Skills has many nested components, each component may read `useLocaleStore` directly instead of prop-drilling `locale`.
 
 ### scope-model-simplification — single global canonical + project tab as managed-inventory view
 
 | Field | Value |
 |---|---|
-| type | suggestion |
-| status | not-committed |
+| type | planned-change |
+| status | archived |
 | flagged | 2026-05-24 |
 | last-seen | 2026-05-24 |
+| archive-path | openspec/changes/archive/2026-05-24-scope-model-simplification/ |
 | description | 重新檢討 global / project 雙 canonical 模型。改為「**單一 global 主檔（`~/.felina/skills`）**」為唯一真相來源，**取消 project-scope canonical（`<project>/.felina/skills`）**；project 分頁從「第二個主檔倉庫」改成「**該 project 的 skill 納管清單（唯讀 view）**」。 |
+
+**已落地（2026-05-24 archived）**：propose → apply → ingest（縮 scope）→ archive 全程完成。後端拔 `SkillScope::Project` canonical（`canonical_skills_dir()` 單一 global、import/prune/fan-out 簽名與 scope 解耦、`felina_project_skills_dir` 移除）；前端取消 Skills 頁 Global/Project toggle + ProjectPicker，新增 Projects top-level view（兩欄：Known Projects + 納管清單 union，managed 標籤 + per-agent chip、Import to global、Managed 跳 Skills `?select=`、not-found saved 條目移除）；nav 六頁（保留既有 tokens）、label「Skills」、SkillList 無-target 浮頂。實作差異見下「與原提案的差異」。
 
 問題（2026-05-24 與使用者釐清 b 收尾時浮現）：
 - APP 初衷是「skill 散落各 agent / 各 project 難管 → 一個主檔、fan out 收斂」。但 **project-scope canonical 反而把主檔打散到每個 project**，重新製造它要解決的分散問題。
@@ -96,7 +127,15 @@ Expansion path:
 
 Notes：
 - 比 `cross-project-push-and-coverage`（b）大很多，**不在 (b) 動**；(b) 在現有模型下是正確的，照常收尾。
-- 下一步建議用 `/spectra-discuss` 正式展開，再決定是否立 change（可能影響 (c) `skill-sync-lifecycle` 的 import / scope-move scope）。
+
+與原提案的差異（apply / ingest 期間定案）：
+- **未做 migration**：原提案規劃「掃 `<project>/.felina/skills/*` 一鍵遷移到 global」，apply 中段確認 **project-scope canonical 是開發階段、從未發布的功能 → 無真實存量資料**，遂 ingest 縮 scope、整套移除 migration command + onboarding UI（避免為不存在情境建向後相容殘留）。開發者本機殘留手動刪。
+- **nav 六頁非五頁**：原 spec 漏算既有 tokens 頁；保留 tokens，spec 改六頁。
+- import 同名衝突：per-row「Import to global」遇 global 同名主檔會跳確認（非靜默覆蓋），並警告「連帶覆寫其他 project target」。
+
+衍生 follow-up（archived 時記錄，**未實作**）：
+- **import-all + 有 rename 的批次衝突解析**：目前 Projects 只做 per-row import。批次一鍵匯入要做好需 per-conflict keep/overwrite/rename（等同被本 change 砍掉的 import wizard）。建議併入 (c) `skill-sync-lifecycle` 或新開 change。
+- **跨 project 同名 skill 的本質議題**：single-global-by-name 模型下，projectA / projectB 各有同名但不同內容的 skill A 無法共存為兩份主檔——import 後者會覆蓋前者內容，且 push 會把新內容連帶蓋到兩邊 project。需要的解法是「rename 其中一個」或更上層的 naming/namespace 策略，屬 (c) / 未來 discuss。
 
 ## Phase 1.5 — Target freedom sequence after path-bug-and-target-model
 

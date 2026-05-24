@@ -13,7 +13,7 @@
 //!     gemini.rs     — SKILL.md (name + description only)
 
 use crate::commands::canonical_skills::{
-    canonical_skills_dir_for_scope, parse_skill_md, read_sync_meta_v2, target_key,
+    canonical_skills_dir, parse_skill_md, read_sync_meta_v2, target_key,
     write_sync_meta_v2, AgentId, CanonicalSkill, LastSyncEntry, SkillScope, TargetMode,
 };
 use serde::Serialize;
@@ -27,6 +27,10 @@ pub mod gemini;
 
 /// Per-target push outcome. Wire format matches `SyncResult` in
 /// `src/lib/types/skills.ts`.
+///
+/// `scope` is the **push destination** (`SkillTarget.scope`), not the
+/// canonical master file location — canonical is always global after
+/// `scope-model-simplification`.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SyncResult {
@@ -88,17 +92,16 @@ fn renderer_for(agent: AgentId) -> Box<dyn FanOutRenderer> {
 }
 
 /// Sync one canonical skill to every enabled tracked target in its
-/// sync-meta v2 target list (or v1 backfill, derived from the `agents`
-/// frontmatter field). Returns a `SyncResult` per *written* target.
-/// Disabled / detached / forked targets are skipped silently.
-/// A failure on one target does NOT abort the others.
+/// sync-meta v2 target list (or v1 backfill, defaulted to one global target
+/// per agent). Returns a `SyncResult` per *written* target. Disabled /
+/// detached / forked targets are skipped silently. A failure on one target
+/// does NOT abort the others.
+///
+/// Canonical lives in the single global dir; `SkillTarget.scope` decides
+/// where each push lands. The caller passes only the skill name.
 #[tauri::command]
-pub fn skill_sync_one(
-    scope: SkillScope,
-    project_path: Option<String>,
-    name: String,
-) -> Result<Vec<SyncResult>, String> {
-    let canonical_dir = canonical_skills_dir_for_scope(scope, project_path.as_deref())?;
+pub fn skill_sync_one(name: String) -> Result<Vec<SyncResult>, String> {
+    let canonical_dir = canonical_skills_dir();
     let canonical_skill_dir = canonical_dir.join(&name);
     let skill_md = canonical_skill_dir.join("SKILL.md");
     if !skill_md.is_file() {
@@ -109,9 +112,9 @@ pub fn skill_sync_one(
     let skill = parse_skill_md(&raw)?;
 
     // Driver of fan-out is the per-skill target list (sync-meta v2). v1
-    // sidecars are backfilled at read time from skill.agents × scope/project.
-    let (mut meta, _legacy) =
-        read_sync_meta_v2(&canonical_skill_dir, &skill, scope, project_path.as_deref());
+    // sidecars are backfilled at read time from skill.agents (defaulting to
+    // global targets); the user can add project targets via the target editor.
+    let (mut meta, _legacy) = read_sync_meta_v2(&canonical_skill_dir, &skill);
 
     let cfg = super::agent_paths::agent_paths_get()?;
     let mut results = Vec::new();
@@ -208,28 +211,25 @@ fn sha256_hex(data: &str) -> String {
     format!("{:x}", h.finalize())
 }
 
-/// Sync every canonical skill in `scope`. Skips broken skills.
+/// Sync every canonical skill in the global canonical dir. Skips broken skills.
 #[tauri::command]
-pub fn skill_sync_all(
-    scope: SkillScope,
-    project_path: Option<String>,
-) -> Result<Vec<SyncResult>, String> {
-    let entries =
-        super::canonical_skills::canonical_skills_list(scope, project_path.clone())?;
+pub fn skill_sync_all() -> Result<Vec<SyncResult>, String> {
+    let entries = super::canonical_skills::canonical_skills_list()?;
     let mut out = Vec::new();
     for entry in entries {
         if let super::canonical_skills::SkillListEntry::Ok { skill } = entry {
             // Re-use skill_sync_one for consistent semantics (meta update etc).
-            match skill_sync_one(scope, project_path.clone(), skill.name.clone()) {
+            match skill_sync_one(skill.name.clone()) {
                 Ok(mut r) => out.append(&mut r),
                 Err(e) => {
                     // Pre-render failure (e.g. missing file): surface as a
                     // single result tagged to the first agent so the UI has
-                    // somewhere to render the error.
+                    // somewhere to render the error. Scope is Global because
+                    // canonical now lives there exclusively.
                     let agent = skill.agents.first().copied().unwrap_or(AgentId::Anthropic);
                     out.push(SyncResult {
                         agent,
-                        scope,
+                        scope: SkillScope::Global,
                         target_path: String::new(),
                         success: false,
                         error: Some(e),
@@ -378,6 +378,11 @@ pub(crate) fn expand_user_path(p: &str) -> PathBuf {
 /// Resolve a path pair into a concrete target directory using the same rule
 /// for every agent: `global` scope → expand-user on `pair.global`;
 /// `project` scope → join `pair.project_relative` onto `project_path`.
+///
+/// **`scope` here is the push destination** (`SkillTarget.scope`); it no
+/// longer implies anything about where the canonical master file lives.
+/// After `scope-model-simplification`, canonical is always
+/// `~/.felina/skills/`; this function only decides per-target push paths.
 pub(crate) fn resolve_pair(
     scope: SkillScope,
     project_path: Option<&str>,
@@ -434,6 +439,19 @@ mod tests {
     };
     use std::sync::atomic::{AtomicU32, Ordering};
 
+    /// RAII guard that redirects `felina_home()` to `<tmp>/.felina` on this
+    /// thread. Matches the helper in `canonical_skills::tests`.
+    struct FelinaHomeGuard;
+    impl Drop for FelinaHomeGuard {
+        fn drop(&mut self) {
+            crate::paths::set_felina_home_override_for_test(None);
+        }
+    }
+    fn override_felina_home(tmp: &std::path::Path) -> FelinaHomeGuard {
+        crate::paths::set_felina_home_override_for_test(Some(tmp.join(".felina")));
+        FelinaHomeGuard
+    }
+
     fn smoke_tempdir(tag: &str) -> std::path::PathBuf {
         static COUNTER: AtomicU32 = AtomicU32::new(0);
         let n = COUNTER.fetch_add(1, Ordering::Relaxed);
@@ -447,7 +465,7 @@ mod tests {
         dir
     }
 
-    fn make_canonical(project_dir: &std::path::Path, name: &str, agents: &[&str]) {
+    fn make_canonical(name: &str, agents: &[&str]) {
         let mut fm = serde_yaml::Mapping::new();
         fm.insert(
             serde_yaml::Value::String("name".into()),
@@ -466,8 +484,6 @@ mod tests {
             serde_yaml::Value::Sequence(agents_seq),
         );
         canonical_skills_write(
-            SkillScope::Project,
-            Some(project_dir.to_string_lossy().to_string()),
             name.into(),
             serde_yaml::Value::Mapping(fm),
             format!("# {name}\n\nBody for {name}.\n"),
@@ -478,7 +494,8 @@ mod tests {
     #[test]
     fn fan_out_to_three_agents_mirrors_bundled_siblings() {
         let tmp = smoke_tempdir("fanout3");
-        make_canonical(&tmp, "smoke-fanout", &["anthropic", "codex", "gemini"]);
+        let _g = override_felina_home(&tmp);
+        make_canonical("smoke-fanout", &["anthropic", "codex", "gemini"]);
 
         let canonical_skill_dir = tmp.join(".felina").join("skills").join("smoke-fanout");
         let project = tmp.to_string_lossy().to_string();
@@ -504,12 +521,7 @@ mod tests {
         fs::write(scripts.join("helper.sh"), "#!/bin/sh\necho hi\n").unwrap();
         fs::write(references.join("api.md"), "# API notes\n").unwrap();
 
-        let results = skill_sync_one(
-            SkillScope::Project,
-            Some(tmp.to_string_lossy().to_string()),
-            "smoke-fanout".into(),
-        )
-        .expect("sync");
+        let results = skill_sync_one("smoke-fanout".into()).expect("sync");
 
         assert_eq!(results.len(), 3, "expected 3 SyncResult entries, got {results:#?}");
         for r in &results {
@@ -555,7 +567,8 @@ mod tests {
         // targets: one disabled (anthropic), one detached (codex), one
         // tracked enabled (gemini). Only gemini should be written.
         let tmp = smoke_tempdir("skip");
-        make_canonical(&tmp, "skip-targets", &["anthropic"]);
+        let _g = override_felina_home(&tmp);
+        make_canonical("skip-targets", &["anthropic"]);
 
         let canonical_skill_dir = tmp.join(".felina").join("skills").join("skip-targets");
         let project = tmp.to_string_lossy().to_string();
@@ -576,12 +589,7 @@ mod tests {
         )
         .unwrap();
 
-        let results = skill_sync_one(
-            SkillScope::Project,
-            Some(project.clone()),
-            "skip-targets".into(),
-        )
-        .expect("sync");
+        let results = skill_sync_one("skip-targets".into()).expect("sync");
 
         // Only gemini should produce a SyncResult.
         assert_eq!(results.len(), 1, "expected one result, got {results:#?}");
@@ -616,7 +624,8 @@ mod tests {
     #[test]
     fn per_target_pushed_hash_and_at_recorded() {
         let tmp = smoke_tempdir("hashat");
-        make_canonical(&tmp, "hash-skill", &["anthropic", "gemini"]);
+        let _g = override_felina_home(&tmp);
+        make_canonical("hash-skill", &["anthropic", "gemini"]);
 
         let project = tmp.to_string_lossy().to_string();
         let canonical_skill_dir = tmp.join(".felina").join("skills").join("hash-skill");
@@ -634,12 +643,8 @@ mod tests {
         )
         .unwrap();
 
-        let results = skill_sync_one(
-            SkillScope::Project,
-            Some(project.clone()),
-            "hash-skill".into(),
-        )
-        .expect("sync");
+        let results = skill_sync_one("hash-skill".into()).expect("sync");
+        let _ = project;
         assert!(results.iter().all(|r| r.success), "{results:#?}");
 
         let after_meta: serde_json::Value = serde_json::from_str(
@@ -664,26 +669,20 @@ mod tests {
     #[test]
     fn sync_meta_dirty_flips_false_after_successful_push() {
         let tmp = smoke_tempdir("dirty");
-        make_canonical(&tmp, "smoke-dirty", &["anthropic"]);
+        let _g = override_felina_home(&tmp);
+        make_canonical("smoke-dirty", &["anthropic"]);
 
         let canonical_skill_dir = tmp.join(".felina").join("skills").join("smoke-dirty");
         let meta_path = canonical_skill_dir.join(".felina-sync-meta.json");
         fs::write(&meta_path, r#"{"dirty":true,"last_synced":null}"#).unwrap();
 
-        let project = tmp.to_string_lossy().to_string();
-        let before = canonical_skills_list(SkillScope::Project, Some(project.clone()))
-            .expect("list before");
+        let before = canonical_skills_list().expect("list before");
         match &before[0] {
             SkillListEntry::Ok { skill } => assert!(skill.dirty, "expected dirty=true before push"),
             other => panic!("expected Ok entry, got {other:?}"),
         }
 
-        let results = skill_sync_one(
-            SkillScope::Project,
-            Some(project.clone()),
-            "smoke-dirty".into(),
-        )
-        .expect("sync");
+        let results = skill_sync_one("smoke-dirty".into()).expect("sync");
         assert!(results.iter().all(|r| r.success), "push failed: {results:#?}");
 
         let after_meta: serde_json::Value =
@@ -693,7 +692,7 @@ mod tests {
         let last_sync = after_meta["lastSync"].as_object().expect("lastSync object");
         assert_eq!(last_sync.len(), 1, "anthropic-only skill: one lastSync entry");
 
-        let after = canonical_skills_list(SkillScope::Project, Some(project)).expect("list after");
+        let after = canonical_skills_list().expect("list after");
         match &after[0] {
             SkillListEntry::Ok { skill } => {
                 assert!(!skill.dirty, "expected dirty=false after push");

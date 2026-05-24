@@ -16,7 +16,6 @@ import type {
   RefreshResult,
   CanonicalSkill,
   SkillListEntry,
-  SkillScope,
   SyncResult,
   ImportCandidate,
   ImportSelection,
@@ -97,57 +96,49 @@ export const api = {
     getCloudMcps: () => invoke<string[]>("get_cloud_mcps"),
   },
 
-  // Multi-agent canonical skills (multi-agent-skills-foundation).
-  // The previous flat `list_skills` / `write_skill` / `delete_skill` shape
-  // is gone; SkillsPage now drives canonical CRUD + fan-out + import.
+  // Multi-agent canonical skills. Canonical master files live exclusively
+  // under `~/.felina/skills/` after `scope-model-simplification`; these
+  // wrappers no longer take a scope/project pair.
   canonicalSkills: {
-    list: (scope: SkillScope, projectPath?: string) =>
-      invoke<SkillListEntry[]>("canonical_skills_list", { scope, projectPath }),
-    read: (scope: SkillScope, name: string, projectPath?: string) =>
-      invoke<CanonicalSkill>("canonical_skills_read", { scope, projectPath, name }),
+    list: () => invoke<SkillListEntry[]>("canonical_skills_list"),
+    read: (name: string) => invoke<CanonicalSkill>("canonical_skills_read", { name }),
     write: (
-      scope: SkillScope,
       name: string,
       frontmatter: Record<string, unknown>,
       body: string,
-      projectPath?: string,
     ) =>
       invoke<void>("canonical_skills_write", {
-        scope,
-        projectPath,
         name,
         frontmatter,
         body,
       }),
-    delete: (scope: SkillScope, name: string, projectPath?: string) =>
-      invoke<void>("canonical_skills_delete", { scope, projectPath, name }),
+    delete: (name: string) => invoke<void>("canonical_skills_delete", { name }),
   },
 
-  // Fan-out sync (canonical → agent-native dirs).
+  // Fan-out sync (canonical → agent-native dirs). Push destinations come
+  // from each skill's `SkillTarget` list — no caller-supplied scope needed.
   skillSync: {
-    one: (scope: SkillScope, name: string, projectPath?: string) =>
-      invoke<SyncResult[]>("skill_sync_one", { scope, projectPath, name }),
-    all: (scope: SkillScope, projectPath?: string) =>
-      invoke<SyncResult[]>("skill_sync_all", { scope, projectPath }),
+    one: (name: string) => invoke<SyncResult[]>("skill_sync_one", { name }),
+    all: () => invoke<SyncResult[]>("skill_sync_all"),
   },
 
   // Initial skill import (passive scan + manual wizard).
+  // `projectPath`: `undefined` scans global agent dirs; a path scans that
+  // project's agent dirs. Imports always write to global canonical and add
+  // a `SkillTarget` pointing back at the source (`scope=project` when a
+  // project path was supplied).
   skillImport: {
-    scanQuick: (scope: SkillScope, projectPath?: string) =>
+    scanQuick: (projectPath?: string) =>
       invoke<{
         anthropic: number;
         codex: number;
         gemini: number;
         total: number;
-      }>("skill_import_scan_quick", { scope, projectPath }),
-    scan: (scope: SkillScope, projectPath?: string) =>
-      invoke<ImportCandidate[]>("skill_import_scan", { scope, projectPath }),
-    apply: (
-      scope: SkillScope,
-      selections: ImportSelection[],
-      projectPath?: string,
-    ) =>
-      invoke<void>("skill_import_apply", { scope, projectPath, selections }),
+      }>("skill_import_scan_quick", { projectPath }),
+    scan: (projectPath?: string) =>
+      invoke<ImportCandidate[]>("skill_import_scan", { projectPath }),
+    apply: (selections: ImportSelection[], projectPath?: string) =>
+      invoke<void>("skill_import_apply", { projectPath, selections }),
   },
 
   // Known Projects.
@@ -160,18 +151,21 @@ export const api = {
       invoke<void>("known_projects_remove", { path }),
   },
 
-  // Per-skill target editor.
+
+  // Per-skill target editor. Canonical lives in the single global dir;
+  // `SkillTarget.scope` decides each push destination.
   skillTargets: {
-    set: (scope: SkillScope, skillName: string, targets: SkillTarget[], projectPath?: string) =>
-      invoke<void>("skill_targets_set", { scope, projectPath, skillName, targets }),
+    set: (skillName: string, targets: SkillTarget[]) =>
+      invoke<void>("skill_targets_set", { skillName, targets }),
   },
 
-  // Orphan prune.
+  // Orphan prune. Project paths to scan are derived from the skill's own
+  // targets, so callers only supply the skill name.
   skillPrune: {
-    scan: (scope: SkillScope, skillName: string, projectPath?: string) =>
-      invoke<OrphanFile[]>("skill_prune_orphans_scan", { scope, projectPath, skillName }),
-    apply: (scope: SkillScope, skillName: string, orphans: OrphanFile[], projectPath?: string) =>
-      invoke<void>("skill_prune_orphans_apply", { scope, projectPath, skillName, orphans }),
+    scan: (skillName: string) =>
+      invoke<OrphanFile[]>("skill_prune_orphans_scan", { skillName }),
+    apply: (skillName: string, orphans: OrphanFile[]) =>
+      invoke<void>("skill_prune_orphans_apply", { skillName, orphans }),
   },
 
   // Settings → Agent Paths.

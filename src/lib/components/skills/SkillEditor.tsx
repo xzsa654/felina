@@ -1,14 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { ChevronDown, ChevronRight, Plus, Save, Trash2 } from "lucide-react";
-import type { CanonicalSkill, SkillScope } from "$lib/types";
+import type { CanonicalSkill } from "$lib/types";
 import { api } from "$lib/tauri/commands";
 import { useSkillsStore } from "$lib/stores/skills-store";
 
 interface Props {
   /** `null` when creating a new skill; otherwise the skill being edited. */
   skill: CanonicalSkill | null;
-  scope: SkillScope;
-  projectPath: string | null;
   /** Called after a successful save with the updated/created skill name. May be async. */
   onSaved: (name: string) => void | Promise<void>;
   /** Cancel a new-skill draft (no-op for existing skills). */
@@ -46,7 +44,7 @@ function makeRowId(): string {
  * Body:
  *   - Plain textarea, no syntax highlighting (per Non-Goals).
  */
-export default function SkillEditor({ skill, scope, projectPath, onSaved, onCancel, onDelete }: Props) {
+export default function SkillEditor({ skill, onSaved, onCancel, onDelete }: Props) {
   const upsertEntry = useSkillsStore((s) => s.upsertEntry);
   const loadEntries = useSkillsStore((s) => s.loadEntries);
 
@@ -91,13 +89,7 @@ export default function SkillEditor({ skill, scope, projectPath, onSaved, onCanc
         }
         frontmatter[trimmedKey] = parseExtraValue(row.value);
       }
-      await api.canonicalSkills.write(
-        scope,
-        name,
-        frontmatter,
-        body,
-        projectPath ?? undefined,
-      );
+      await api.canonicalSkills.write(name, frontmatter, body);
       // Optimistically mark dirty=true so the pending-push bar shows up
       // immediately; loadEntries() below picks up the real sync-meta.
       const currentTargets = skill?.targets ?? [];
@@ -128,7 +120,7 @@ export default function SkillEditor({ skill, scope, projectPath, onSaved, onCanc
         <div className="text-xs text-text-secondary truncate">
           {isNew
             ? "Creating new canonical skill"
-            : `Editing ${skill?.name ?? ""} — ${scope === "global" ? "global" : "project"} scope`}
+            : `Editing ${skill?.name ?? ""}`}
         </div>
         <div className="flex items-center gap-2 shrink-0">
           {isNew && onCancel && (

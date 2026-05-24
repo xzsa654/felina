@@ -19,6 +19,14 @@ export interface SkillInfo {
 
 export type AgentId = "anthropic" | "codex" | "gemini";
 
+/**
+ * Push-destination discriminator for a {@link SkillTarget}.
+ *
+ * Only valid as `SkillTarget.scope`. Canonical master files live exclusively
+ * under `~/.felina/skills/` after `scope-model-simplification`; `"project"`
+ * here means "push destination is a particular project's agent directory",
+ * not a canonical-storage location.
+ */
 export type SkillScope = "global" | "project";
 
 export interface CanonicalSkill {
@@ -172,4 +180,6 @@ export interface OrphanFile {
   path: string;
   agent: AgentId;
   scope: SkillScope;
+  /** Originating project path when `scope === "project"`; absent for global. */
+  project?: string;
 }

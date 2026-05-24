@@ -5,7 +5,8 @@
 
 use crate::commands::agent_paths::{agent_paths_get, AgentPathPair};
 use crate::commands::canonical_skills::{
-    canonical_skills_dir_for_scope, parse_skill_md, AgentId, SkillScope,
+    canonical_skills_dir, parse_skill_md, read_sync_meta_v2_no_backfill, write_sync_meta_v2,
+    AgentId, SkillScope, SkillTarget, TargetMode,
 };
 use crate::commands::fan_out::{expand_user_path, resolve_pair};
 use serde::{Deserialize, Serialize};
@@ -88,13 +89,21 @@ const BODY_PREVIEW_BYTES: usize = 240;
 /// For Gemini, we probe BOTH the spec-default path and the Antigravity CLI
 /// path (`~/.gemini/antigravity/skills/`) and sum them — gemini-cli's
 /// June 18 2026 consumer sunset means users may have skills in either tree.
+/// Derive the scan scope from an optional project path: `None` means scan
+/// global agent dirs; `Some(path)` means scan that project's agent dirs.
+/// Canonical destination is always global; scope-of-write is determined
+/// later from the same `project_path` when adding the `SkillTarget`.
+fn scan_scope(project_path: Option<&str>) -> SkillScope {
+    if project_path.is_some() { SkillScope::Project } else { SkillScope::Global }
+}
+
 #[tauri::command]
 pub fn skill_import_scan_quick(
-    scope: SkillScope,
     project_path: Option<String>,
 ) -> Result<ImportScanQuick, String> {
     let cfg = agent_paths_get()?;
     let mut out = ImportScanQuick::default();
+    let scope = scan_scope(project_path.as_deref());
 
     let anthropic = skill_names_at_pair(scope, project_path.as_deref(), &cfg.anthropic)?;
     let codex = skill_names_at_pair(scope, project_path.as_deref(), &cfg.codex)?;
@@ -166,12 +175,11 @@ fn count_skill_subdirs_at(dir: &Path) -> u32 {
 /// the wizard payload small.
 #[tauri::command]
 pub fn skill_import_scan(
-    scope: SkillScope,
     project_path: Option<String>,
 ) -> Result<Vec<ImportCandidate>, String> {
     let cfg = agent_paths_get()?;
-    let canonical_dir =
-        canonical_skills_dir_for_scope(scope, project_path.as_deref())?;
+    let canonical_dir = canonical_skills_dir();
+    let scope = scan_scope(project_path.as_deref());
 
     let mut out = Vec::new();
     for (agent, pair) in [
@@ -344,14 +352,18 @@ fn summarise_diff(source_raw: &str, canonical_path: &Path) -> String {
 // ---------------------------------------------------------------------------
 
 /// Apply each selection. Original agent-native files are never deleted.
+///
+/// Canonical destination is always `~/.felina/skills/`. When `project_path`
+/// is `Some(path)`, each imported skill's sync-meta records a `SkillTarget`
+/// with `scope=Project, project=path` so a subsequent push fans out back to
+/// that originating project's agent dir. When `project_path` is `None`,
+/// the target defaults to `scope=Global`.
 #[tauri::command]
 pub fn skill_import_apply(
-    scope: SkillScope,
     project_path: Option<String>,
     selections: Vec<ImportSelection>,
 ) -> Result<(), String> {
-    let canonical_dir =
-        canonical_skills_dir_for_scope(scope, project_path.as_deref())?;
+    let canonical_dir = canonical_skills_dir();
 
     for sel in selections {
         // Defence in depth: multi-source skills are never importable in this
@@ -364,13 +376,19 @@ pub fn skill_import_apply(
             ImportResolution::Skip => continue,
             ImportResolution::KeepCanonical => continue, // canonical untouched
             ImportResolution::OverwriteCanonical => {
-                write_canonical_from_source(&sel.candidate, &canonical_dir, None)?;
+                write_canonical_from_source(
+                    &sel.candidate,
+                    &canonical_dir,
+                    None,
+                    project_path.as_deref(),
+                )?;
             }
             ImportResolution::Rename { new_name } => {
                 write_canonical_from_source(
                     &sel.candidate,
                     &canonical_dir,
                     Some(new_name.as_str()),
+                    project_path.as_deref(),
                 )?;
             }
         }
@@ -382,6 +400,7 @@ fn write_canonical_from_source(
     candidate: &ImportCandidate,
     canonical_dir: &Path,
     rename_to: Option<&str>,
+    project_path: Option<&str>,
 ) -> Result<(), String> {
     // Normalise the source path: refuse traversal segments. The path came
     // from `skill_import_scan`, but a malicious client could call apply
@@ -411,7 +430,7 @@ fn write_canonical_from_source(
     let target_dir = canonical_dir.join(&name);
     fs::create_dir_all(&target_dir)
         .map_err(|e| format!("failed to create canonical skill dir: {e}"))?;
-    fs::write(target_dir.join("SKILL.md"), body_and_fm)
+    fs::write(target_dir.join("SKILL.md"), &body_and_fm)
         .map_err(|e| format!("failed to write canonical SKILL.md: {e}"))?;
 
     // Copy bundled siblings (scripts/, references/, assets/, examples/, agents/, etc.)
@@ -421,6 +440,46 @@ fn write_canonical_from_source(
     if let Some(source_skill_dir) = source.parent() {
         copy_bundled_siblings(source_skill_dir, &target_dir)?;
     }
+
+    // Record a SkillTarget for the source location so a subsequent push can
+    // fan back out to it. The scope of the target mirrors where the import
+    // came from: `Some(project_path)` → scope=Project (`project=path`),
+    // `None` → scope=Global. Read the existing sidecar WITHOUT backfill so a
+    // fresh import gets EXACTLY the source target (not a synthetic global
+    // target per `agents` + the source target); an overwrite preserves the
+    // existing target list and just adds/keeps the source target.
+    let mut meta = read_sync_meta_v2_no_backfill(&target_dir);
+    let new_target = match project_path {
+        Some(pp) => SkillTarget {
+            agent: candidate.source_agent,
+            scope: SkillScope::Project,
+            project: Some(pp.to_string()),
+            enabled: true,
+            mode: TargetMode::Tracked,
+        },
+        None => SkillTarget {
+            agent: candidate.source_agent,
+            scope: SkillScope::Global,
+            project: None,
+            enabled: true,
+            mode: TargetMode::Tracked,
+        },
+    };
+    let already = meta.targets.iter().any(|t| {
+        t.agent == new_target.agent
+            && t.scope == new_target.scope
+            && t.project == new_target.project
+    });
+    if !already {
+        meta.targets.push(new_target);
+    }
+    meta.dirty = meta
+        .targets
+        .iter()
+        .any(|t| t.enabled && !matches!(t.mode, TargetMode::Detached | TargetMode::Forked));
+    // Bring forward to v2 explicitly when we touch it.
+    meta.version = 2;
+    write_sync_meta_v2(&target_dir, &meta)?;
     Ok(())
 }
 
@@ -697,6 +756,15 @@ mod tests {
     #[test]
     fn apply_skips_deferred_candidate() {
         let tmp = unique_tmp("apply-deferred");
+        crate::paths::set_felina_home_override_for_test(Some(tmp.join(".felina")));
+        struct G;
+        impl Drop for G {
+            fn drop(&mut self) {
+                crate::paths::set_felina_home_override_for_test(None);
+            }
+        }
+        let _g = G;
+
         let mut c = candidate("shared", AgentId::Anthropic);
         c.deferred = Some(DeferredMultiSource {
             agents: vec![AgentId::Anthropic, AgentId::Codex],
@@ -706,9 +774,10 @@ mod tests {
             candidate: c,
             resolution: ImportResolution::OverwriteCanonical,
         };
-        // Project scope, canonical under tmp; deferred selection must be a no-op.
+        // Canonical is now always global; the override redirects ~/.felina
+        // to <tmp>/.felina so this writes inside the tempdir. Deferred
+        // selections must be a no-op regardless.
         skill_import_apply(
-            SkillScope::Project,
             Some(tmp.to_string_lossy().to_string()),
             vec![sel],
         )
@@ -717,5 +786,56 @@ mod tests {
             !tmp.join(".felina").join("skills").join("shared").exists(),
             "deferred candidate must not be written to canonical"
         );
+    }
+
+    /// Regression: importing a skill from a project must produce EXACTLY one
+    /// target (the project source) in the global sidecar — not a synthetic
+    /// global target (from the skill's `agents` backfill) plus the project
+    /// target. Reproduces the "target shows global + projectA" bug.
+    #[test]
+    fn import_from_project_writes_single_project_target() {
+        let home = unique_tmp("import-home");
+        let project = unique_tmp("import-proj");
+        crate::paths::set_felina_home_override_for_test(Some(home.join(".felina")));
+        struct G;
+        impl Drop for G {
+            fn drop(&mut self) {
+                crate::paths::set_felina_home_override_for_test(None);
+            }
+        }
+        let _g = G;
+
+        // Source skill on disk in the project's .claude/skills dir.
+        let src_dir = project.join(".claude").join("skills").join("skill-a");
+        fs::create_dir_all(&src_dir).unwrap();
+        fs::write(
+            src_dir.join("SKILL.md"),
+            "---\nname: skill-a\ndescription: a\nagents: [anthropic]\n---\nbody-a\n",
+        )
+        .unwrap();
+
+        let mut c = candidate("skill-a", AgentId::Anthropic);
+        c.source_path = src_dir.join("SKILL.md").to_string_lossy().to_string();
+        let project_str = project.to_string_lossy().to_string();
+        skill_import_apply(
+            Some(project_str.clone()),
+            vec![ImportSelection {
+                candidate: c,
+                resolution: ImportResolution::OverwriteCanonical,
+            }],
+        )
+        .expect("apply");
+
+        // Global master exists with EXACTLY one project target.
+        let meta_raw = fs::read_to_string(
+            home.join(".felina").join("skills").join("skill-a").join(".felina-sync-meta.json"),
+        )
+        .expect("sidecar");
+        let meta: serde_json::Value = serde_json::from_str(&meta_raw).unwrap();
+        let targets = meta["targets"].as_array().expect("targets array");
+        assert_eq!(targets.len(), 1, "import must write a single target, got: {targets:?}");
+        assert_eq!(targets[0]["scope"], "project");
+        assert_eq!(targets[0]["project"], project_str);
+        assert_eq!(targets[0]["agent"], "anthropic");
     }
 }

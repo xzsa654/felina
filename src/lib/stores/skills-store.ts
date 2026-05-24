@@ -8,13 +8,14 @@
  * - The import banner's dismissed-flag is a pure UI preference and is
  *   persisted to localStorage so users aren't pestered after dismissing.
  *
- * The store doesn't double-track `dirty` separately from the backend
- * value — when a save lands, we re-call `loadEntries()` (or update the
- * entry inline). That keeps a single semantic source.
+ * After `scope-model-simplification`, canonical lives exclusively in
+ * `~/.felina/skills/`; the store no longer tracks a canonical scope.
+ * `projectPath` is retained only as a hint for the import scan banner so
+ * the Skills page can show "import from current project's agent dirs".
  */
 import { create } from "zustand";
 import { api } from "$lib/tauri/commands";
-import type { CanonicalSkill, SkillListEntry, SkillScope, SyncResult } from "$lib/types";
+import type { CanonicalSkill, SkillListEntry, SyncResult } from "$lib/types";
 
 const BANNER_DISMISSED_KEY = "felina.skills.importBannerDismissed";
 
@@ -36,20 +37,18 @@ function writeDismissed(value: boolean) {
       window.localStorage.removeItem(BANNER_DISMISSED_KEY);
     }
   } catch {
-    // localStorage may be unavailable (private mode / tauri webview restrictions);
-    // dismissal silently becomes session-only.
+    // localStorage may be unavailable; dismissal silently becomes session-only.
   }
 }
 
 interface SkillsStore {
   // Listing
-  scope: SkillScope;
   projectPath: string | null;
   entries: SkillListEntry[];
   loaded: boolean;
   error: string | null;
 
-  // Import banner (per Decision 6: dismissable + persistent)
+  // Import banner
   bannerDismissed: boolean;
   detectedImportCount: number;
 
@@ -58,7 +57,6 @@ interface SkillsStore {
   lastSyncResults: SyncResult[];
 
   // Actions
-  setScope: (scope: SkillScope) => void;
   setProjectPath: (path: string | null) => void;
   loadEntries: () => Promise<void>;
   refreshImportCount: () => Promise<void>;
@@ -72,7 +70,6 @@ interface SkillsStore {
 }
 
 export const useSkillsStore = create<SkillsStore>((set, get) => ({
-  scope: "global",
   projectPath: null,
   entries: [],
   loaded: false,
@@ -84,17 +81,13 @@ export const useSkillsStore = create<SkillsStore>((set, get) => ({
   pushingNames: new Set(),
   lastSyncResults: [],
 
-  setScope: (scope) => {
-    set({ scope, loaded: false });
-  },
   setProjectPath: (path) => {
     set({ projectPath: path, loaded: false });
   },
 
   loadEntries: async () => {
-    const { scope, projectPath } = get();
     try {
-      const entries = await api.canonicalSkills.list(scope, projectPath ?? undefined);
+      const entries = await api.canonicalSkills.list();
       set({ entries, loaded: true, error: null });
     } catch (e) {
       set({ entries: [], loaded: true, error: String(e) });
@@ -102,9 +95,9 @@ export const useSkillsStore = create<SkillsStore>((set, get) => ({
   },
 
   refreshImportCount: async () => {
-    const { scope, projectPath } = get();
+    const { projectPath } = get();
     try {
-      const r = await api.skillImport.scanQuick(scope, projectPath ?? undefined);
+      const r = await api.skillImport.scanQuick(projectPath ?? undefined);
       set({ detectedImportCount: r.total });
     } catch {
       set({ detectedImportCount: 0 });
@@ -148,14 +141,13 @@ export const useSkillsStore = create<SkillsStore>((set, get) => ({
   },
 
   syncOne: async (name) => {
-    const { scope, projectPath } = get();
     set((s) => {
       const next = new Set(s.pushingNames);
       next.add(name);
       return { pushingNames: next };
     });
     try {
-      const results = await api.skillSync.one(scope, name, projectPath ?? undefined);
+      const results = await api.skillSync.one(name);
       await get().loadEntries();
       set({ lastSyncResults: results });
       return results;
@@ -169,10 +161,8 @@ export const useSkillsStore = create<SkillsStore>((set, get) => ({
   },
 
   syncAll: async () => {
-    const { scope, projectPath } = get();
     try {
-      const results = await api.skillSync.all(scope, projectPath ?? undefined);
-      // Reload to pick up sync-meta sidecar changes for every skill.
+      const results = await api.skillSync.all();
       await get().loadEntries();
       set({ lastSyncResults: results });
       return results;

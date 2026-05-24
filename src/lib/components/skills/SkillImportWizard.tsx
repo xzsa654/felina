@@ -4,13 +4,14 @@ import type {
   ImportCandidate,
   ImportResolution,
   ImportSelection,
-  SkillScope,
 } from "$lib/types";
 import { api } from "$lib/tauri/commands";
 import { useSkillsStore } from "$lib/stores/skills-store";
 
 interface Props {
-  scope: SkillScope;
+  /** When set, scan that project's agent dirs and tag imported skills with a
+   *  `scope=project` target pointing back at it. When `null`, scan global
+   *  agent dirs and tag with `scope=global`. */
   projectPath: string | null;
   onClose: () => void;
 }
@@ -32,7 +33,7 @@ interface RowState {
  *   - skip:  ignore this candidate
  *   - rename:  write the candidate under a different canonical name
  */
-export default function SkillImportWizard({ scope, projectPath, onClose }: Props) {
+export default function SkillImportWizard({ projectPath, onClose }: Props) {
   const loadEntries = useSkillsStore((s) => s.loadEntries);
   const refreshImportCount = useSkillsStore((s) => s.refreshImportCount);
 
@@ -45,7 +46,7 @@ export default function SkillImportWizard({ scope, projectPath, onClose }: Props
   useEffect(() => {
     void (async () => {
       try {
-        const result = await api.skillImport.scan(scope, projectPath ?? undefined);
+        const result = await api.skillImport.scan(projectPath ?? undefined);
         setCandidates(result);
         setRows(
           result.map<RowState>((c) => ({
@@ -84,7 +85,7 @@ export default function SkillImportWizard({ scope, projectPath, onClose }: Props
           }
           return { candidate, resolution: row.resolution };
         });
-      await api.skillImport.apply(scope, selections, projectPath ?? undefined);
+      await api.skillImport.apply(selections, projectPath ?? undefined);
       await loadEntries();
       await refreshImportCount();
       onClose();

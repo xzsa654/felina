@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router";
 import { Grid2x2, List, Loader2, Plus, RefreshCw, Sparkles, Undo2 } from "lucide-react";
-import ProjectPicker from "$lib/components/shared/ProjectPicker";
 import ConfirmDialog from "$lib/components/shared/ConfirmDialog";
 import { PageBody, PageHeader } from "$lib/components/shared/PageScaffold";
 import { useProjectContextStore } from "$lib/stores/project-context";
 import { useSkillsStore } from "$lib/stores/skills-store";
 import { api } from "$lib/tauri/commands";
-import type { CanonicalSkill, KnownProject, SkillScope, SkillTarget } from "$lib/types";
+import type { CanonicalSkill, KnownProject, SkillTarget } from "$lib/types";
 import SkillList from "./SkillList";
 import SkillEditor from "./SkillEditor";
 import PendingPushBar from "./PendingPushBar";
@@ -17,32 +17,38 @@ import CoverageMatrix from "./CoverageMatrix";
 import { isProjectMissing } from "$lib/utils/path";
 
 /**
- * Skills page — composes the multi-agent-skills-foundation pieces:
+ * Skills page — manages the single global canonical skill list and its
+ * fan-out targets. After `scope-model-simplification`, canonical lives
+ * exclusively under `~/.felina/skills/`; the project-scoped canonical
+ * concept and the in-page Global/Project toggle were removed. Per-project
+ * managed-inventory views moved to the top-level Projects page.
  *
- *   ┌─ scope toggle ─┬─ refresh / new / restore-banner ─┐
- *   │ SkillImportBanner (conditional)                   │
- *   │ PendingPushBar    (conditional)                   │
- *   ├─────────────────┬───────────────────────────────────┤
- *   │ SkillList       │ SkillEditor (or empty state)     │
- *   └─────────────────┴───────────────────────────────────┘
+ *   ┌─ view-mode toggle ─┬─ project picker / reload / new ─┐
+ *   │ SkillImportBanner (conditional)                       │
+ *   │ PendingPushBar    (conditional)                       │
+ *   ├──────────────────────┬─────────────────────────────────┤
+ *   │ SkillList            │ SkillEditor (or empty state)   │
+ *   └──────────────────────┴─────────────────────────────────┘
  */
 export default function SkillsPage() {
+  // App-wide current project (no in-page picker). Used only as the default
+  // destination when adding a project-scope target in the editor and to drive
+  // the "project not found" indicator — NOT as a canonical scope. The
+  // canonical list and import scan are global.
   const projectPath = useProjectContextStore((s) => s.selectedProjectPath);
   const {
-    scope,
     entries,
     loaded,
     error,
     bannerDismissed,
     detectedImportCount,
-    setScope,
-    setProjectPath,
     loadEntries,
     refreshImportCount,
     resetBannerDismissed,
     removeEntry,
   } = useSkillsStore();
 
+  const [searchParams, setSearchParams] = useSearchParams();
   const [viewMode, setViewMode] = useState<"list" | "summary">("list");
   const [selectedName, setSelectedName] = useState<string | null>(null);
   const [activeSkill, setActiveSkill] = useState<CanonicalSkill | null>(null);
@@ -73,25 +79,42 @@ export default function SkillsPage() {
     }
   }
 
-  // Push the project path into the store whenever it changes upstream.
-  useEffect(() => {
-    setProjectPath(projectPath ?? null);
-  }, [projectPath, setProjectPath]);
-
-  // Initial load + reload when scope/project changes.
+  // Canonical list + import scan are both global (the store keeps
+  // projectPath=null, so the import banner counts global agent-dir skills).
+  // Per-project import lives in the Projects view, not here.
   useEffect(() => {
     void loadEntries();
     void refreshImportCount();
-  }, [loadEntries, refreshImportCount, scope, projectPath]);
+  }, [loadEntries, refreshImportCount]);
+
+  // Deep-link selection: the Projects view navigates here with
+  // `?select=<skill-name>` to open a managed skill for editing. Consume the
+  // param once entries are loaded and the skill exists, then clear it so a
+  // later manual selection isn't overridden on re-render.
+  useEffect(() => {
+    const want = searchParams.get("select");
+    if (!want || !loaded) return;
+    const exists = entries.some(
+      (e) => e.kind === "ok" && e.skill.name === want,
+    );
+    if (exists) {
+      setViewMode("list");
+      setCreatingNew(false);
+      setSelectedName(want);
+    }
+    const next = new URLSearchParams(searchParams);
+    next.delete("select");
+    setSearchParams(next, { replace: true });
+  }, [searchParams, loaded, entries, setSearchParams]);
 
   // Known Projects list backs the "project not found" degradation check. Each
   // entry's `exists` flag is a filesystem-stat snapshot, so we refresh it at
-  // the moments disk state may have changed: scope/project switch, after
-  // entries change (a Browse-added L3 target, or a push), and — because folder
-  // rename/delete happens OUTSIDE the app — when the window regains focus.
+  // the moments disk state may have changed: after entries change (a
+  // Browse-added L3 target, or a push), and — because folder rename/delete
+  // happens OUTSIDE the app — when the window regains focus.
   useEffect(() => {
     refreshKnownProjects();
-  }, [refreshKnownProjects, scope, entries]);
+  }, [refreshKnownProjects, entries]);
 
   useEffect(() => {
     const onFocus = () => refreshKnownProjects();
@@ -116,11 +139,7 @@ export default function SkillsPage() {
     let cancelled = false;
     void (async () => {
       try {
-        const skill = await api.canonicalSkills.read(
-          scope,
-          selectedName,
-          projectPath ?? undefined,
-        );
+        const skill = await api.canonicalSkills.read(selectedName);
         if (!cancelled) setActiveSkill(skill);
       } catch {
         if (!cancelled) setActiveSkill(null);
@@ -129,7 +148,7 @@ export default function SkillsPage() {
     return () => {
       cancelled = true;
     };
-  }, [selectedName, scope, projectPath]);
+  }, [selectedName]);
 
   const isCanonicalEmpty = useMemo(() => {
     return entries.filter((e) => e.kind === "ok").length === 0;
@@ -159,7 +178,7 @@ export default function SkillsPage() {
     if (!name) return;
     setPendingDelete(null);
     try {
-      await api.canonicalSkills.delete(scope, name, projectPath ?? undefined);
+      await api.canonicalSkills.delete(name);
       removeEntry(name);
       setSelectedName((cur) => (cur === name ? null : cur));
       setActiveSkill((cur) => (cur?.name === name ? null : cur));
@@ -176,9 +195,7 @@ export default function SkillsPage() {
         icon={Sparkles}
         actions={
           <>
-            <ScopeToggle value={scope} onChange={setScope} />
             <ViewModeToggle value={viewMode} onChange={setViewMode} />
-            {scope === "project" && <ProjectPicker />}
             {bannerDismissed && (
               <button
                 type="button"
@@ -308,7 +325,6 @@ export default function SkillsPage() {
                   <div className="px-4 pt-4">
                     <TargetEditor
                       skillName=""
-                      scope={scope}
                       projectPath={projectPath ?? null}
                       targets={pendingTargets}
                       onTargetsChange={setPendingTargets}
@@ -317,11 +333,9 @@ export default function SkillsPage() {
                   </div>
                   <SkillEditor
                     skill={null}
-                    scope={scope}
-                    projectPath={projectPath ?? null}
                     onSaved={async (name) => {
                       if (pendingTargets.length > 0) {
-                        await api.skillTargets.set(scope, name, pendingTargets, projectPath ?? undefined);
+                        await api.skillTargets.set(name, pendingTargets);
                         await loadEntries();
                       }
                       setPendingTargets([]);
@@ -339,7 +353,6 @@ export default function SkillsPage() {
                   <div className="px-4 pt-4">
                     <TargetEditor
                       skillName={activeSkill.name}
-                      scope={scope}
                       projectPath={projectPath ?? null}
                       targets={selectedSkill?.targets ?? activeSkill.targets}
                       knownProjects={knownProjects}
@@ -347,8 +360,6 @@ export default function SkillsPage() {
                   </div>
                   <SkillEditor
                     skill={activeSkill}
-                    scope={scope}
-                    projectPath={projectPath ?? null}
                     onSaved={() => {
                       void loadEntries();
                     }}
@@ -368,7 +379,6 @@ export default function SkillsPage() {
 
       {wizardOpen && (
         <SkillImportWizard
-          scope={scope}
           projectPath={projectPath ?? null}
           onClose={() => setWizardOpen(false)}
         />
@@ -399,33 +409,6 @@ function formatLocalTime(iso: string): string {
   if (isNaN(d.getTime())) return iso;
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
-
-function ScopeToggle({
-  value,
-  onChange,
-}: {
-  value: SkillScope;
-  onChange: (v: SkillScope) => void;
-}) {
-  return (
-    <div className="inline-flex rounded border border-border overflow-hidden text-xs">
-      {(["global", "project"] as const).map((opt) => (
-        <button
-          key={opt}
-          type="button"
-          onClick={() => onChange(opt)}
-          className={`px-3 py-1 ${
-            value === opt
-              ? "bg-accent text-white"
-              : "bg-bg-primary text-text-secondary hover:text-text-primary"
-          }`}
-        >
-          {opt === "global" ? "Global" : "Project"}
-        </button>
-      ))}
-    </div>
-  );
 }
 
 function ViewModeToggle({

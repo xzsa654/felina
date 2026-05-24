@@ -1,0 +1,13 @@
+# Baseline (Task 1.1 / 1.2) — 2026-05-24
+
+## 1.1 Static gates baseline
+
+- `npm run check` — exit 0, 0 TypeScript errors.
+- `cargo build --manifest-path src-tauri/Cargo.toml` — exit 0, 2 pre-existing warnings (tokens/ dead_code, carried from cross-project-push-and-coverage archive). Lower bound = 2 warnings; do not regress.
+- `cargo test --manifest-path src-tauri/Cargo.toml --lib` — 62 passed, 0 failed, 0 ignored. Lower bound = 62. Target after Phase 4 migration tests = ≥ 66.
+
+## 1.2 Legacy project canonical sample
+
+- `<project>/.felina/skills/` (i.e. `C:\MyProject\Pershing\felina\.felina\skills`) does **not** exist on this workstation. Handoff 2026-05-24 Session 1 notes the directory was cleared during (f) rework after stopping the Vite watcher.
+- Consequence: Task 6.3 smoke step (d)/(e) (the "legacy `.felina/skills/git/` 的 felina project") cannot be exercised without the user re-creating a sample beforehand. Recommend creating a minimal `.felina/skills/git/SKILL.md` (frontmatter `name: git`, `description: smoke`, `agents: [anthropic]`) before running smoke; not required to land code changes.
+- Migration unit tests (Task 4.2 / 4.3) cover both clean and conflict candidates via tempdirs and do not depend on this workstation sample.

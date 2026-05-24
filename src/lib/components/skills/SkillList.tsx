@@ -9,12 +9,16 @@ interface Props {
   onSelect: (name: string) => void;
 }
 
-/** Sort key: dirty (unpushed-changes) skills float to the top so the user
- *  sees what still needs pushing; broken-frontmatter rows sit with them
- *  (they need attention too). Everything else stays alphabetical. */
+/** Sort key: skills that need the user's attention float to the top —
+ *  broken-frontmatter rows, dirty (unpushed) skills, and freshly-created
+ *  skills with NO targets configured yet (a "configure me" reminder, since
+ *  a target-less skill is dirty=false and would otherwise sink into the
+ *  alphabetical list). Everything else stays alphabetical. */
 function sortRank(e: SkillListEntry): number {
   if (e.kind === "broken") return 0;
-  return e.skill.dirty ? 0 : 1;
+  if (e.skill.dirty) return 0;
+  if (e.skill.targets.length === 0) return 0;
+  return 1;
 }
 
 function entryName(e: SkillListEntry): string {

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { AlertTriangle, Plus, Search, Trash2 } from "lucide-react";
-import type { KnownProject, OrphanFile, SkillScope, SkillTarget } from "$lib/types";
+import type { KnownProject, OrphanFile, SkillTarget } from "$lib/types";
 import { api } from "$lib/tauri/commands";
 import { useSkillsStore } from "$lib/stores/skills-store";
 import { isProjectMissing } from "$lib/utils/path";
@@ -31,7 +31,7 @@ const STATES: { value: UIState; label: string }[] = [
 
 interface Props {
   skillName: string;
-  scope: SkillScope;
+  /** Default project path for new project-scope targets added via the dialog. */
   projectPath: string | null;
   targets: SkillTarget[];
   /** When set, targets are buffered locally instead of saved to backend. */
@@ -41,7 +41,7 @@ interface Props {
   knownProjects?: KnownProject[];
 }
 
-export default function TargetEditor({ skillName, scope, projectPath, targets, onTargetsChange, knownProjects }: Props) {
+export default function TargetEditor({ skillName, projectPath, targets, onTargetsChange, knownProjects }: Props) {
   const loadEntries = useSkillsStore((s) => s.loadEntries);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [pruneOrphans, setPruneOrphans] = useState<OrphanFile[] | null>(null);
@@ -54,7 +54,7 @@ export default function TargetEditor({ skillName, scope, projectPath, targets, o
       onTargetsChange!(next);
       return;
     }
-    await api.skillTargets.set(scope, skillName, next, projectPath ?? undefined);
+    await api.skillTargets.set(skillName, next);
     await loadEntries();
   }
 
@@ -74,7 +74,7 @@ export default function TargetEditor({ skillName, scope, projectPath, targets, o
 
   async function handlePruneScan() {
     try {
-      const orphans = await api.skillPrune.scan(scope, skillName, projectPath ?? undefined);
+      const orphans = await api.skillPrune.scan(skillName);
       if (orphans.length === 0) {
         setPruneMessage("No orphans found.");
         setTimeout(() => setPruneMessage(null), 2000);
@@ -92,7 +92,7 @@ export default function TargetEditor({ skillName, scope, projectPath, targets, o
     const confirmed = [...pruneOrphans];
     setPruneOrphans(null);
     try {
-      await api.skillPrune.apply(scope, skillName, confirmed, projectPath ?? undefined);
+      await api.skillPrune.apply(skillName, confirmed);
       await loadEntries();
     } catch (e) {
       setPruneMessage(`Prune failed: ${e}`);
@@ -213,7 +213,6 @@ export default function TargetEditor({ skillName, scope, projectPath, targets, o
 
       {dialogOpen && (
         <AddTargetDialog
-          scope={scope}
           projectPath={projectPath}
           existingTargets={targets}
           onAdd={handleAdd}
