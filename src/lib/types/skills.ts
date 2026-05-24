@@ -30,6 +30,8 @@ export type AgentId = "anthropic" | "codex" | "gemini";
 export type SkillScope = "global" | "project";
 
 export interface CanonicalSkill {
+  /** Stable canonical directory identity used for app actions. */
+  canonicalId: string;
   /** Skill name. Required canonical field. Filesystem directory segment. */
   name: string;
   /** One-line description. Required canonical field. */
@@ -63,8 +65,16 @@ export interface CanonicalSkill {
  * Wire format: serde-tagged with `kind` = `"ok" | "broken"`.
  */
 export type SkillListEntry =
-  | { kind: "ok"; skill: CanonicalSkill }
-  | { kind: "broken"; name: string; path: string; error: string };
+  | { kind: "ok"; canonicalId: string; skill: CanonicalSkill }
+  | { kind: "broken"; canonicalId: string; name: string; path: string; error: string };
+
+export function canonicalSkillId(skill: CanonicalSkill): string {
+  return skill.canonicalId || skill.name;
+}
+
+export function skillListEntryCanonicalId(entry: SkillListEntry): string {
+  return entry.canonicalId || (entry.kind === "ok" ? canonicalSkillId(entry.skill) : entry.name);
+}
 
 export interface SyncResult {
   agent: AgentId;
@@ -110,6 +120,11 @@ export interface ImportCandidate {
    * upcoming target-control change handles multi-source resolution.
    */
   deferred: DeferredMultiSource | null;
+  /**
+   * Set when the source file has malformed frontmatter. Blocked candidates
+   * cannot be imported — the wizard shows the error and disables selection.
+   */
+  validationError?: string | null;
 }
 
 export type ImportResolution =

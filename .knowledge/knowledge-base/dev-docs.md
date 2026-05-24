@@ -39,3 +39,38 @@ Conventions, workflows, UI consistency rules, and reusable design-time checklist
 - Treat the above as a design-review checklist — catching drift at design time is cheaper than fixing each instance after apply.
 **Keywords:** ui consistency, design review, ConfirmDialog, window.confirm, modal, inline error, w-full, component reuse, design.md
 **Related:** kb-react-pagebody-layout
+
+## Identity migration: storage key first, display lags behind
+**ID:** kb-frontend-identity-migration-display-vs-storage
+**Date:** 2026-05-25
+**Updated:** 2026-05-25
+**Status:** active
+**Confidence:** confirmed
+**Source:** session entry 2026-05-25 (harden-skill-import-frontmatter-validation S9)
+**Context:** When migrating a UI/backend identity key across multiple consuming surfaces (e.g. parsed YAML `name` → canonical directory `name` for Skills), it is tempting to flip both storage and display in a single pass.
+**Applies when:** Any change that introduces a new "true identity" alongside an existing display identity (rename, scope-move, identity-normalization, alias migration), and multiple UI surfaces consume the same entity (e.g. editor + list + projects-view + deep-links).
+**Lesson:**
+- Flip storage key first across all backend write paths (write, sync-meta keying, fan-out folder, sidecar lookup, delete, target mutation). This is the durable part — once on disk, it's the invariant future code relies on.
+- Display key lags storage. Until every consuming surface (every list/grid/inventory/deep-link source) is ready to render the new identity, keep display on the legacy key so the user sees one consistent label across views.
+- A mid-migration state where storage = canonical but one editor renders `canonicalId` while another inventory renders `parsed name` produces "is this one skill or two?" UX confusion. Don't ship that.
+- Decouple cleanly in code: take a `dirName = isNew ? userInput : entity.canonicalId` for storage, but render `entity.displayName` for the disabled name input. The mismatch can heal naturally on next save once normalization is in place backend-side.
+- Schedule a follow-up display unification only after all UI surfaces opt in. Capture it in the change's `Non-Goals` so it's not forgotten.
+**Keywords:** identity migration, canonical id, display vs storage, rename, scope migration, UI consistency, skill identity, alias
+**Related:** kb-ui-consistency-design
+
+## Async child save handler must not mutate store before parent onSaved
+**ID:** kb-react-async-save-store-race
+**Date:** 2026-05-25
+**Updated:** 2026-05-25
+**Status:** active
+**Confidence:** confirmed
+**Source:** session entry 2026-05-25 (raw-repair placeholder bug, S9 Blocker fix)
+**Context:** A child component's async save handler called a Zustand store-mutation function (`loadEntries`) before invoking the parent's `onSaved` callback. The store change re-triggered a parent `useEffect` whose `cancelled`-flag cleanup path raced with `onSaved`'s own state updates, leaving the page in a placeholder state instead of showing the saved entity.
+**Applies when:** React + Zustand (or any external store). Child component takes an `onSaved` prop and also has direct access to a store mutator. Parent has `useEffect(..., [storeState, selection])` that drives the visible render.
+**Lesson:**
+- Don't let the child save handler call store mutators. The child's job is `await backendCall(...)` then `onSaved(result)`. Let the parent orchestrate side effects.
+- In the parent's `onSaved` callback, run state updates **before** the store refresh: `read(name) → setLocalState(repaired) → setBrokenRaw(null) → setSelectedName(name)` first, then `await loadEntries()` last. This way the React render commits the new visible state, then the store mutation triggers a re-run of dependent effects against state that is already correct.
+- Diagnostic signal: if a placeholder/empty render appears intermittently after a successful save, suspect a parent `useEffect` whose cleanup or cancellation path runs `setState(null)` while a competing async update is in flight. Look for `let cancelled = false` patterns combined with `return () => { cancelled = true; }`.
+- A loud workaround (extra `try { read } catch { setBoth(null) }` in the effect) hides the race instead of fixing it. The fix is reordering the calls so the local-state commit precedes the store mutation.
+**Keywords:** react, zustand, useEffect, async save, race condition, cancelled flag, store mutation, parent-child callback, placeholder bug, loadEntries
+**Related:** kb-react-pagebody-layout

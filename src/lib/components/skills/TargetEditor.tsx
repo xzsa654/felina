@@ -1,7 +1,8 @@
-import { useState } from "react";
-import { AlertTriangle, Plus, Search, Trash2 } from "lucide-react";
+import { useEffect, useState } from "react";
+import { AlertTriangle, FolderOpen, Plus, Search, Trash2 } from "lucide-react";
 import type { KnownProject, OrphanFile, SkillTarget } from "$lib/types";
 import { api } from "$lib/tauri/commands";
+import { openPath } from "$lib/tauri/shell";
 import { useSkillsStore } from "$lib/stores/skills-store";
 import { useLocaleStore } from "$lib/stores/locale";
 import { t } from "$lib/i18n";
@@ -51,8 +52,44 @@ export default function TargetEditor({ skillName, projectPath, targets, onTarget
   const [dialogOpen, setDialogOpen] = useState(false);
   const [pruneOrphans, setPruneOrphans] = useState<OrphanFile[] | null>(null);
   const [pruneMessage, setPruneMessage] = useState<string | null>(null);
+  // Resolved fan-out destination (`<target>/<canonical-id>/`) + on-disk
+  // existence per target row, keyed by agent-scope-project. Drives the per-row
+  // "Open target folder" button (disabled until a push creates the folder).
+  const [dirInfo, setDirInfo] = useState<Record<string, { path: string; exists: boolean }>>({});
 
   const buffered = !!onTargetsChange;
+
+  // A buffered editor (new, unsaved skill) has no canonical directory yet, so
+  // there is nothing to open; skip resolution entirely.
+  useEffect(() => {
+    if (buffered || !skillName) {
+      setDirInfo({});
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      const resolved = await Promise.all(
+        targets.map(async (tgt) => {
+          const key = `${tgt.agent}-${tgt.scope}-${tgt.project ?? ""}`;
+          try {
+            const info = await api.skillSync.resolveTargetDir(
+              skillName,
+              tgt.agent,
+              tgt.scope,
+              tgt.project ?? null,
+            );
+            return [key, info] as const;
+          } catch {
+            return [key, { path: "", exists: false }] as const;
+          }
+        }),
+      );
+      if (!cancelled) setDirInfo(Object.fromEntries(resolved));
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [skillName, targets, buffered]);
 
   async function save(next: SkillTarget[]) {
     if (buffered) {
@@ -143,6 +180,8 @@ export default function TargetEditor({ skillName, projectPath, targets, onTarget
         <div className="flex flex-col gap-1">
           {targets.map((tgt, i) => {
             const current = toUIState(tgt);
+            const rowKey = `${tgt.agent}-${tgt.scope}-${tgt.project ?? ""}`;
+            const dest = dirInfo[rowKey];
             const projectNotFound =
               tgt.scope === "project" &&
               knownProjects !== undefined &&
@@ -201,6 +240,28 @@ export default function TargetEditor({ skillName, projectPath, targets, onTarget
                       {t(locale, "skills.targets.forked")}
                     </button>
                   </div>
+                  {!buffered && (
+                    <button
+                      type="button"
+                      disabled={!dest?.exists}
+                      onClick={() => {
+                        if (dest?.exists) {
+                          openPath(dest.path).catch((e) => {
+                            setPruneMessage(String(e));
+                            setTimeout(() => setPruneMessage(null), 5000);
+                          });
+                        }
+                      }}
+                      className="p-1 text-text-secondary hover:text-text-primary disabled:opacity-40 disabled:cursor-not-allowed"
+                      title={
+                        dest?.exists
+                          ? t(locale, "skills.targets.openTargetFolder")
+                          : t(locale, "skills.targets.openTargetFolderMissing")
+                      }
+                    >
+                      <FolderOpen size={12} />
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={() => handleRemove(i)}

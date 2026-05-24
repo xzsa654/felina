@@ -47,6 +47,7 @@ export type {
   // Deprecated; removed in tasks 5.3 + 6.6.
   SkillInfo,
 } from "./skills";
+export { canonicalSkillId, skillListEntryCanonicalId } from "./skills";
 export type { RuleFile } from "./rules";
 export type {
   OptimizerStatus,

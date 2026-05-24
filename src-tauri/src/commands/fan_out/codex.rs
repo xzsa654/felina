@@ -125,6 +125,7 @@ mod tests {
         );
 
         CanonicalSkill {
+            canonical_id: "demo".into(),
             name: "demo".into(),
             description: "Demo skill".into(),
             agents: vec![AgentId::Codex],
@@ -180,6 +181,7 @@ mod tests {
     fn openai_yaml_skipped_when_no_ui_meta() {
         let tmp = unique_tmp("codex-noyaml");
         let skill = CanonicalSkill {
+            canonical_id: "bare".into(),
             name: "bare".into(),
             description: "bare".into(),
             agents: vec![AgentId::Codex],
