@@ -2,7 +2,6 @@ import { lazy, Suspense } from "react";
 import { createMemoryRouter, Navigate, Outlet } from "react-router";
 import PageLoader from "$lib/components/shared/PageLoader";
 import Sidebar from "$lib/components/layout/Sidebar";
-import Header from "$lib/components/layout/Header";
 import UpdateBanner from "$lib/components/layout/UpdateBanner";
 import CommandPalette from "$lib/components/shared/CommandPalette";
 import OnboardingWelcome from "$lib/components/shared/OnboardingWelcome";
@@ -32,7 +31,6 @@ function AppLayout() {
         <Sidebar />
         <main className="flex flex-col flex-1 min-w-0">
           <UpdateBanner />
-          <Header />
           <div className="flex-1 overflow-hidden flex flex-col min-h-0">
             <Outlet />
           </div>

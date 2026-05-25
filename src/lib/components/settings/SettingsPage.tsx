@@ -139,6 +139,7 @@ export default function SettingsPage() {
 
   return (
     <div className="p-6 overflow-y-auto h-full">
+      <h1 className="text-xl font-semibold text-text-primary mb-4">Settings</h1>
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
           <div className="flex gap-1 bg-bg-tertiary rounded-lg p-1">

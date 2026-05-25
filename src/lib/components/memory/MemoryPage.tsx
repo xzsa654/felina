@@ -142,7 +142,9 @@ export default function MemoryPage() {
         oncancel={() => setDeleteDialogOpen(false)}
       />
 
-      <div className="flex h-full">
+      <div className="flex flex-col h-full">
+        <h1 className="text-xl font-semibold text-text-primary px-4 pt-4 pb-3">Memory</h1>
+        <div className="flex flex-1 min-h-0">
         {/* Project Sidebar */}
         <div className="w-56 shrink-0 border-r border-border flex flex-col bg-bg-secondary">
           <div className="p-3 border-b border-border">
@@ -381,6 +383,7 @@ export default function MemoryPage() {
             </div>
           </div>
         )}
+        </div>
       </div>
     </>
   );

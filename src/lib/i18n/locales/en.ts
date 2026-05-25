@@ -197,7 +197,7 @@ const en = {
   },
   skills: {
     title: "Skills",
-    subtitle: "Canonical multi-agent skill manager.",
+    subtitle: "One source of truth for your agent skills — edit once, sync everywhere.",
     reload: "Reload",
     reloading: "Reloading…",
     import: "Import",

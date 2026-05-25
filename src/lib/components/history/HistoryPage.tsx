@@ -257,7 +257,9 @@ export default function HistoryPage() {
   }
 
   return (
-    <div className="flex h-full min-h-0">
+    <div className="flex flex-col h-full min-h-0">
+      <h1 className="text-xl font-semibold text-text-primary px-4 pt-4 pb-3">History</h1>
+      <div className="flex flex-1 min-h-0">
       <aside className="w-80 shrink-0 border-r border-border bg-bg-secondary flex flex-col min-h-0">
         <div className="p-3 border-b border-border space-y-3">
           <div className="relative">
@@ -513,6 +515,7 @@ export default function HistoryPage() {
           </div>
         )}
       </main>
+      </div>
     </div>
   );
 }
