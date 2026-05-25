@@ -66,7 +66,7 @@ Architecture note:
 | type | planned-change |
 | status | planned |
 | flagged | 2026-05-22 |
-| last-seen | 2026-05-24 |
+| last-seen | 2026-05-25 |
 | description | Lifecycle safety: push dry-run, drift detection, cascade-vs-detach prompts, multi-source import resolution, arbitrary-folder import, scope moves. |
 
 Scope:
@@ -81,27 +81,6 @@ Scope:
 - **Import-all + rename 批次衝突**: 批次匯入遇同名衝突時的 per-conflict keep/overwrite/rename 流程。
 - **跨 project 同名 skill**: single-global-by-name 下同名不同內容 skill 的 namespace 策略。
 - **Arbitrary-folder import**: 從任意資料夾匯入 SKILL.md（不限三家 agent dir）。
-
----
-
-## Standalone Planned Changes
-
-### skills-i18n-and-convention
-
-| Field | Value |
-|---|---|
-| type | planned-change |
-| status | planned |
-| flagged | 2026-05-24 |
-| last-seen | 2026-05-24 |
-| description | Skills / Projects 頁 i18n 補齊 + 建立「新 UI 文字一律用 i18n key」的開發規範，讓後續 change 不再產生硬編碼文字。 |
-
-Scope:
-- 盤查 `src/lib/components/skills/*` 和 `src/lib/components/projects/*` 所有硬編碼 UI 文字。
-- 在 `en.ts` / `zh-TW.ts` 新增 `skills` 和 `projects` namespace，替換所有硬編碼。
-- 不翻譯 user/system data（skill names, paths, agent IDs, timestamps, backend errors）。
-- 更新 CLAUDE.md 或 Spectra config 加入規範：新增/修改 UI 文字時一律使用 `t(locale, key)`，不允許硬編碼。
-- Implementation reference: Tokens 頁（`src/lib/components/tokens/TokensPage.tsx` + `tokens` namespace）。
 
 ---
 

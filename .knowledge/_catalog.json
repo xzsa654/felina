@@ -2,6 +2,18 @@
   "lastUpdated": "2026-05-25",
   "entries": [
     {
+      "id": "kb-tauri-shell-open-scope",
+      "title": "tauri-plugin-shell open rejects filesystem paths by default",
+      "type": "knowledge",
+      "status": "active",
+      "confidence": "confirmed",
+      "keywords": ["tauri", "tauri-plugin-shell", "shell open", "open scope", "capability", "shell:allow-open", "open in folder", "tauri.conf.json", "plugins.shell"],
+      "appliesWhen": "Calling @tauri-apps/plugin-shell open() on a filesystem path/directory rather than a URL",
+      "file": "knowledge-base/tauri.md",
+      "anchor": "tauri-plugin-shell-open-rejects-filesystem-paths-by-default",
+      "updated": "2026-05-25"
+    },
+    {
       "id": "kb-frontend-identity-migration-display-vs-storage",
       "title": "Identity migration: storage key first, display lags behind",
       "type": "knowledge",
