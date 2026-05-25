@@ -44,42 +44,46 @@ struct OauthEntry {
     access_token: String,
 }
 
-/// Read Claude Code OAuth token from Keychain and fetch Anthropic usage limits.
-pub fn fetch_anthropic_rate_limits() -> AnthropicRateLimits {
-    // 1. Get token from Keychain
-    let keychain_out = Command::new("security")
-        .args([
-            "find-generic-password",
-            "-s",
-            "Claude Code-credentials",
-            "-w",
-        ])
-        .output();
-
-    let token = match keychain_out {
-        Ok(out) if out.status.success() => {
-            let raw = String::from_utf8_lossy(&out.stdout).trim().to_string();
-            match serde_json::from_str::<KeychainCredentials>(&raw) {
-                Ok(creds) => match creds.claude_ai_oauth {
-                    Some(oauth) => oauth.access_token,
-                    None => {
-                        return AnthropicRateLimits {
-                            error: Some("No OAuth entry in credentials".into()),
-                            ..Default::default()
-                        }
-                    }
-                },
-                Err(e) => {
-                    return AnthropicRateLimits {
-                        error: Some(format!("Credentials parse error: {}", e)),
-                        ..Default::default()
-                    }
-                }
+fn read_claude_oauth_token() -> Result<String, String> {
+    // Try macOS Keychain first
+    if cfg!(target_os = "macos") {
+        let out = Command::new("security")
+            .args(["find-generic-password", "-s", "Claude Code-credentials", "-w"])
+            .output();
+        if let Ok(out) = out {
+            if out.status.success() {
+                let raw = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                let creds: KeychainCredentials = serde_json::from_str(&raw)
+                    .map_err(|e| format!("Credentials parse error: {}", e))?;
+                return creds
+                    .claude_ai_oauth
+                    .map(|o| o.access_token)
+                    .ok_or_else(|| "No OAuth entry in credentials".into());
             }
         }
-        _ => {
+    }
+
+    // Fallback: ~/.claude/.credentials.json (Windows / Linux / macOS without Keychain)
+    let home = dirs::home_dir().ok_or("Cannot determine home directory")?;
+    let cred_path = home.join(".claude").join(".credentials.json");
+    let raw = std::fs::read_to_string(&cred_path)
+        .map_err(|_| format!("Credentials file not found: {}", cred_path.display()))?;
+    let creds: KeychainCredentials =
+        serde_json::from_str(&raw).map_err(|e| format!("Credentials parse error: {}", e))?;
+    creds
+        .claude_ai_oauth
+        .map(|o| o.access_token)
+        .ok_or_else(|| "No OAuth entry in credentials".into())
+}
+
+/// Read Claude Code OAuth token and fetch Anthropic usage limits.
+pub fn fetch_anthropic_rate_limits() -> AnthropicRateLimits {
+    // 1. Get token — macOS: Keychain, Windows/Linux: ~/.claude/.credentials.json
+    let token = match read_claude_oauth_token() {
+        Ok(t) => t,
+        Err(e) => {
             return AnthropicRateLimits {
-                error: Some("Claude Code credentials not found in Keychain".into()),
+                error: Some(e),
                 ..Default::default()
             }
         }
