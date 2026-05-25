@@ -8,217 +8,41 @@ TBD - created by archiving change 'migrate-router-to-react-router-lazy'. Update 
 
 ### Requirement: Router uses Memory Router
 
-The system SHALL use `createMemoryRouter` from react-router to manage client-side routing. The router SHALL NOT depend on browser History API or URL protocols, ensuring compatibility with Tauri's `tauri://` resource serving.
+The system SHALL use `createMemoryRouter` from react-router to manage client-side routing. The router SHALL NOT depend on browser History API or URL protocols, ensuring compatibility with Tauri's `tauri://` resource serving. The router SHALL register `/history` as a top-level route and SHALL support query parameters on that memory-router path.
 
-#### Scenario: Application starts on dashboard
+#### Scenario: Application starts on skills
 
 - **WHEN** the application launches
-- **THEN** the router SHALL navigate to the `/dashboard` route by default
+- **THEN** the router SHALL navigate to the `/skills` route by default
 
-#### Scenario: Root path redirects to dashboard
+#### Scenario: Root path redirects to skills
 
 - **WHEN** the router resolves path `/`
-- **THEN** the system SHALL redirect to `/dashboard`
+- **THEN** the system SHALL redirect to `/skills`
+
+#### Scenario: User navigates to History
+
+- **WHEN** the router resolves path `/history`
+- **THEN** the system SHALL lazy-load and render the History page
+
+#### Scenario: User opens a History deep link
+
+- **WHEN** the router resolves path `/history?agent=codex-cli&session=abc123`
+- **THEN** the system SHALL render the History page
+- **AND** the History page SHALL receive `agent=codex-cli` and `session=abc123` from the route search parameters
 
 
 <!-- @trace
-source: migrate-router-to-react-router-lazy
-updated: 2026-05-19
+source: add-history-page
+updated: 2026-05-25
 code:
-  - .agents/skills/spectra-audit/SKILL.md
-  - .agents/skills/spectra-ask/SKILL.md
-  - src/lib/components/shared/OnboardingWelcome.tsx
-  - .agents/skills/spectra-propose/SKILL.md
-  - .agents/skills/spectra-commit/SKILL.md
-  - .agents/skills/spectra-ingest/SKILL.md
-  - .spectra.yaml
-  - .agents/skills/spectra-discuss/SKILL.md
-  - src/lib/stores/navigation.ts
-  - src/router.tsx
-  - .agents/skills/spectra-archive/SKILL.md
+  - src/lib/components/memory/MemoryPage.tsx
   - src/lib/components/layout/Header.tsx
-  - AGENTS.md
-  - src/lib/components/sessions/SessionMonitor.tsx
-  - .agents/skills/spectra-apply/SKILL.md
-  - package.json
-  - src/App.tsx
-  - src/lib/components/shared/PageLoader.tsx
-  - src/lib/components/shared/CommandPalette.tsx
-  - src/lib/components/layout/Sidebar.tsx
-  - .agents/skills/spectra-debug/SKILL.md
-  - src/lib/components/dashboard/DashboardPage.tsx
--->
-
-
-<!-- @trace
-source: migrate-router-to-react-router-lazy
-updated: 2026-05-22
-code:
-  - src-tauri/src/tokens/parsers/gemini_cli.rs
-  - src-tauri/src/tokens/parsers/claude_code.rs
-  - src/lib/components/hooks/HookCard.svelte
-  - src-tauri/src/bin/glyphic_ctx.rs
-  - src/lib/components/pipelines/nodes/GitNode.svelte
-  - src-tauri/src/commands/budget.rs
-  - src-tauri/src/commands/settings.rs
-  - src/lib/components/pipelines/PipelinesPage.tsx
-  - src-tauri/src/commands/skills.rs
-  - src-tauri/src/commands/stats.rs
-  - src/lib/components/dashboard/StatsOverview.tsx
-  - src-tauri/src/commands/maintenance.rs
-  - src/lib/components/layout/UpdateBanner.svelte
-  - src-tauri/src/filter/builtin.rs
-  - src/lib/components/tokens/components/AgentStatusPanel.tsx
-  - src/lib/components/pipelines/nodes/NotificationNode.svelte
-  - src-tauri/Cargo.toml
-  - src-tauri/src/bin/glyphic_filter.rs
-  - src-tauri/src/commands/token_savings.rs
-  - src/lib/components/pipelines/CodeEditor.svelte
-  - screenshots/rules.png
-  - src-tauri/src/commands/git.rs
-  - src-tauri/src/ctx/mod.rs
-  - .session/product-backlog.md
-  - src-tauri/src/filter/tracker.rs
-  - screenshots/git.png
-  - src/lib/components/analytics/AnalyticsPage.svelte
-  - src/lib/components/dashboard/ConfigCompletenessRing.tsx
-  - CHANGELOG.md
-  - src-tauri/gen/schemas/windows-schema.json
-  - docs/token-usage-source-of-truth.md
-  - src/lib/components/pipelines/nodes/DelayNode.svelte
-  - src-tauri/src/commands/scheduler.rs
-  - src/lib/stores/project-context.svelte.ts
-  - src-tauri/src/commands/hooks.rs
-  - screenshots/analytics.png
-  - src-tauri/src/tokens/parsers/codex_cli.rs
-  - src/lib/components/sessions/SessionsPage.svelte
-  - src/lib/components/pipelines/nodes/ClaudeNode.svelte
-  - src-tauri/src/commands/context_engine.rs
-  - src/lib/components/shared/ConfirmDialog.svelte
-  - src-tauri/src/commands/memory.rs
-  - src/lib/components/settings/GeneralSettings.svelte
-  - src/lib/components/layout/ContextGauge.svelte
-  - src-tauri/src/ctx/embed.rs
-  - src/lib/components/pipelines/nodes/BashNode.svelte
-  - src/lib/components/shared/OnboardingWelcome.svelte
-  - src-tauri/src/commands/rules.rs
-  - src/lib/components/tokens/TokensPage.tsx
-  - src/lib/components/pipelines/nodes/HttpNode.svelte
-  - src/lib/components/hooks/HookEditor.svelte
-  - src/lib/components/hooks/HookHandlerForm.svelte
-  - src/lib/components/pipelines/nodes/GithubNode.svelte
-  - src-tauri/src/commands/mcp.rs
-  - src-tauri/src/tokens/reconciliation.rs
-  - src/lib/tauri/commands.ts
-  - src/lib/components/pipelines/PipelinesPage.svelte
-  - src/lib/components/keybindings/KeybindingsPage.tsx
-  - src/lib/components/mcp/McpPage.svelte
-  - src-tauri/src/tokens/scanner.rs
-  - src/lib/stores/pipeline-execution.ts
-  - src-tauri/src/commands/instructions.rs
-  - CONTRIBUTING.md
+  - src/lib/components/settings/SettingsPage.tsx
   - src/lib/i18n/locales/en.ts
-  - src/lib/components/terminal/TerminalPage.svelte
-  - src-tauri/src/commands/mod.rs
-  - src/lib/components/dashboard/DashboardPage.svelte
-  - src-tauri/src/tokens/scan_state.rs
-  - src/lib/components/skills/SkillsPage.svelte
-  - screenshots/instructions.png
-  - src/lib/components/dashboard/ConfigCompletenessRing.svelte
-  - src/lib/components/layout/Sidebar.svelte
-  - src/lib/components/context-engine/ContextEnginePage.tsx
-  - src/lib/components/git/GitPage.svelte
-  - src/lib/components/shared/OnboardingWelcome.tsx
-  - src/lib/components/terminal/TerminalPage.tsx
-  - src/lib/components/dashboard/StatsOverview.svelte
-  - src/lib/components/dashboard/ActivityHeatmap.tsx
-  - src/lib/stores/pipeline-execution.svelte.ts
   - src/router.tsx
-  - src/lib/components/rules/RulesPage.svelte
-  - src-tauri/src/tokens/types.rs
-  - src/lib/components/layout/Header.svelte
-  - screenshots/plugins.png
-  - src/lib/stores/navigation.svelte.ts
-  - src/lib/types/token-analytics.ts
-  - src/lib/types/index.ts
-  - src-tauri/src/tokens/parsers/mod.rs
-  - src/lib/components/hooks/HooksPage.svelte
-  - src-tauri/src/commands/plugins.rs
-  - src-tauri/src/bin/glyphic_token_reconcile.rs
-  - src-tauri/src/filter/pipeline.rs
-  - screenshots/mcp.png
-  - src/lib/components/dashboard/ActivityHeatmap.svelte
-  - src-tauri/src/tokens/tokscale.rs
-  - src-tauri/src/commands/keybindings.rs
-  - src/lib/components/git/GitPage.tsx
-  - src/lib/components/layout/Header.tsx
-  - src/lib/components/settings/SettingsPage.svelte
-  - src/lib/components/pipelines/nodes/TransformNode.svelte
-  - src/lib/components/pipelines/nodes/OutputNode.svelte
-  - src/lib/components/token-savings/TokenSavingsPage.tsx
-  - src/lib/stores/terminal.svelte.ts
-  - src-tauri/src/lib.rs
-  - src-tauri/src/commands/sessions.rs
-  - screenshots/dashboard.png
-  - src/lib/components/pipelines/nodes/ReadFileNode.svelte
-  - src/lib/components/shared/ProjectPicker.svelte
-  - src-tauri/src/tokens/pricing.rs
-  - src/lib/components/dashboard/StreakCard.tsx
-  - src-tauri/src/commands/tokens.rs
-  - src/lib/components/sessions/SessionsPage.tsx
-  - RELEASE_NOTES.md
-  - svelte.config.js
-  - screenshots/terminal.png
-  - src-tauri/src/commands/projects.rs
   - src/lib/i18n/locales/zh-TW.ts
-  - src/lib/stores/navigation.ts
-  - src/lib/components/analytics/AnalyticsPage.tsx
-  - src/lib/components/layout/Sidebar.tsx
-  - src/lib/components/pipelines/nodes/FilterNode.svelte
-  - package.json
-  - src/lib/components/dashboard/DashboardPage.tsx
-  - src/lib/components/shared/CommandPalette.svelte
-  - src/lib/components/dashboard/StreakCard.svelte
-  - README.md
-  - src/lib/components/pipelines/nodes/BaseNode.svelte
-  - SECURITY.md
-  - src/lib/components/plugins/PluginsPage.svelte
-  - src/lib/components/shared/TemplateGallery.svelte
-  - src-tauri/src/ctx/retrieve.rs
-  - src/lib/stores/theme.svelte.ts
-  - CODE_OF_CONDUCT.md
-  - src/lib/components/settings/EnvVarsEditor.svelte
-  - src/lib/components/sessions/SessionMonitor.tsx
-  - src/lib/components/templates/TemplatesPage.svelte
-  - src/lib/components/context-engine/ContextEnginePage.svelte
-  - src-tauri/src/ctx/db.rs
-  - src-tauri/src/paths.rs
-  - src-tauri/src/commands/pipelines.rs
-  - src-tauri/src/tokens/mod.rs
-  - src-tauri/src/tokens/storage.rs
-  - src-tauri/src/tokens/aggregator.rs
-  - src/lib/components/dashboard/AchievementGrid.svelte
-  - src/lib/components/dashboard/AchievementGrid.tsx
-  - src-tauri/src/ctx/virtualize.rs
-  - src/lib/components/pipelines/nodes/WriteFileNode.svelte
-  - src/lib/components/shared/CommandPalette.tsx
-  - src/App.svelte
-  - src-tauri/src/ctx/hook.rs
-  - src/lib/components/pipelines/nodes/JsonExtractNode.svelte
-  - src/lib/components/pipelines/PipelineCanvas.svelte
-  - src/lib/components/instructions/InstructionsPage.svelte
-  - src/lib/components/plugins/PluginsPage.tsx
-  - src/lib/components/sessions/SessionMonitor.svelte
-  - src/lib/components/token-savings/TokenSavingsPage.svelte
-  - src/lib/stores/terminal.ts
-  - src-tauri/src/ctx/config.rs
-  - src/lib/components/memory/MemoryPage.svelte
-  - screenshots/hooks.png
-  - src/lib/components/settings/PermissionsEditor.svelte
-  - src-tauri/src/filter/mod.rs
-  - src-tauri/src/pty.rs
-  - src/lib/components/pipelines/nodes/InputNode.svelte
-  - src/lib/components/keybindings/KeybindingsPage.svelte
+  - src/lib/components/history/HistoryPage.tsx
 -->
 
 ---

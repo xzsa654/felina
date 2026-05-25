@@ -8,34 +8,45 @@ TBD - created by archiving change 'cleanup-glyphic-base'. Update Purpose after a
 
 ### Requirement: Registered Pages
 
-The desktop app SHALL register exactly seven pages in its navigation: `skills`, `projects`, `settings`, `templates`, `tokens`, `memory`, and `history`. The route table in `src/router.tsx` and the `NAV_ITEMS` array plus `Page` type union in `src/lib/stores/navigation.ts` MUST all be consistent and contain exactly these seven entries and no others. The app SHALL NOT render a shared application-level title bar above the page content; page titles are owned by each page (see the Page Title Provision requirement), so there is no `PAGE_TITLES` / `PAGE_DESCRIPTIONS` map to keep consistent.
-
-The `skills` and `projects` pages SHALL be siblings; the prior pattern of using an in-page Global/Project toggle on the Skills page to switch between two canonical-scope views SHALL be removed. The Skills page SHALL show only global canonical master files; the Projects page SHALL show a per-project managed-inventory view defined by the `projects-view` capability.
+The desktop app SHALL register exactly six pages in its navigation: `skills`, `settings`, `templates`, `tokens`, `memory`, and `history`. The route table in `src/router.tsx`, the `NAV_ITEMS` array and `Page` type union in `src/lib/stores/navigation.ts`, and the `PAGE_TITLES` / `PAGE_DESCRIPTIONS` maps in `src/lib/components/layout/Header.tsx` MUST all be consistent and contain exactly these six entries and no others.
 
 #### Scenario: User opens the app
 
 - **WHEN** the user launches the app via `npm run tauri dev` or the bundled binary
-- **THEN** the Sidebar SHALL display nav items only for `skills`, `projects`, `settings`, `templates`, `tokens`, `memory`, and `history`
+- **THEN** the Sidebar SHALL display nav items only for `skills`, `settings`, `templates`, `tokens`, `memory`, and `history`
 - **AND** each nav item SHALL navigate to its route defined in `src/router.tsx`
 
 #### Scenario: Navigation registration sources are consistent
 
-- **WHEN** an inspector compares the route paths in `src/router.tsx` and the `NAV_ITEMS` ids plus `Page` type members in `src/lib/stores/navigation.ts`
-- **THEN** both sources SHALL contain exactly the set `{skills, projects, settings, templates, tokens, memory, history}`
-- **AND** neither SHALL contain a page id outside this set
-- **AND** there SHALL be no `PAGE_TITLES` / `PAGE_DESCRIPTIONS` map in the codebase acting as a third navigation-consistency source
+- **WHEN** an inspector compares the route paths in `src/router.tsx`, the `NAV_ITEMS` ids and `Page` type members in `src/lib/stores/navigation.ts`, and the keys of `PAGE_TITLES` / `PAGE_DESCRIPTIONS` in `src/lib/components/layout/Header.tsx`
+- **THEN** all four sources SHALL contain exactly the set `{skills, settings, templates, tokens, memory, history}`
+- **AND** none SHALL contain a page id outside this set
 
 #### Scenario: User invokes the Command Palette
 
 - **WHEN** the user presses Cmd+K (macOS) or Ctrl+K (Windows/Linux)
-- **THEN** the palette SHALL list only the seven registered pages as navigation targets
+- **THEN** the palette SHALL list only the six registered pages as navigation targets
 - **AND** entries for any removed or retained-but-unregistered page MUST NOT appear
 
-#### Scenario: Skills page does not show a canonical-scope toggle
+##### Example: command palette navigation entries
 
-- **WHEN** the user opens the Skills page
-- **THEN** the page header SHALL NOT render a Global/Project toggle
-- **AND** the page SHALL list canonical skills sourced exclusively from `~/.felina/skills/`
+- **GIVEN** the History page is registered
+- **WHEN** the palette renders its navigation section from `NAV_ITEMS`
+- **THEN** the visible navigation entries are exactly: Skills & Agents, Settings, Templates, Tokens, Memory, History
+
+
+<!-- @trace
+source: add-history-page
+updated: 2026-05-25
+code:
+  - src/lib/components/memory/MemoryPage.tsx
+  - src/lib/components/layout/Header.tsx
+  - src/lib/components/settings/SettingsPage.tsx
+  - src/lib/i18n/locales/en.ts
+  - src/router.tsx
+  - src/lib/i18n/locales/zh-TW.ts
+  - src/lib/components/history/HistoryPage.tsx
+-->
 
 ---
 ### Requirement: Retained-for-Reference Components
