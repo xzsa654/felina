@@ -101,9 +101,6 @@ pub fn felina_global_skills_dir() -> PathBuf {
     felina_home().join("skills")
 }
 
-pub fn felina_project_skills_dir(project_path: &str) -> PathBuf {
-    PathBuf::from(project_path).join(".felina").join("skills")
-}
 
 
 pub fn global_rules_dir() -> PathBuf {
@@ -352,18 +349,4 @@ mod tests {
         assert!(real.starts_with(dirs::home_dir().expect("home")));
     }
 
-    #[test]
-    fn felina_project_skills_dir_under_project_root() {
-        // Use a fixed string; PathBuf normalises separators per-OS at display time.
-        let project = if cfg!(windows) { r"C:\proj" } else { "/proj" };
-        let p = felina_project_skills_dir(project);
-        assert!(p.starts_with(project));
-        assert_eq!(p.file_name().and_then(|s| s.to_str()), Some("skills"));
-        assert_eq!(
-            p.parent()
-                .and_then(|p| p.file_name())
-                .and_then(|s| s.to_str()),
-            Some(".felina"),
-        );
-    }
 }
