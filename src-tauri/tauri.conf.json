@@ -1,8 +1,8 @@
 {
   "$schema": "https://raw.githubusercontent.com/nicoverbruggen/tauri-v2-schema/main/schema.json",
-  "productName": "Glyphic",
+  "productName": "Felina",
   "version": "0.20.0",
-  "identifier": "com.caio.glyphic",
+  "identifier": "com.pershing.felina",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -34,7 +34,7 @@
   "app": {
     "windows": [
       {
-        "title": "Glyphic",
+        "title": "Felina",
         "width": 1200,
         "height": 800,
         "minWidth": 900,
@@ -53,6 +53,9 @@
         "https://github.com/caioricciuti/glyphic/releases/latest/download/latest.json"
       ],
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEU4MDI5NDU3QzRBMjlERTEKUldUaG5hTEVWNVFDNkdrZFgzQzRodG1jUEl3WHVMU2NnajJKYmpscHRVL2tQdGtkeUdvL0d0d0EK"
+    },
+    "shell": {
+      "open": "((mailto:\\w+|tel:\\w+|https?://\\w+).+|[A-Za-z]:[\\\\/].*|/.*)"
     }
   }
 }

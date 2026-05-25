@@ -1,18 +1,17 @@
 {
-  "name": "glyphic",
+  "name": "felina",
   "private": true,
   "version": "0.20.0",
   "type": "module",
-  "description": "The desktop app for managing Claude Code — visual editor for settings, hooks, MCP servers, memory, skills, and more",
-  "author": "Caio Ricciuti <caio@caioricciuti.com>",
+  "description": "Multi-agent skill manager — canonical skill main files + fan-out to Anthropic Claude, OpenAI Codex, and Google Gemini / Antigravity.",
   "license": "AGPL-3.0",
-  "homepage": "https://github.com/caioricciuti/glyphic",
+  "homepage": "https://github.com/xzsa654/felina",
   "repository": {
     "type": "git",
-    "url": "https://github.com/caioricciuti/glyphic.git"
+    "url": "https://github.com/xzsa654/felina.git"
   },
   "bugs": {
-    "url": "https://github.com/caioricciuti/glyphic/issues"
+    "url": "https://github.com/xzsa654/felina/issues"
   },
   "keywords": [
     "claude-code",
@@ -41,8 +40,10 @@
     "@codemirror/theme-one-dark": "^6.1.3",
     "@codemirror/view": "^6.40.0",
     "@tauri-apps/api": "2.10.1",
+    "@tauri-apps/plugin-dialog": "^2.7.1",
     "@tauri-apps/plugin-notification": "^2.3.3",
     "@tauri-apps/plugin-process": "^2.3.1",
+    "@tauri-apps/plugin-shell": "^2.3.5",
     "@tauri-apps/plugin-updater": "^2.10.0",
     "codemirror": "^6.0.2",
     "lucide-react": "^0.511.0",

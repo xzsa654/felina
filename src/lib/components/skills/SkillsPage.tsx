@@ -1,215 +1,546 @@
-import { useEffect, useMemo, useState } from "react";
-import { Plus, RefreshCw, Save, Trash2, Users, WandSparkles } from "lucide-react";
-import ProjectPicker from "$lib/components/shared/ProjectPicker";
-import {
-  ActionButton,
-  EmptyState,
-  ErrorBanner,
-  LoadingLine,
-  PageBody,
-  PageHeader,
-} from "$lib/components/shared/PageScaffold";
-import { api } from "$lib/tauri/commands";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router";
+import { Download, Grid2x2, List, Loader2, Plus, RefreshCw, Sparkles, Undo2 } from "lucide-react";
+import ConfirmDialog from "$lib/components/shared/ConfirmDialog";
+import { PageBody, PageHeader } from "$lib/components/shared/PageScaffold";
 import { useProjectContextStore } from "$lib/stores/project-context";
-import type { SkillInfo } from "$lib/types";
+import { useSkillsStore } from "$lib/stores/skills-store";
+import { useLocaleStore } from "$lib/stores/locale";
+import { t } from "$lib/i18n";
+import { api } from "$lib/tauri/commands";
+import {
+  skillListEntryCanonicalId,
+  type CanonicalSkill,
+  type KnownProject,
+  type SkillTarget,
+} from "$lib/types";
+import SkillList from "./SkillList";
+import SkillEditor from "./SkillEditor";
+import PendingPushBar from "./PendingPushBar";
+import SkillImportBanner from "./SkillImportBanner";
+import SkillImportWizard from "./SkillImportWizard";
+import TargetEditor from "./TargetEditor";
+import CoverageMatrix from "./CoverageMatrix";
+import { isProjectMissing } from "$lib/utils/path";
 
-type Scope = "global" | "project";
-type Kind = "skills" | "agents";
-
-const DEFAULT_CONTENT = "# New Skill\n\nDescribe when to use this skill and the workflow to follow.\n";
-
+/**
+ * Skills page — manages the single global canonical skill list and its
+ * fan-out targets. After `scope-model-simplification`, canonical lives
+ * exclusively under `~/.felina/skills/`; the project-scoped canonical
+ * concept and the in-page Global/Project toggle were removed. Per-project
+ * managed-inventory views moved to the top-level Projects page.
+ *
+ *   ┌─ view-mode toggle ─┬─ project picker / reload / new ─┐
+ *   │ SkillImportBanner (conditional)                       │
+ *   │ PendingPushBar    (conditional)                       │
+ *   ├──────────────────────┬─────────────────────────────────┤
+ *   │ SkillList            │ SkillEditor (or empty state)   │
+ *   └──────────────────────┴─────────────────────────────────┘
+ */
 export default function SkillsPage() {
+  // App-wide current project (no in-page picker). Used only as the default
+  // destination when adding a project-scope target in the editor and to drive
+  // the "project not found" indicator — NOT as a canonical scope. The
+  // canonical list and import scan are global.
+  const locale = useLocaleStore((s) => s.locale);
   const projectPath = useProjectContextStore((s) => s.selectedProjectPath);
-  const [scope, setScope] = useState<Scope>("global");
-  const [kind, setKind] = useState<Kind>("skills");
-  const [items, setItems] = useState<SkillInfo[]>([]);
+  const {
+    entries,
+    loaded,
+    error,
+    bannerDismissed,
+    detectedImportCount,
+    loadEntries,
+    refreshImportCount,
+    resetBannerDismissed,
+    removeEntry,
+  } = useSkillsStore();
+
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [viewMode, setViewMode] = useState<"list" | "summary">("list");
   const [selectedName, setSelectedName] = useState<string | null>(null);
-  const [draftName, setDraftName] = useState("");
-  const [content, setContent] = useState("");
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [activeSkill, setActiveSkill] = useState<CanonicalSkill | null>(null);
+  const [brokenRaw, setBrokenRaw] = useState<{ name: string; content: string; path?: string } | null>(null);
+  const [creatingNew, setCreatingNew] = useState(false);
+  const [wizardOpen, setWizardOpen] = useState(false);
+  const [reloading, setReloading] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<{ canonicalId: string; label: string } | null>(null);
+  const [pendingTargets, setPendingTargets] = useState<SkillTarget[]>([]);
+  const [knownProjects, setKnownProjects] = useState<KnownProject[]>([]);
+  const [nameAdvisory, setNameAdvisory] = useState<string | null>(null);
 
-  const selected = useMemo(
-    () => items.find((item) => item.name === selectedName) ?? null,
-    [items, selectedName],
-  );
+  // Reload the Known Projects list (each entry carries a backend `exists`
+  // stat). Reused by the entries-driven effect and the window-focus listener.
+  const refreshKnownProjects = useCallback(() => {
+    void api.knownProjects
+      .list(projectPath ?? undefined)
+      .then(setKnownProjects)
+      .catch(() => setKnownProjects([]));
+  }, [projectPath]);
 
-  async function load() {
-    setLoading(true);
-    setError(null);
+  async function handleReload() {
+    setReloading(true);
     try {
-      const list =
-        kind === "skills"
-          ? await api.skills.list(scope, projectPath ?? undefined)
-          : await api.agents.list(scope, projectPath ?? undefined);
-      setItems(list);
-      const next = list.find((item) => item.name === selectedName) ?? list[0] ?? null;
-      setSelectedName(next?.name ?? null);
-      setDraftName(next?.name ?? "");
-      setContent(next?.content ?? "");
-    } catch (e) {
-      setError(String(e));
+      await Promise.all([loadEntries(), refreshImportCount()]);
     } finally {
-      setLoading(false);
+      // Brief residual delay so users see the spinner spin at least once,
+      // even when the underlying calls return in <50ms.
+      setTimeout(() => setReloading(false), 250);
     }
   }
+
+  // Canonical list + import scan are both global (the store keeps
+  // projectPath=null, so the import banner counts global agent-dir skills).
+  // Per-project import lives in the Projects view, not here.
+  useEffect(() => {
+    void loadEntries();
+    void refreshImportCount();
+  }, [loadEntries, refreshImportCount]);
+
+  // Deep-link selection: the Projects view navigates here with
+  // `?select=<skill-name>` to open a managed skill for editing. Consume the
+  // param once entries are loaded and the skill exists, then clear it so a
+  // later manual selection isn't overridden on re-render.
+  useEffect(() => {
+    const want = searchParams.get("select");
+    if (!want || !loaded) return;
+    // Match by canonical directory identity (not parsed `frontmatter.name`) so a
+    // deep-link survives name-vs-directory drift. Resolve ok or broken entries;
+    // the selection effect routes a broken one into raw repair mode.
+    const selected = entries.find((e) => skillListEntryCanonicalId(e) === want);
+    if (selected) {
+      setViewMode("list");
+      setCreatingNew(false);
+      setSelectedName(skillListEntryCanonicalId(selected));
+    }
+    const next = new URLSearchParams(searchParams);
+    next.delete("select");
+    setSearchParams(next, { replace: true });
+  }, [searchParams, loaded, entries, setSearchParams]);
+
+  // Known Projects list backs the "project not found" degradation check. Each
+  // entry's `exists` flag is a filesystem-stat snapshot, so we refresh it at
+  // the moments disk state may have changed: after entries change (a
+  // Browse-added L3 target, or a push), and — because folder rename/delete
+  // happens OUTSIDE the app — when the window regains focus.
+  useEffect(() => {
+    refreshKnownProjects();
+  }, [refreshKnownProjects, entries]);
 
   useEffect(() => {
-    void load();
-  }, [scope, kind, projectPath]);
+    const onFocus = () => refreshKnownProjects();
+    const onVisible = () => {
+      if (document.visibilityState === "visible") refreshKnownProjects();
+    };
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [refreshKnownProjects]);
 
-  function startNew() {
-    setSelectedName(null);
-    setDraftName(kind === "skills" ? "new-skill" : "new-agent");
-    setContent(DEFAULT_CONTENT);
-  }
-
-  function choose(item: SkillInfo) {
-    setSelectedName(item.name);
-    setDraftName(item.name);
-    setContent(item.content);
-  }
-
-  async function save() {
-    const name = draftName.trim();
-    if (!name) return;
-    setSaving(true);
-    setError(null);
-    try {
-      if (kind === "skills") {
-        await api.skills.write(scope, name, content, projectPath ?? undefined);
-      } else {
-        await api.agents.write(scope, name, content, projectPath ?? undefined);
-      }
-      setSelectedName(name);
-      await load();
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setSaving(false);
+  // When the selected name changes, fetch the full skill. A broken entry
+  // can't parse, so route it into raw repair mode (load the raw SKILL.md);
+  // an ok entry loads structured.
+  useEffect(() => {
+    if (!selectedName) {
+      setActiveSkill(null);
+      setBrokenRaw(null);
+      return;
     }
+    const entry = entries.find((e) => skillListEntryCanonicalId(e) === selectedName);
+    const isBroken = entry?.kind === "broken";
+    let cancelled = false;
+    void (async () => {
+      if (isBroken) {
+        try {
+          const content = await api.canonicalSkills.readRaw(selectedName);
+          if (!cancelled) {
+            setBrokenRaw({
+              name: selectedName,
+              content,
+              path: entry?.kind === "broken" ? entry.path : undefined,
+            });
+            setActiveSkill(null);
+          }
+        } catch {
+          if (!cancelled) {
+            setBrokenRaw(null);
+            setActiveSkill(null);
+          }
+        }
+        return;
+      }
+      try {
+        const skill = await api.canonicalSkills.read(selectedName);
+        if (!cancelled) {
+          setActiveSkill(skill);
+          setBrokenRaw(null);
+        }
+      } catch {
+        if (!cancelled) {
+          setActiveSkill(null);
+          setBrokenRaw(null);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedName, entries]);
+
+  const isCanonicalEmpty = useMemo(() => {
+    return entries.filter((e) => e.kind === "ok").length === 0;
+  }, [entries]);
+
+  // Sync info source: the selected skill's targets + lastSync from the live
+  // entries list. Refreshes automatically after push (syncAll calls loadEntries).
+  const selectedSkill = useMemo(() => {
+    if (!selectedName) return null;
+    const e = entries.find(
+      (x) => x.kind === "ok" && skillListEntryCanonicalId(x) === selectedName,
+    );
+    return e?.kind === "ok" ? e.skill : null;
+  }, [entries, selectedName]);
+
+  const showBanner =
+    !bannerDismissed && detectedImportCount > 0 && isCanonicalEmpty;
+
+
+  function handleDelete() {
+    if (!selectedName) return;
+    const entry = entries.find((e) => skillListEntryCanonicalId(e) === selectedName);
+    setPendingDelete({
+      canonicalId: selectedName,
+      label: entry?.kind === "ok" ? entry.skill.name : entry?.name ?? selectedName,
+    });
   }
 
-  async function remove() {
-    const name = selected?.name;
-    if (!name) return;
-    setSaving(true);
-    setError(null);
+  async function confirmDelete() {
+    const pending = pendingDelete;
+    if (!pending) return;
+    setPendingDelete(null);
     try {
-      if (kind === "skills") {
-        await api.skills.delete(scope, name, projectPath ?? undefined);
-      } else {
-        await api.agents.delete(scope, name, projectPath ?? undefined);
-      }
-      setSelectedName(null);
-      setDraftName("");
-      setContent("");
-      await load();
+      await api.canonicalSkills.delete(pending.canonicalId);
+      removeEntry(pending.canonicalId);
+      setSelectedName((cur) => (cur === pending.canonicalId ? null : cur));
+      setActiveSkill((cur) => (cur?.canonicalId === pending.canonicalId ? null : cur));
+      setBrokenRaw((cur) => (cur?.name === pending.canonicalId ? null : cur));
     } catch (e) {
-      setError(String(e));
-    } finally {
-      setSaving(false);
+      window.alert(t(locale, "skills.deleteDialog.failed", { error: String(e) }));
     }
   }
 
   return (
-    <div className="flex flex-col h-full overflow-hidden">
+    <>
       <PageHeader
-        title="Skills & Agents"
-        subtitle="Manage reusable Codex skills and agent instructions"
-        icon={WandSparkles}
+        title={t(locale, "skills.title")}
+        subtitle={t(locale, "skills.subtitle")}
+        icon={Sparkles}
         actions={
           <>
-            <ProjectPicker />
-            <ActionButton onClick={load} disabled={loading}>
-              <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
-              Refresh
-            </ActionButton>
-            <ActionButton onClick={startNew} variant="primary">
-              <Plus size={14} />
-              New
-            </ActionButton>
+            <ViewModeToggle value={viewMode} onChange={setViewMode} locale={locale} />
+            {bannerDismissed && (
+              <button
+                type="button"
+                onClick={resetBannerDismissed}
+                title={t(locale, "skills.showBanner")}
+                className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded border border-border text-text-secondary hover:text-text-primary"
+              >
+                <Undo2 size={12} /> {t(locale, "skills.showBanner")}
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => void handleReload()}
+              disabled={reloading}
+              className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded border border-border text-text-secondary hover:text-text-primary disabled:opacity-60"
+            >
+              {reloading ? (
+                <Loader2 size={12} className="animate-spin" />
+              ) : (
+                <RefreshCw size={12} />
+              )}
+              {reloading ? t(locale, "skills.reloading") : t(locale, "skills.reload")}
+            </button>
+            <button
+              type="button"
+              onClick={() => setWizardOpen(true)}
+              className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded border border-border text-text-secondary hover:text-text-primary"
+            >
+              <Download size={12} /> {t(locale, "skills.import")}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setPendingTargets([]);
+                setCreatingNew(true);
+                setSelectedName(null);
+              }}
+              className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded bg-accent text-white hover:bg-accent-hover"
+            >
+              <Plus size={12} /> {t(locale, "skills.newSkill")}
+            </button>
           </>
         }
       />
       <PageBody>
-        {error && <ErrorBanner error={error} />}
-        <div className="flex items-center gap-2 mb-4">
-          {(["skills", "agents"] as Kind[]).map((value) => (
+        <div className="h-full flex flex-col min-h-0">
+        {showBanner && <SkillImportBanner onImport={() => setWizardOpen(true)} />}
+        <PendingPushBar />
+
+        {error && (
+          <div className="text-xs text-red-400 bg-red-500/10 border border-red-500/30 rounded px-3 py-2 mb-4">
+            {error}
+          </div>
+        )}
+
+        {nameAdvisory && (
+          <div className="text-xs text-amber-400 bg-amber-500/10 border border-amber-500/30 rounded px-3 py-2 mb-4 flex items-center justify-between">
+            <span>{nameAdvisory}</span>
             <button
-              key={value}
-              className={`px-3 py-1.5 rounded-md text-sm capitalize ${
-                kind === value ? "bg-accent text-white" : "bg-bg-secondary text-text-secondary"
-              }`}
-              onClick={() => setKind(value)}
+              type="button"
+              onClick={() => setNameAdvisory(null)}
+              className="ml-2 text-amber-400 hover:text-amber-300"
             >
-              {value}
+              ×
             </button>
-          ))}
-          {(["global", "project"] as Scope[]).map((value) => (
-            <button
-              key={value}
-              className={`px-3 py-1.5 rounded-md text-sm capitalize ${
-                scope === value ? "bg-bg-tertiary text-text-primary" : "text-text-muted"
-              }`}
-              onClick={() => setScope(value)}
-            >
-              {value}
-            </button>
-          ))}
-        </div>
-        <div className="grid grid-cols-[280px_minmax(0,1fr)] gap-4 min-h-[560px]">
-          <aside className="bg-bg-secondary border border-border rounded-lg overflow-hidden">
-            {loading ? (
-              <div className="p-4">
-                <LoadingLine />
-              </div>
-            ) : items.length === 0 ? (
-              <div className="p-4">
-                <EmptyState title="No entries" detail="Create one to get started." />
-              </div>
-            ) : (
-              items.map((item) => (
-                <button
-                  key={item.path}
-                  className={`w-full flex items-center gap-2 px-3 py-2 text-left border-b border-border last:border-b-0 hover:bg-bg-hover ${
-                    selectedName === item.name ? "bg-accent/10 text-accent" : "text-text-secondary"
-                  }`}
-                  onClick={() => choose(item)}
-                >
-                  <Users size={14} className="shrink-0" />
-                  <span className="truncate text-sm">{item.name}</span>
-                </button>
-              ))
-            )}
-          </aside>
-          <section className="bg-bg-secondary border border-border rounded-lg overflow-hidden flex flex-col">
-            <div className="flex items-center gap-2 p-3 border-b border-border">
-              <input
-                className="flex-1 px-3 py-2 bg-bg-tertiary border border-border rounded-md text-sm text-text-primary focus:outline-none focus:border-accent"
-                value={draftName}
-                onChange={(e) => setDraftName(e.target.value)}
-                placeholder="Name"
-              />
-              <ActionButton onClick={save} disabled={saving || !draftName.trim()} variant="primary">
-                <Save size={14} />
-                Save
-              </ActionButton>
-              <ActionButton onClick={remove} disabled={saving || !selected} variant="danger">
-                <Trash2 size={14} />
-                Delete
-              </ActionButton>
+          </div>
+        )}
+
+        {viewMode === "list" && selectedSkill && selectedSkill.targets.length > 0 && (
+          <div className="mb-4 text-xs rounded border border-border bg-bg-secondary px-3 py-2">
+            <div className="text-text-secondary mb-1.5">
+              {t(locale, "skills.syncInfo")}{" "}
+              <span className="text-text-primary font-mono">
+                {selectedSkill.name}
+              </span>
             </div>
-            <textarea
-              className="flex-1 min-h-[500px] resize-none bg-bg-primary p-4 font-mono text-sm text-text-primary focus:outline-none"
-              value={content}
-              onChange={(e) => setContent(e.target.value)}
-              placeholder="Write instructions..."
-            />
-          </section>
+            <ul className="flex flex-col gap-1">
+              {selectedSkill.targets.map((tgt, i) => {
+                const key =
+                  tgt.scope === "global"
+                    ? `${tgt.agent}:global`
+                    : `${tgt.agent}:project:${tgt.project ?? ""}`;
+                const entry = selectedSkill.lastSync[key];
+                const projectNotFound =
+                  tgt.scope === "project" &&
+                  isProjectMissing(knownProjects, tgt.project ?? "");
+                return (
+                  <li
+                    key={`${key}-${i}`}
+                    className="grid grid-cols-[1rem_5rem_4rem_1fr] gap-3 items-center"
+                  >
+                    <span
+                      className={
+                        projectNotFound
+                          ? "text-red-400"
+                          : entry
+                            ? "text-emerald-400"
+                            : "text-text-secondary"
+                      }
+                    >
+                      {projectNotFound ? "!" : entry ? "✓" : "—"}
+                    </span>
+                    <span className="capitalize">{tgt.agent}</span>
+                    <span className="text-text-secondary">{tgt.scope}</span>
+                    <span
+                      className={
+                        projectNotFound ? "text-red-400" : "text-text-secondary"
+                      }
+                    >
+                      {projectNotFound
+                        ? t(locale, "skills.projectNotFound")
+                        : entry
+                          ? formatLocalTime(entry.at)
+                          : t(locale, "skills.notSynced")}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        )}
+
+        {viewMode === "summary" ? (
+          <div className="flex-1 min-h-0 border border-border rounded overflow-auto">
+            <CoverageMatrix entries={entries} knownProjects={knownProjects} />
+          </div>
+        ) : (
+          <div className="grid grid-cols-[320px_minmax(0,1fr)] gap-4 flex-1 min-h-0">
+            <div className="border border-border rounded overflow-y-auto">
+              {loaded ? (
+                <SkillList
+                  entries={entries}
+                  selectedName={selectedName}
+                  onSelect={(n) => {
+                    setCreatingNew(false);
+                    setSelectedName(n);
+                    setNameAdvisory(null);
+                  }}
+                />
+              ) : (
+                <div className="text-sm text-text-secondary p-4">{t(locale, "skills.loading")}</div>
+              )}
+            </div>
+
+            <div className="border border-border rounded overflow-y-auto">
+              {creatingNew ? (
+                <div className="flex flex-col">
+                  <div className="px-4 pt-4">
+                    <TargetEditor
+                      skillName=""
+                      projectPath={projectPath ?? null}
+                      targets={pendingTargets}
+                      onTargetsChange={setPendingTargets}
+                      knownProjects={knownProjects}
+                    />
+                  </div>
+                  <SkillEditor
+                    skill={null}
+                    onSaved={async (name) => {
+                      if (pendingTargets.length > 0) {
+                        await api.skillTargets.set(name, pendingTargets);
+                        await loadEntries();
+                      }
+                      setPendingTargets([]);
+                      setCreatingNew(false);
+                      setSelectedName(name);
+                    }}
+                    onCancel={() => {
+                      setPendingTargets([]);
+                      setCreatingNew(false);
+                    }}
+                  />
+                </div>
+              ) : brokenRaw ? (
+                <SkillEditor
+                  skill={null}
+                  brokenRaw={brokenRaw}
+                  onSaved={async (name, normalizedFrom) => {
+                    if (normalizedFrom) {
+                      setNameAdvisory(
+                        t(locale, "skills.editor.nameNormalized", {
+                          from: normalizedFrom,
+                          to: name,
+                        }),
+                      );
+                    }
+                    try {
+                      const repaired = await api.canonicalSkills.read(name);
+                      setActiveSkill(repaired);
+                      setBrokenRaw(null);
+                      setSelectedName(name);
+                    } catch {
+                      setBrokenRaw(null);
+                      setSelectedName(name);
+                    }
+                    await loadEntries();
+                  }}
+                  onDelete={handleDelete}
+                />
+              ) : activeSkill ? (
+                <div className="flex flex-col">
+                  <div className="px-4 pt-4">
+                    <TargetEditor
+                      skillName={activeSkill.canonicalId || activeSkill.name}
+                      projectPath={projectPath ?? null}
+                      targets={selectedSkill?.targets ?? activeSkill.targets}
+                      knownProjects={knownProjects}
+                    />
+                  </div>
+                  <SkillEditor
+                    skill={activeSkill}
+                    onSaved={(name, normalizedFrom) => {
+                      if (normalizedFrom) {
+                        setNameAdvisory(
+                          t(locale, "skills.editor.nameNormalized", {
+                            from: normalizedFrom,
+                            to: name,
+                          }),
+                        );
+                      }
+                      void loadEntries();
+                    }}
+                    onDelete={handleDelete}
+                  />
+                </div>
+              ) : (
+                <div className="flex items-center justify-center h-full text-sm text-text-secondary p-8">
+                  {t(locale, "skills.selectOrCreate")}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
         </div>
       </PageBody>
+
+      {wizardOpen && (
+        <SkillImportWizard
+          projectPath={projectPath ?? null}
+          onClose={() => setWizardOpen(false)}
+        />
+      )}
+
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        title={t(locale, "skills.deleteDialog.title")}
+        message={
+          pendingDelete
+            ? t(locale, "skills.deleteDialog.message", { name: pendingDelete.label })
+            : ""
+        }
+        confirmLabel={t(locale, "skills.deleteDialog.confirm")}
+        onconfirm={confirmDelete}
+        oncancel={() => setPendingDelete(null)}
+      />
+    </>
+  );
+}
+
+/**
+ * Format a UTC ISO-8601 timestamp into the user's local timezone.
+ * Output: `YYYY-MM-DD HH:MM` (24h, no seconds — push cadence is human-scale).
+ */
+function formatLocalTime(iso: string): string {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return iso;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function ViewModeToggle({
+  value,
+  onChange,
+  locale,
+}: {
+  value: "list" | "summary";
+  onChange: (v: "list" | "summary") => void;
+  locale: import("$lib/i18n").Locale;
+}) {
+  const items = [
+    { id: "list" as const, icon: List, title: t(locale, "skills.viewMode.list") },
+    { id: "summary" as const, icon: Grid2x2, title: t(locale, "skills.viewMode.summary") },
+  ];
+  return (
+    <div className="inline-flex rounded border border-border overflow-hidden text-xs">
+      {items.map(({ id, icon: Icon, title }) => (
+        <button
+          key={id}
+          type="button"
+          onClick={() => onChange(id)}
+          title={title}
+          className={`px-2 py-1 ${
+            value === id
+              ? "bg-accent text-white"
+              : "bg-bg-primary text-text-secondary hover:text-text-primary"
+          }`}
+        >
+          <Icon size={12} />
+        </button>
+      ))}
     </div>
   );
 }

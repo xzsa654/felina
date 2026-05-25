@@ -31,15 +31,17 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_notification::init())
-        .manage({
-            crate::commands::tokens::TokenState::new()
-                .expect("failed to init token state")
-        })
+        .plugin(tauri_plugin_dialog::init())
+        .manage(crate::commands::tokens::TokenState::new().expect("failed to init token state"))
         .setup(|app| {
             // Build tray menu
-            let show = MenuItemBuilder::with_id("show", "Show Glyphic").build(app)?;
+            let show = MenuItemBuilder::with_id("show", "Show Felina").build(app)?;
             let quit = MenuItemBuilder::with_id("quit", "Quit").build(app)?;
-            let menu = MenuBuilder::new(app).item(&show).separator().item(&quit).build()?;
+            let menu = MenuBuilder::new(app)
+                .item(&show)
+                .separator()
+                .item(&quit)
+                .build()?;
 
             // Create tray icon
             let icon = Image::from_path("icons/32x32.png")
@@ -49,7 +51,7 @@ pub fn run() {
             TrayIconBuilder::new()
                 .icon(icon)
                 .menu(&menu)
-                .tooltip("Glyphic")
+                .tooltip("Felina")
                 .on_menu_event(|app, event| match event.id().as_ref() {
                     "show" => {
                         if let Some(window) = app.get_webview_window("main") {
@@ -101,21 +103,54 @@ pub fn run() {
             commands::memory::read_memory_file,
             commands::memory::write_memory_file,
             commands::memory::delete_memory_file,
-            // Skills & Agents
-            commands::skills::list_skills,
+            // Agents (AGENT.md subsystem retained; multi-agent skill rewrite
+            // does NOT touch subagent definitions — see design.md decision 7).
             commands::skills::list_agents,
-            commands::skills::write_skill,
             commands::skills::write_agent,
-            commands::skills::delete_skill,
             commands::skills::delete_agent,
+            // Multi-agent skills foundation: canonical storage.
+            commands::canonical_skills::canonical_skills_list,
+            commands::canonical_skills::canonical_skills_read,
+            commands::canonical_skills::canonical_skills_read_raw,
+            commands::canonical_skills::canonical_skills_write,
+            commands::canonical_skills::canonical_skills_write_raw,
+            commands::canonical_skills::canonical_skills_delete,
+            commands::canonical_skills::skill_targets_set,
+            commands::canonical_skills::skill_prune_orphans_scan,
+            commands::canonical_skills::skill_prune_orphans_apply,
+            // Fan-out push.
+            commands::fan_out::skill_sync_one,
+            commands::fan_out::skill_sync_all,
+            commands::fan_out::skill_target_dir_resolve,
+            // Initial skill import.
+            commands::skill_import::skill_import_scan_quick,
+            commands::skill_import::skill_import_scan,
+            commands::skill_import::skill_import_apply,
+            // Settings → Agent Paths.
+            commands::agent_paths::agent_paths_get,
+            commands::agent_paths::agent_paths_set,
+            // Known Projects.
+            commands::known_projects::known_projects_list,
+            commands::known_projects::known_projects_add,
+            commands::known_projects::known_projects_remove,
             // Maintenance
             commands::maintenance::get_disk_usage,
             commands::maintenance::cleanup_directory,
             // Token Analytics
             commands::tokens::get_token_analytics,
+            commands::tokens::get_token_analytics_pair,
+            commands::tokens::get_agent_quota_snapshot,
             commands::tokens::get_model_breakdown,
             commands::tokens::get_cache_efficiency,
             commands::tokens::get_available_agents,
+            commands::tokens::get_day_hourly,
+            commands::tokens::get_day_project_breakdown,
+            commands::tokens::get_day_top_sessions,
+            commands::tokens::get_day_model_breakdown,
+            commands::tokens::list_history_sessions,
+            commands::tokens::read_session_transcript,
+            commands::tokens::resolve_session_transcript,
+            commands::tokens::reveal_session_transcript,
             commands::tokens::refresh_token_data,
         ])
         .run(tauri::generate_context!())

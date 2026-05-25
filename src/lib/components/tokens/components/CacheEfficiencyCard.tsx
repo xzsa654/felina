@@ -22,6 +22,8 @@ export default function CacheEfficiencyCard({
   }
 
   const ratioPct = (data.cache_hit_ratio * 100).toFixed(1);
+  const cacheTotal = data.total_input_tokens + data.cache_read_tokens + data.cache_write_tokens;
+  const readShare = cacheTotal > 0 ? (data.cache_read_tokens / cacheTotal) * 100 : 0;
 
   return (
     <div className="bg-bg-secondary border border-border rounded-lg p-4">
@@ -29,6 +31,11 @@ export default function CacheEfficiencyCard({
         {t(locale, "tokens.cacheEfficiency.title")}
       </h3>
       <div className="space-y-3">
+        <p className="text-xs text-text-muted">
+          {t(locale, "tokens.cacheEfficiency.summary", {
+            pct: readShare.toFixed(0),
+          })}
+        </p>
         <div>
           <div className="flex items-center justify-between text-xs mb-1">
             <span className="text-text-muted">

@@ -27,13 +27,22 @@ pub fn list_projects() -> Result<Vec<ProjectInfo>, String> {
         let file_name = entry.file_name().to_string_lossy().to_string();
 
         if entry.file_type().is_ok_and(|ft| ft.is_dir()) {
-            let resolved_path = paths::project_hash_to_path(&file_name);
             let memory_dir = paths::memory_dir(&file_name);
-            let exists = std::path::Path::new(&resolved_path).is_dir();
+            // Unresolved → display the hash itself so the UI still has
+            // something to show, but `exists = false` flags it as
+            // unresolved. Write paths (fan-out, import) MUST NOT call
+            // project_hash_to_path then treat None as the hash string.
+            let (path, exists) = match paths::project_hash_to_path(&file_name) {
+                Some(p) => {
+                    let exists = std::path::Path::new(&p).is_dir();
+                    (p, exists)
+                }
+                None => (file_name.clone(), false),
+            };
 
             projects.push(ProjectInfo {
                 hash: file_name,
-                path: resolved_path,
+                path,
                 has_memory: memory_dir.exists(),
                 exists,
             });
@@ -41,9 +50,7 @@ pub fn list_projects() -> Result<Vec<ProjectInfo>, String> {
     }
 
     // Sort: existing projects first, then alphabetically
-    projects.sort_by(|a, b| {
-        b.exists.cmp(&a.exists).then(a.path.cmp(&b.path))
-    });
+    projects.sort_by(|a, b| b.exists.cmp(&a.exists).then(a.path.cmp(&b.path)));
 
     Ok(projects)
 }

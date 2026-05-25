@@ -14,7 +14,24 @@ import type {
   CacheEfficiency,
   AgentStatus,
   RefreshResult,
+  CanonicalSkill,
+  SkillListEntry,
+  SyncResult,
+  ImportCandidate,
+  ImportSelection,
+  AgentPathsConfig,
+  KnownProject,
+  SkillTarget,
+  OrphanFile,
+  AgentId,
+  SkillScope,
 } from "$lib/types";
+import type {
+  AgentId as TokenAgentId,
+  SessionTranscript,
+  SessionTranscriptLocation,
+  HistorySessionsPage,
+} from "$lib/types/token-analytics";
 
 // Retained-for-reference wrappers (hooks / instructions / mcp / rules / budget / stats):
 // backend modules + frontend pages are kept on disk but unregistered from invoke_handler.
@@ -87,13 +104,98 @@ export const api = {
     getCloudMcps: () => invoke<string[]>("get_cloud_mcps"),
   },
 
-  skills: {
-    list: (scope: string, projectPath?: string) =>
-      invoke<SkillInfo[]>("list_skills", { scope, projectPath }),
-    write: (scope: string, name: string, content: string, projectPath?: string) =>
-      invoke<void>("write_skill", { scope, projectPath, name, content }),
-    delete: (scope: string, name: string, projectPath?: string) =>
-      invoke<void>("delete_skill", { scope, projectPath, name }),
+  // Multi-agent canonical skills. Canonical master files live exclusively
+  // under `~/.felina/skills/` after `scope-model-simplification`; these
+  // wrappers no longer take a scope/project pair.
+  canonicalSkills: {
+    list: () => invoke<SkillListEntry[]>("canonical_skills_list"),
+    read: (name: string) => invoke<CanonicalSkill>("canonical_skills_read", { name }),
+    readRaw: (name: string) => invoke<string>("canonical_skills_read_raw", { name }),
+    write: (
+      name: string,
+      frontmatter: Record<string, unknown>,
+      body: string,
+    ) =>
+      invoke<void>("canonical_skills_write", {
+        name,
+        frontmatter,
+        body,
+      }),
+    writeRaw: (name: string, content: string) =>
+      invoke<{ normalizedFrom: string | null }>("canonical_skills_write_raw", { name, content }),
+    delete: (name: string) => invoke<void>("canonical_skills_delete", { name }),
+  },
+
+  // Fan-out sync (canonical → agent-native dirs). Push destinations come
+  // from each skill's `SkillTarget` list — no caller-supplied scope needed.
+  skillSync: {
+    one: (name: string) => invoke<SyncResult[]>("skill_sync_one", { name }),
+    all: () => invoke<SyncResult[]>("skill_sync_all"),
+    resolveTargetDir: (
+      skillName: string,
+      agent: AgentId,
+      scope: SkillScope,
+      project: string | null,
+    ) =>
+      invoke<{ path: string; exists: boolean }>("skill_target_dir_resolve", {
+        skillName,
+        agent,
+        scope,
+        project,
+      }),
+  },
+
+  // Initial skill import (passive scan + manual wizard).
+  // `projectPath`: `undefined` scans global agent dirs; a path scans that
+  // project's agent dirs. Imports always write to global canonical and add
+  // a `SkillTarget` pointing back at the source (`scope=project` when a
+  // project path was supplied).
+  skillImport: {
+    scanQuick: (projectPath?: string) =>
+      invoke<{
+        anthropic: number;
+        codex: number;
+        gemini: number;
+        total: number;
+      }>("skill_import_scan_quick", { projectPath }),
+    scan: (projectPath?: string) =>
+      invoke<ImportCandidate[]>("skill_import_scan", { projectPath }),
+    apply: (selections: ImportSelection[], projectPath?: string) =>
+      invoke<void>("skill_import_apply", { projectPath, selections }),
+  },
+
+  // Known Projects.
+  knownProjects: {
+    list: (currentProject?: string) =>
+      invoke<KnownProject[]>("known_projects_list", { currentProject }),
+    add: (path: string) =>
+      invoke<void>("known_projects_add", { path }),
+    remove: (path: string) =>
+      invoke<void>("known_projects_remove", { path }),
+  },
+
+
+  // Per-skill target editor. Canonical lives in the single global dir;
+  // `SkillTarget.scope` decides each push destination.
+  skillTargets: {
+    set: (skillName: string, targets: SkillTarget[]) =>
+      invoke<void>("skill_targets_set", { skillName, targets }),
+  },
+
+  // Orphan prune. Project paths to scan are derived from the skill's own
+  // targets, so callers only supply the skill name.
+  skillPrune: {
+    scan: (skillName: string) =>
+      invoke<OrphanFile[]>("skill_prune_orphans_scan", { skillName }),
+    apply: (skillName: string, orphans: OrphanFile[]) =>
+      invoke<void>("skill_prune_orphans_apply", { skillName, orphans }),
+  },
+
+  // Settings → Agent Paths.
+  agentPaths: {
+    get: () => invoke<AgentPathsConfig>("agent_paths_get"),
+    set: (config: AgentPathsConfig) =>
+      invoke<void>("agent_paths_set", { config }),
   },
 
   agents: {
@@ -139,6 +241,7 @@ export const api = {
       dateEnd?: number;
       filterAgent?: string;
       filterModel?: string;
+      sourceOverride?: string;
     }) =>
       invoke<TokenAnalytics>("get_token_analytics", {
         granularity: params.granularity,
@@ -146,20 +249,84 @@ export const api = {
         dateEnd: params.dateEnd ?? null,
         filterAgent: params.filterAgent ?? null,
         filterModel: params.filterModel ?? null,
+        sourceOverride: params.sourceOverride ?? null,
       }),
     getModelBreakdown: (dateStart?: number, dateEnd?: number) =>
       invoke<ModelBreakdown[]>("get_model_breakdown", {
         dateStart: dateStart ?? null,
         dateEnd: dateEnd ?? null,
       }),
-    getCacheEfficiency: (dateStart?: number, dateEnd?: number) =>
+    getCacheEfficiency: (dateStart?: number, dateEnd?: number, sourceOverride?: string) =>
       invoke<CacheEfficiency>("get_cache_efficiency", {
         dateStart: dateStart ?? null,
         dateEnd: dateEnd ?? null,
+        sourceOverride: sourceOverride ?? null,
       }),
     getAvailableAgents: () =>
       invoke<AgentStatus[]>("get_available_agents"),
+    getAnalyticsPair: (params: {
+      dateStart?: number;
+      dateEnd?: number;
+      monthlySource?: string;
+      dailySource?: string;
+    }) =>
+      invoke<{ monthly: TokenAnalytics; daily: TokenAnalytics }>("get_token_analytics_pair", {
+        dateStart: params.dateStart ?? null,
+        dateEnd: params.dateEnd ?? null,
+        monthlySource: params.monthlySource ?? null,
+        dailySource: params.dailySource ?? null,
+      }),
+    getDayModelBreakdown: (date: string, sourceOverride?: string) =>
+      invoke<ModelBreakdown[]>("get_day_model_breakdown", {
+        date,
+        sourceOverride: sourceOverride ?? null,
+      }),
+    getDayHourly: (date: string, sourceOverride?: string) =>
+      invoke<import("$lib/types").DayHourlyBucket[]>("get_day_hourly", {
+        date,
+        sourceOverride: sourceOverride ?? null,
+      }),
+    getDayProjectBreakdown: (date: string, sourceOverride?: string) =>
+      invoke<import("$lib/types").DayProjectBreakdown[]>("get_day_project_breakdown", {
+        date,
+        sourceOverride: sourceOverride ?? null,
+      }),
+    getDayTopSessions: (date: string, limit: number, sourceOverride?: string) =>
+      invoke<import("$lib/types").DaySessionBreakdown[]>("get_day_top_sessions", {
+        date,
+        limit,
+        sourceOverride: sourceOverride ?? null,
+      }),
+    listHistorySessions: (params?: {
+      limit?: number;
+      offset?: number;
+      agentFilter?: "all" | TokenAgentId;
+      query?: string;
+    }) =>
+      invoke<HistorySessionsPage>("list_history_sessions", {
+        limit: params?.limit ?? null,
+        offset: params?.offset ?? null,
+        agentFilter: params?.agentFilter ?? null,
+        query: params?.query ?? null,
+      }),
+    readSessionTranscript: (agent: TokenAgentId, sessionId: string) =>
+      invoke<SessionTranscript>("read_session_transcript", {
+        agent,
+        sessionId,
+      }),
+    resolveSessionTranscript: (agent: TokenAgentId, sessionId: string) =>
+      invoke<SessionTranscriptLocation>("resolve_session_transcript", {
+        agent,
+        sessionId,
+      }),
+    revealSessionTranscript: (agent: TokenAgentId, sessionId: string) =>
+      invoke<SessionTranscriptLocation>("reveal_session_transcript", {
+        agent,
+        sessionId,
+      }),
     refresh: () => invoke<RefreshResult>("refresh_token_data"),
+    getAgentQuotaSnapshot: () =>
+      invoke<import("$lib/types").QuotaSnapshot>("get_agent_quota_snapshot"),
   },
 } as const;
 

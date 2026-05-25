@@ -68,8 +68,7 @@ pub fn list_rules(scope: String, project_path: Option<String>) -> Result<Vec<Rul
     let mut rules = Vec::new();
 
     fn walk_dir(dir: &PathBuf, scope: &str, rules: &mut Vec<RuleFile>) -> Result<(), String> {
-        let entries = fs::read_dir(dir)
-            .map_err(|e| format!("failed to read dir: {e}"))?;
+        let entries = fs::read_dir(dir).map_err(|e| format!("failed to read dir: {e}"))?;
 
         for entry in entries {
             let entry = entry.map_err(|e| format!("failed to read entry: {e}"))?;
@@ -114,8 +113,7 @@ pub fn write_rule(
     content: String,
 ) -> Result<(), String> {
     let dir = rules_dir_for_scope(&scope, project_path.as_deref())?;
-    fs::create_dir_all(&dir)
-        .map_err(|e| format!("failed to create rules dir: {e}"))?;
+    fs::create_dir_all(&dir).map_err(|e| format!("failed to create rules dir: {e}"))?;
 
     let path = dir.join(&filename);
 
@@ -131,8 +129,7 @@ pub fn write_rule(
 
     output.push_str(&content);
 
-    fs::write(&path, output)
-        .map_err(|e| format!("failed to write rule: {e}"))
+    fs::write(&path, output).map_err(|e| format!("failed to write rule: {e}"))
 }
 
 #[tauri::command]
@@ -145,8 +142,7 @@ pub fn delete_rule(
     let path = dir.join(&filename);
 
     if path.exists() {
-        fs::remove_file(&path)
-            .map_err(|e| format!("failed to delete rule: {e}"))?;
+        fs::remove_file(&path).map_err(|e| format!("failed to delete rule: {e}"))?;
     }
 
     Ok(())

@@ -27,10 +27,9 @@ fn read_mcp_json(project_path: &str) -> Result<serde_json::Value, String> {
 /// Write .mcp.json in Format A (direct server map, no wrapper).
 fn write_mcp_json(project_path: &str, servers: serde_json::Value) -> Result<(), String> {
     let path = paths::project_mcp_json_path(project_path);
-    let content = serde_json::to_string_pretty(&servers)
-        .map_err(|e| format!("failed to serialize: {e}"))?;
-    std::fs::write(&path, content)
-        .map_err(|e| format!("failed to write {}: {e}", path.display()))
+    let content =
+        serde_json::to_string_pretty(&servers).map_err(|e| format!("failed to serialize: {e}"))?;
+    std::fs::write(&path, content).map_err(|e| format!("failed to write {}: {e}", path.display()))
 }
 
 /// Read Claude Desktop config and extract mcpServers.
@@ -43,23 +42,30 @@ fn read_desktop_config() -> Result<(serde_json::Value, serde_json::Value), Strin
         .map_err(|e| format!("failed to read {}: {e}", path.display()))?;
     let full: serde_json::Value = serde_json::from_str(&content)
         .map_err(|e| format!("failed to parse {}: {e}", path.display()))?;
-    let servers = full.get("mcpServers").cloned().unwrap_or(serde_json::json!({}));
+    let servers = full
+        .get("mcpServers")
+        .cloned()
+        .unwrap_or(serde_json::json!({}));
     Ok((full, servers))
 }
 
 /// Write mcpServers back into Claude Desktop config, preserving other keys.
-fn write_desktop_config(mut full: serde_json::Value, servers: serde_json::Value) -> Result<(), String> {
+fn write_desktop_config(
+    mut full: serde_json::Value,
+    servers: serde_json::Value,
+) -> Result<(), String> {
     let path = paths::claude_desktop_config_path();
-    let obj = full.as_object_mut().ok_or("desktop config is not an object")?;
+    let obj = full
+        .as_object_mut()
+        .ok_or("desktop config is not an object")?;
     if servers.as_object().is_none_or(|s| s.is_empty()) {
         obj.remove("mcpServers");
     } else {
         obj.insert("mcpServers".to_string(), servers);
     }
-    let content = serde_json::to_string_pretty(&full)
-        .map_err(|e| format!("failed to serialize: {e}"))?;
-    std::fs::write(&path, content)
-        .map_err(|e| format!("failed to write {}: {e}", path.display()))
+    let content =
+        serde_json::to_string_pretty(&full).map_err(|e| format!("failed to serialize: {e}"))?;
+    std::fs::write(&path, content).map_err(|e| format!("failed to write {}: {e}", path.display()))
 }
 
 #[tauri::command]
@@ -68,7 +74,9 @@ pub fn list_mcp_servers(
     project_path: Option<String>,
 ) -> Result<serde_json::Value, String> {
     if scope == "mcp-local" {
-        let pp = project_path.as_deref().ok_or("project_path required for local scope")?;
+        let pp = project_path
+            .as_deref()
+            .ok_or("project_path required for local scope")?;
         return read_mcp_json(pp);
     }
     if scope == "desktop" {
@@ -76,7 +84,10 @@ pub fn list_mcp_servers(
         return Ok(servers);
     }
     let settings = settings::read_settings(scope, project_path)?;
-    Ok(settings.get("mcpServers").cloned().unwrap_or(serde_json::json!({})))
+    Ok(settings
+        .get("mcpServers")
+        .cloned()
+        .unwrap_or(serde_json::json!({})))
 }
 
 #[tauri::command]
@@ -87,7 +98,9 @@ pub fn upsert_mcp_server(
     config: serde_json::Value,
 ) -> Result<(), String> {
     if scope == "mcp-local" {
-        let pp = project_path.as_deref().ok_or("project_path required for local scope")?;
+        let pp = project_path
+            .as_deref()
+            .ok_or("project_path required for local scope")?;
         let mut servers = read_mcp_json(pp)?;
         let obj = servers.as_object_mut().ok_or("mcp.json is not an object")?;
         obj.insert(name, config);
@@ -95,7 +108,9 @@ pub fn upsert_mcp_server(
     }
     if scope == "desktop" {
         let (full, mut servers) = read_desktop_config()?;
-        let obj = servers.as_object_mut().ok_or("desktop mcpServers is not an object")?;
+        let obj = servers
+            .as_object_mut()
+            .ok_or("desktop mcpServers is not an object")?;
         obj.insert(name, config);
         return write_desktop_config(full, servers);
     }
@@ -107,7 +122,9 @@ pub fn upsert_mcp_server(
         .entry("mcpServers")
         .or_insert_with(|| serde_json::json!({}));
 
-    let servers_obj = servers.as_object_mut().ok_or("mcpServers is not an object")?;
+    let servers_obj = servers
+        .as_object_mut()
+        .ok_or("mcpServers is not an object")?;
     servers_obj.insert(name, config);
 
     settings::write_settings(scope, project_path, current)
@@ -120,7 +137,9 @@ pub fn delete_mcp_server(
     name: String,
 ) -> Result<(), String> {
     if scope == "mcp-local" {
-        let pp = project_path.as_deref().ok_or("project_path required for local scope")?;
+        let pp = project_path
+            .as_deref()
+            .ok_or("project_path required for local scope")?;
         let mut servers = read_mcp_json(pp)?;
         if let Some(obj) = servers.as_object_mut() {
             obj.remove(&name);
@@ -156,10 +175,9 @@ pub fn get_cloud_mcps() -> Result<Vec<String>, String> {
     if !path.exists() {
         return Ok(vec![]);
     }
-    let content = std::fs::read_to_string(&path)
-        .map_err(|e| format!("failed to read: {e}"))?;
-    let data: serde_json::Value = serde_json::from_str(&content)
-        .map_err(|e| format!("failed to parse: {e}"))?;
+    let content = std::fs::read_to_string(&path).map_err(|e| format!("failed to read: {e}"))?;
+    let data: serde_json::Value =
+        serde_json::from_str(&content).map_err(|e| format!("failed to parse: {e}"))?;
 
     Ok(data
         .as_object()

@@ -98,7 +98,12 @@ pub fn get_disk_usage() -> Result<DiskUsageReport, String> {
                 path: path.to_string_lossy().to_string(),
                 size_bytes: size,
                 size_display: format_size(size),
-                description: if *file == "history.jsonl" { "Session history" } else { "Stats cache" }.to_string(),
+                description: if *file == "history.jsonl" {
+                    "Session history"
+                } else {
+                    "Stats cache"
+                }
+                .to_string(),
                 safe_to_delete: false,
             });
         }
@@ -120,8 +125,15 @@ pub fn cleanup_directory(name: String) -> Result<u64, String> {
 
     // Safety: only allow cleaning known safe directories
     let safe_dirs = [
-        "telemetry", "file-history", "shell-snapshots",
-        "todos", "paste-cache", "image-cache", "plans", "cache", "debug",
+        "telemetry",
+        "file-history",
+        "shell-snapshots",
+        "todos",
+        "paste-cache",
+        "image-cache",
+        "plans",
+        "cache",
+        "debug",
     ];
 
     if !safe_dirs.contains(&name.as_str()) {

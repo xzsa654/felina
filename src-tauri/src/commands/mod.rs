@@ -19,3 +19,10 @@ pub mod projects;
 pub mod settings;
 pub mod skills;
 pub mod tokens;
+
+// multi-agent-skills-foundation: canonical storage + fan-out + import.
+pub mod agent_paths;
+pub mod canonical_skills;
+pub mod fan_out;
+pub mod skill_import;
+pub mod known_projects;

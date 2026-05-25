@@ -1,11 +1,11 @@
 [package]
-name = "glyphic"
+name = "felina"
 version = "0.20.0"
 edition = "2021"
-default-run = "glyphic"
+default-run = "felina"
 
 [lib]
-name = "glyphic_lib"
+name = "felina_lib"
 crate-type = ["lib", "cdylib", "staticlib"]
 
 [build-dependencies]
@@ -23,6 +23,7 @@ tokio = { version = "1", features = ["full"] }
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
 tauri-plugin-notification = "2"
+tauri-plugin-dialog = "2"
 base64 = "0.22"
 strip-ansi-escapes = "0.2"
 regex = "1"
@@ -31,6 +32,9 @@ toml = "0.8"
 rusqlite = { version = "0.31", features = ["bundled"] }
 rayon = "1"
 walkdir = "2"
+serde_yaml = "0.9"
+sha2 = "0.10"
+reqwest = { version = "0.12", features = ["blocking", "json", "native-tls"], default-features = false }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 cocoa = "0.26"

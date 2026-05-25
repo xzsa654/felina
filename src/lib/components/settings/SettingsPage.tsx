@@ -5,6 +5,7 @@ import type { Settings } from "$lib/types";
 import GeneralSettings from "./GeneralSettings";
 import PermissionsEditor from "./PermissionsEditor";
 import EnvVarsEditor from "./EnvVarsEditor";
+import AgentPathsSection from "./AgentPathsSection";
 import ProjectPicker from "$lib/components/shared/ProjectPicker";
 import { useProjectContextStore } from "$lib/stores/project-context";
 import { Info, CreditCard, HardDrive, Trash2 } from "lucide-react";
@@ -101,7 +102,7 @@ export default function SettingsPage() {
     if (!budgetSettings) return;
     try {
       await api.budget.set(budgetSettings.daily_limit, budgetSettings.monthly_limit, budgetSettings.plan_type);
-      showSave("Glyphic settings saved!");
+      showSave("Felina settings saved!");
     } catch (e) {
       showSave(`Error: ${e}`);
     }
@@ -138,6 +139,7 @@ export default function SettingsPage() {
 
   return (
     <div className="p-6 overflow-y-auto h-full">
+      <h1 className="text-xl font-semibold text-text-primary mb-4">Settings</h1>
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
           <div className="flex gap-1 bg-bg-tertiary rounded-lg p-1">
@@ -188,7 +190,7 @@ export default function SettingsPage() {
             <div className="bg-bg-secondary border border-border rounded-lg p-4 space-y-4">
               <h3 className="text-sm font-medium text-text-secondary flex items-center gap-1.5">
                 <CreditCard size={14} />
-                Glyphic Settings
+                Felina Settings
               </h3>
 
               <div className="flex items-center justify-between">
@@ -256,7 +258,7 @@ export default function SettingsPage() {
                   className="px-4 py-1.5 text-sm bg-accent hover:bg-accent-hover text-white rounded-md transition-colors"
                   onClick={saveBudget}
                 >
-                  Save Glyphic Settings
+                  Save Felina Settings
                 </button>
               </div>
             </div>
@@ -265,6 +267,9 @@ export default function SettingsPage() {
           <GeneralSettings settings={globalSettings} onChange={setGlobalSettings} />
           <PermissionsEditor settings={globalSettings} onChange={setGlobalSettings} />
           <EnvVarsEditor settings={globalSettings} onChange={setGlobalSettings} />
+          {/* Multi-agent-skills-foundation: per-agent skill directory overrides.
+              Global only — paths are persisted to ~/.claude/settings.json. */}
+          <AgentPathsSection />
 
           {diskUsage && (
             <div className="bg-bg-secondary border border-border rounded-lg p-4 space-y-4">

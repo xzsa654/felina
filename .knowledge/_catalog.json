@@ -1,0 +1,173 @@
+﻿{
+  "lastUpdated": "2026-05-25",
+  "entries": [
+    {
+      "id": "kb-architecture-local-only-boundary",
+      "title": "Local-only 桌面應用邊界",
+      "type": "knowledge",
+      "status": "active",
+      "confidence": "confirmed",
+      "keywords": ["architecture", "local-only", "desktop", "tauri", "filesystem", "no server", "no telemetry"],
+      "appliesWhen": "設計或審查任何可能引入網路、telemetry、同步、遠端儲存或 server 假設的功能時",
+      "file": "knowledge-base/architecture.md",
+      "anchor": "local-only-desktop-boundary",
+      "updated": "2026-05-25"
+    },
+    {
+      "id": "kb-architecture-local-agent-control-plane-direction",
+      "title": "Local agent control plane 方向",
+      "type": "knowledge",
+      "status": "active",
+      "confidence": "confirmed",
+      "keywords": ["architecture", "control plane", "capability", "capability kind", "skill-only", "local agent", "roadmap", "backlog", "artifact", "runtime binding", "execution record"],
+      "appliesWhen": "設計新的 skill-specific abstraction、資料模型、UI flow、backend module，或評估未來 capability family 是否會被目前設計卡住時",
+      "file": "knowledge-base/architecture.md",
+      "anchor": "local-agent-control-plane-direction",
+      "updated": "2026-05-25"
+    },
+    {
+      "id": "kb-architecture-skill-source-of-truth",
+      "title": "Skill source of truth 與 fan-out 邊界",
+      "type": "knowledge",
+      "status": "active",
+      "confidence": "confirmed",
+      "keywords": ["architecture", "skills", "canonical skills", "source of truth", "fan-out", "agent-native", "routing", "sync"],
+      "appliesWhen": "變更 skill import、edit、sync、delete、repair、routing 或 fan-out 行為時",
+      "file": "knowledge-base/architecture.md",
+      "anchor": "skill-source-of-truth-and-fan-out-boundary",
+      "updated": "2026-05-25"
+    },
+    {
+      "id": "kb-architecture-active-surface-registration",
+      "title": "Active surface 由 registration 定義",
+      "type": "knowledge",
+      "status": "active",
+      "confidence": "confirmed",
+      "keywords": ["architecture", "active surface", "router", "tauri command", "invoke_handler", "command registration", "frontend wrapper"],
+      "appliesWhen": "搜尋行為來源、串接新 capability、審查看似 dead code 的程式碼，或決定變更應實作在哪裡時",
+      "file": "knowledge-base/architecture.md",
+      "anchor": "active-surface-is-defined-by-registration",
+      "updated": "2026-05-25"
+    },
+    {
+      "id": "kb-architecture-specs-docs-kb-boundary",
+      "title": "Specs、docs 與 KB 的職責分工",
+      "type": "knowledge",
+      "status": "active",
+      "confidence": "confirmed",
+      "keywords": ["architecture", "spectra", "specs", "knowledge base", "documentation boundary", "handoff", "reusable lesson"],
+      "appliesWhen": "判斷應該更新 spec、README/AGENTS 類文件、session handoff，或 KB entry 時",
+      "file": "knowledge-base/architecture.md",
+      "anchor": "specs-docs-and-kb-have-separate-jobs",
+      "updated": "2026-05-25"
+    },
+    {
+      "id": "kb-tauri-shell-open-scope",
+      "title": "tauri-plugin-shell open rejects filesystem paths by default",
+      "type": "knowledge",
+      "status": "active",
+      "confidence": "confirmed",
+      "keywords": ["tauri", "tauri-plugin-shell", "shell open", "open scope", "capability", "shell:allow-open", "open in folder", "tauri.conf.json", "plugins.shell"],
+      "appliesWhen": "Calling @tauri-apps/plugin-shell open() on a filesystem path/directory rather than a URL",
+      "file": "knowledge-base/tauri.md",
+      "anchor": "tauri-plugin-shell-open-rejects-filesystem-paths-by-default",
+      "updated": "2026-05-25"
+    },
+    {
+      "id": "kb-frontend-identity-migration-display-vs-storage",
+      "title": "Identity migration: storage key first, display lags behind",
+      "type": "knowledge",
+      "status": "active",
+      "confidence": "confirmed",
+      "keywords": ["identity migration", "canonical id", "display vs storage", "rename", "scope migration", "UI consistency", "skill identity", "alias"],
+      "appliesWhen": "Any change that introduces a new true identity alongside an existing display identity (rename, scope-move, identity-normalization, alias migration) with multiple consuming UI surfaces",
+      "file": "knowledge-base/dev-docs.md",
+      "anchor": "identity-migration-storage-key-first-display-lags-behind",
+      "updated": "2026-05-25"
+    },
+    {
+      "id": "kb-react-async-save-store-race",
+      "title": "Async child save handler must not mutate store before parent onSaved",
+      "type": "knowledge",
+      "status": "active",
+      "confidence": "confirmed",
+      "keywords": ["react", "zustand", "useEffect", "async save", "race condition", "cancelled flag", "store mutation", "parent-child callback", "placeholder bug", "loadEntries"],
+      "appliesWhen": "React + external store; child takes onSaved prop and has direct access to store mutator; parent useEffect depends on store and drives visible render",
+      "file": "knowledge-base/dev-docs.md",
+      "anchor": "async-child-save-handler-must-not-mutate-store-before-parent-onsaved",
+      "updated": "2026-05-25"
+    },
+    {
+      "id": "exp-spectra-analyze-keyword-coverage",
+      "title": "spectra analyze Consistency check uses literal keyword matching against task descriptions",
+      "type": "experience",
+      "status": "active",
+      "confidence": "confirmed",
+      "keywords": ["spectra", "spectra analyze", "Consistency dimension", "keyword matching", "design topic", "tasks coverage", "false positive", "ingest", "propose"],
+      "appliesWhen": "Ingesting/proposing a Spectra change where design.md gets new Decision headings and tasks describe coverage in their own wording without quoting the Decision title verbatim",
+      "file": "experience/spectra.md",
+      "anchor": "spectra-analyze-consistency-check-uses-literal-keyword-matching-against-task-descriptions",
+      "updated": "2026-05-25"
+    },
+    {
+      "id": "kb-react-pagebody-layout",
+      "title": "Page layout scaffold height contract (PageHeader + PageBody)",
+      "type": "knowledge",
+      "status": "active",
+      "confidence": "confirmed",
+      "keywords": ["layout", "flexbox", "h-full", "flex-1", "min-h-0", "overflow-hidden", "PageBody", "PageScaffold", "scroll", "clipping", "tailwind"],
+      "appliesWhen": "Building or debugging routed pages using PageScaffold or any full-height internal-scroll layout",
+      "file": "knowledge-base/dev-docs.md",
+      "anchor": "page-layout-scaffold-height-contract-pageheader--pagebody",
+      "updated": "2026-05-22"
+    },
+    {
+      "id": "kb-ui-consistency-design",
+      "title": "UI consistency design-time checklist",
+      "type": "knowledge",
+      "status": "active",
+      "confidence": "confirmed",
+      "keywords": ["ui consistency", "design review", "ConfirmDialog", "window.confirm", "modal", "inline error", "w-full", "component reuse", "design.md"],
+      "appliesWhen": "Designing any change that adds or modifies UI pages/components",
+      "file": "knowledge-base/dev-docs.md",
+      "anchor": "ui-consistency-design-time-checklist",
+      "updated": "2026-05-22"
+    },
+    {
+      "id": "kb-git-windows-crlf-stat-false-modified",
+      "title": "Windows: git checkout leaves files falsely modified (CRLF stat cache), can abort merge",
+      "type": "knowledge",
+      "status": "active",
+      "confidence": "confirmed",
+      "keywords": ["git", "windows", "crlf", "autocrlf", "checkout", "merge aborted", "local changes would be overwritten", "stat cache", "phantom modified", "line endings"],
+      "appliesWhen": "On Windows when git reports tracked files modified or blocks merge/checkout but git diff is empty",
+      "file": "knowledge-base/platform.md",
+      "anchor": "windows-git-checkout-leaves-files-falsely-modified-crlf-stat-cache-can-abort-merge",
+      "updated": "2026-05-22"
+    },
+    {
+      "id": "kb-platform-windows-claude-credentials",
+      "title": "Windows: Claude Code OAuth credentials stored in ~/.claude/.credentials.json",
+      "type": "knowledge",
+      "status": "active",
+      "confidence": "confirmed",
+      "keywords": ["windows", "credentials", "oauth", "keychain", "claude code", "cross-platform", ".credentials.json"],
+      "appliesWhen": "Reading Claude Code OAuth credentials cross-platform",
+      "file": "knowledge-base/platform.md",
+      "anchor": "windows-claude-code-oauth-credentials-stored-in-claudecredentialsjson",
+      "updated": "2026-05-25"
+    },
+    {
+      "id": "kb-platform-tokscale-parser-fallback",
+      "title": "Token refresh requires parser fallback when tokscale CLI is absent",
+      "type": "knowledge",
+      "status": "active",
+      "confidence": "confirmed",
+      "keywords": ["tokscale", "token refresh", "parser fallback", "history page", "felina parser", "scan", "jsonl", "empty db"],
+      "appliesWhen": "Calling refresh_token_data or populating the token DB for History/Analytics",
+      "file": "knowledge-base/platform.md",
+      "anchor": "token-refresh-requires-parser-fallback-when-tokscale-cli-is-absent",
+      "updated": "2026-05-25"
+    }
+  ]
+}

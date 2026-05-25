@@ -44,6 +44,19 @@ export default function HourlyHeatmap({
     (dk) => t(locale, `tokens.hourlyHeatmap.days.${dk}` as never),
   );
 
+  if (data.length === 0) {
+    return (
+      <div className="bg-bg-secondary border border-border rounded-lg p-4">
+        <h3 className="text-sm font-medium text-text-secondary mb-3">
+          {t(locale, "tokens.hourlyHeatmap.title")}
+        </h3>
+        <div className="flex items-center justify-center h-32 text-text-muted text-sm text-center">
+          {t(locale, "tokens.hourlyHeatmap.aggregateOnly")}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="bg-bg-secondary border border-border rounded-lg p-4">
       <h3 className="text-sm font-medium text-text-secondary mb-3">

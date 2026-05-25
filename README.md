@@ -1,169 +1,146 @@
-<p align="center">
-  <img src="src-tauri/icons/icon.png" width="128" height="128" alt="Glyphic">
-</p>
+# Felina
 
-<h1 align="center">Glyphic</h1>
+Felina 是給 agent CLI 使用者的本機桌面控制台。它把散落在不同 agent 工具與專案目錄裡的 skills、設定、專案綁定與使用紀錄，收斂成一個可以檢視、編輯、同步與追蹤的桌面 App。
 
-<p align="center">
-  <strong>The desktop app for managing Claude Code</strong>
-</p>
+Felina 目前聚焦在 Anthropic Claude Code、OpenAI Codex CLI、Google Gemini / Antigravity CLI 的 multi-agent skill 管理。長期方向是成為 local agent control plane：Skills 是第一個落地的 capability kind，後續可延伸到 hooks、subagents、workflows、MCP tools、prompt templates、policy packs 等 agent 能力。
 
-<p align="center">
-  <a href="#features">Features</a> &bull;
-  <a href="#installation">Installation</a> &bull;
-  <a href="#development">Development</a> &bull;
-  <a href="#screenshots">Screenshots</a> &bull;
-  <a href="#contributing">Contributing</a>
-</p>
+## 適合誰
 
-<p align="center">
-  <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-blue" alt="Platform">
-  <img src="https://img.shields.io/badge/built%20with-Tauri%20v2-orange" alt="Tauri">
-  <img src="https://img.shields.io/badge/frontend-React%2019-blue" alt="React">
-  <img src="https://img.shields.io/badge/license-AGPL--3.0-blue" alt="License">
-</p>
+- 已經在使用 Claude Code、Codex CLI、Gemini CLI 或 Antigravity CLI 的開發者。
+- 需要在多個 project 之間管理 agent skills 的團隊或個人。
+- 不想手動維護多份 `SKILL.md`、agent-native 目錄與同步狀態的人。
+- 想用本機工具檢視 token/session 使用情況，而不是把資料送到遠端服務的人。
 
----
+## 解決的問題
 
-Glyphic gives you a visual interface to configure, manage, and use [Claude Code](https://docs.anthropic.com/en/docs/claude-code) -- the AI coding assistant from Anthropic. Instead of editing JSON files and markdown by hand, Glyphic lets you manage everything through a modern desktop app.
+Agent CLI 的設定與 extension 檔案通常分散在不同位置：
+
+- Claude Code 使用 `.claude/skills/`。
+- Codex CLI 使用 `.agents/skills/` 與相關 Codex 設定。
+- Gemini / Antigravity CLI 使用 `.gemini/skills/` 或相容目錄。
+- 不同 project 可能各自有不同版本、不同同步狀態與同名 skill 衝突。
+
+Felina 的核心想法是：使用者在 Felina 的 canonical store 編輯一次，再由 App 依照各 agent 的 native format fan-out 到對應位置。
+
+## 核心能力
+
+### Skills
+
+- 以 `~/.felina/skills/` 作為 canonical skill master。
+- 編輯、修復、刪除與同步 canonical skills。
+- 從 agent-native skill directories 匯入既有 skills。
+- 將同一份 canonical skill fan-out 到 Claude、Codex、Gemini / Antigravity。
+- 依 target 管理 global / project scope、enabled 狀態與 tracked/detached 模式。
+- 顯示 coverage matrix，快速看出每個 skill 已同步到哪些 agent / project。
+
+### Projects
+
+- 管理 Known Projects 清單。
+- 查看 project-local agent skill presence。
+- 從 project 視角理解哪些 skills 已被 Felina 納管、哪些仍只是 agent-native 檔案。
+- 對不存在的 project path 提供可見狀態，而不是靜默失效。
+
+### Tokens 與 History
+
+- 掃描本機 agent CLI session / token 使用資料。
+- 以 dashboard 檢視每日、模型、project、session 層級的使用情況。
+- 從 token summary 連到 History，檢視對應 session。
+- 這些資料保留在本機，不需要 server 或 telemetry。
+
+### Settings、Memory、Templates
+
+- 提供 Claude Code 相關設定與 memory 檔案的視覺化管理介面。
+- 提供可重用 templates，降低建立新設定或 skill 的成本。
+- 這些頁面仍是 local-file-first 的桌面工具，不依賴遠端帳號。
+
+## 設計原則
+
+- **Local-only**：Felina 讀寫本機檔案；沒有 server、沒有 telemetry。
+- **Respect native formats**：每個 agent 的輸出仍寫回它自己的原生格式與目錄。
+- **Canonical first**：使用者編輯的主檔在 `~/.felina/skills/`，agent-native 目錄是 fan-out output。
+- **Explicit sync**：同步、覆蓋、刪除與衝突處理應讓使用者看得見，不靠隱性背景魔法。
+- **Capability-general direction**：目前先把 Skills 做完整，但架構避免把 Felina 鎖死成 skill-only editor。
 
 ## Screenshots
 
 <p align="center">
-  <img src="screenshots/skills.png" width="800" alt="Skills & Agents">
-  <br><em>Skills & Agents — Detail view with config cards and connections</em>
+  <img src="screenshots/skills.png" width="800" alt="Felina Skills page">
+  <br><em>Skills — canonical skills, targets, sync state, and coverage</em>
 </p>
 
 <details>
-<summary>View all screenshots</summary>
+<summary>View more screenshots</summary>
 
 <p align="center">
-  <img src="screenshots/settings.png" width="800" alt="Settings">
-  <br><em>Settings — Global and project configuration with model selector</em>
+  <img src="screenshots/settings.png" width="800" alt="Felina Settings page">
+  <br><em>Settings — local agent configuration management</em>
 </p>
 
 <p align="center">
-  <img src="screenshots/memory.png" width="800" alt="Memory">
-  <br><em>Memory — Project memory browser with card grid and editor</em>
+  <img src="screenshots/memory.png" width="800" alt="Felina Memory page">
+  <br><em>Memory — local project memory browser and editor</em>
 </p>
 
 </details>
 
-## Features
-
-### Skills & Agents
-Full-featured editor for SKILL.md and AGENT.md files. Detail view shows parsed frontmatter as visual cards (model, tools, permissions, memory, hooks, preloaded skills, inline MCP). Connection visualization shows relationships. 8 starter templates with proper frontmatter.
-
-### Settings Editor
-Visual editor for `settings.json` at global and project scope. Model selector, effort level, plan type (Max/Pro/API/Team/Free), toggle switches, permissions editor (allow/ask/deny rules), and environment variables. Project settings show shared (git-tracked) and local (gitignored) overrides side by side. Storage management with disk usage breakdown and one-click cleanup of safe-to-delete directories.
-
-### Templates
-Unified template gallery with pre-built configurations for skills and agents. Always accessible from every page. One-click to add.
-
-### Memory Browser
-Browse project memory files with a card-based UI. Each card shows type badge (user/feedback/project/reference), name, description, and content preview. Create new memory files with frontmatter editor.
-
-### Other
-- **System tray** — closing the window hides to tray instead of quitting; click the tray icon to restore; on macOS hides from Dock and Cmd+Tab when minimized
-- **First-run onboarding** — guided setup for new users
-- **Light/Dark theme** toggle with persisted preference
-- **Command Palette** — Cmd+K / Ctrl+K fuzzy-search to jump between pages
-- **Auto-updates** — notified of new versions, one-click update
-- **Apple-signed** macOS builds — no Gatekeeper warnings
-- **Storage maintenance** — disk usage breakdown with one-click cleanup
-
-## Installation
-
-### Download
-
-Go to [Releases](https://github.com/caioricciuti/glyphic/releases) and download the latest version for your platform:
-
-- **macOS (Apple Silicon)**: `Glyphic_x.x.x_aarch64.dmg`
-- **macOS (Intel)**: `Glyphic_x.x.x_x64.dmg`
-- **Windows**: `.msi` installer or `.exe` setup
-- **Linux**: `.deb` package, `.AppImage`, or `.rpm`
-
-macOS builds are **signed and notarized** with an Apple Developer certificate. Just download, drag to Applications, and open.
-
-The app includes **auto-updates** — you'll be notified when a new version is available and can update in one click.
-
-### Prerequisites
-
-- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) must be installed and configured (`claude` CLI available in PATH)
-
-## Development
+## 開發
 
 ### Requirements
 
-- [Rust](https://rustup.rs/) (1.70+)
-- Node.js 18+ and npm
-- [Tauri CLI](https://v2.tauri.app/start/prerequisites/)
+- Node.js 18+
+- npm
+- Rust toolchain
+- Tauri v2 prerequisites for your platform
 
 ### Setup
 
 ```bash
-# Clone
-git clone https://github.com/caioricciuti/glyphic.git
-cd glyphic
-
-# Install dependencies
 npm install
-
-# Run in development
 npm run tauri dev
+```
 
-# Build for production
+`npm run tauri dev` 會啟動完整 Tauri App。只執行 `npm run dev` 只會啟動 Vite，呼叫 Tauri commands 的頁面無法完整運作。
+
+### Useful Commands
+
+```bash
+npm run check
+npm run build
 npm run tauri build
+spectra list
+spectra validate
+spectra analyze
 ```
 
-### Project Structure
-
-```
-glyphic/
-├── src/                    # React + TypeScript frontend
-│   ├── lib/
-│   │   ├── components/     # React components and page modules
-│   │   ├── stores/         # Zustand stores (navigation, project context, theme)
-│   │   ├── tauri/          # Typed Tauri command wrappers
-│   │   ├── types/          # TypeScript interfaces
-│   │   └── utils/          # Formatting, parsing helpers
-│   └── app.css             # Tailwind v4 + dark theme + markdown styles
-├── src-tauri/              # Rust backend
-│   └── src/
-│       ├── commands/       # Command modules (settings, memory, skills, ...)
-│       └── paths.rs        # Smart path resolution for project hashes
-└── static/                 # App icons
-```
-
-### Tech Stack
+## Tech Stack
 
 | Layer | Technology |
-|-------|-----------|
-| Framework | [Tauri v2](https://v2.tauri.app/) |
-| Frontend | [React 19](https://react.dev/) + [zustand](https://zustand-demo.pmnd.rs/) + [react-router](https://reactrouter.com/) |
-| Styling | [Tailwind CSS v4](https://tailwindcss.com/) |
-| Icons | [Lucide](https://lucide.dev/) |
-| Markdown | [Marked](https://marked.js.org/) |
-| Language | TypeScript (strict) + Rust |
-| Package Manager | npm |
+|---|---|
+| Desktop shell | Tauri v2 |
+| Frontend | React 19, TypeScript strict mode, React Router |
+| State | Zustand |
+| Styling | Tailwind CSS v4 |
+| Backend | Rust Tauri commands |
+| Package manager | npm |
 
-## How It Works
+## Architecture Notes
 
-Glyphic reads and writes the same configuration files that Claude Code uses:
+- Frontend code lives in `src/`.
+- Backend commands live in `src-tauri/src/commands/`.
+- Frontend-to-backend calls go through typed wrappers in `src/lib/tauri/commands.ts`.
+- Active frontend pages are defined in `src/router.tsx`.
+- Active backend commands must be registered through `src-tauri/src/commands/mod.rs` and `src-tauri/src/lib.rs`.
+- Path identity and project path normalization should use the shared helpers instead of ad hoc string comparison.
 
-- `~/.claude/settings.json` -- global settings
-- `~/.claude/CLAUDE.md` -- global instructions
-- `~/.claude/projects/` -- per-project memory and config
-- `.claude/settings.json` -- project settings (shared)
-- `.claude/settings.local.json` -- local overrides (gitignored)
-- `.claude/skills/`, `.claude/agents/` -- custom extensions
+## Repository Workflow
 
-No server, no account, no telemetry. Everything runs locally on your machine.
+Felina uses Spectra for spec-driven development:
+
+- Specs live in `openspec/specs/`.
+- Active change proposals live in `openspec/changes/`.
+- Completed changes are archived under `openspec/changes/archive/`.
+- Product roadmap items live in `.session/product-backlog.md` until they become Spectra changes.
 
 ## License
 
 [AGPL-3.0](LICENSE)
-
-## Credits
-
-Built by [Caio Ricciuti](https://github.com/caioricciuti)

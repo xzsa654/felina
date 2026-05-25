@@ -1,83 +1,203 @@
 # Product Backlog
 
-待立項的產品功能 roadmap。項目正式進入開發時,透過 `spectra new change` 立 Spectra change,並在這份文件移除或標註 `in-progress: <change>`。
+產品功能的規劃池。從模糊構想到可執行的 change 都可以放，隨著前一個 change 的開發逐漸讓後續規劃清晰化。項目正式進入開發時，透過 `spectra new change` 立 Spectra change，完成後從本文件移除。
+
+項目層級（由模糊到具體）:
+- **`umbrella-direction`** — 產品方向 / 架構願景，不直接對應單一 change，用來指引後續規劃。
+- **`suggestion`** — 構想雛形，scope 尚未收斂，隨開發推進逐步具體化。
+- **`planned-change`** — scope 已明確、可立 Spectra change 的項目。
 
 維護規則:
-- 只收尚未開立 Spectra change 的「未來功能 / 方向」。
-- 已立項並進入開發的工作不重複追蹤;以 Spectra 的 `spectra list` 為準。
-- 項目需註明 `flagged: YYYY-MM-DD`(首次登錄日)與 `last-seen: YYYY-MM-DD`(最近一次 session 確認仍要做的日期)。
-- 不放工具 / 框架 / 流程層面的設計問題,那類項目歸 `.session/design-backlog.md`。
+- 已立項並進入開發的工作不重複追蹤；以 `spectra list` 為準。
+- 完成的 change 從本文件移除；歷史紀錄在 `openspec/changes/archive/` 下。
+- 項目需註明 `flagged: YYYY-MM-DD`（首次登錄日）與 `last-seen: YYYY-MM-DD`（最近確認日）。
+
+准入條件:
+- **產品功能或使用者可見行為**：會改變 UI、新增操作、或影響使用者體驗。
+- **未被既有條目涵蓋**：不與現有 entry scope 重疊；若屬子項，更新該條目而非新增。
+- suggestion 層級不要求明確交付物，但至少要能描述「解決什麼問題 / 滿足什麼需求」。
+
+不收的項目（歸其他位置）:
+- 工具 / 框架 / 流程 / 開發體驗問題 → `.session/design-backlog.md`
+- 當前 session 的 bug fix / 追加任務 → Spectra change tasks 或 handoff Open Questions
+- 純研究 / 調查 → `.session/` 下獨立文件（如 `agent-capability-research.md`）
+- 使用者隨口提到但未確認要做的想法 → 不記錄；等使用者明確表示「加進 backlog」再收
+
+Entry format:
+- Use `### <item-name>` for each backlog item; keep status and qualifiers out of the title.
+- Put metadata in a Markdown table so preview mode is readable:
+  `| Field | Value |` with fields such as `type`, `status`, `flagged`, `last-seen`, `blocked-by`, `description`.
+- Put longer details below the table under `Scope:`, `Notes:`, or other short labels.
+- Planned work should use `type: planned-change` and `status: planned`; non-committed ideas should use `type: suggestion` and `status: not-committed`.
+- Update `last-seen` when an item is actively reviewed or its status changes.
 
 ---
 
-## Phase 1 — 等依賴的下一個 Spectra change
+## Product Direction
 
-- **multi-agent-skills-foundation**(預計 change 名)
-  flagged: 2026-05-20 / last-seen: 2026-05-20
-  blocked-by: `agent-skills-schema-reference` 需先 apply 完成,提供 canonical schema 與三家 agent 對照表後,本 change 才能基於實際資料設計實作。
+### capability-registry-control-plane
 
-  核心構想(等 schema 研究完成後 propose 時細化):
+| Field | Value |
+|---|---|
+| type | umbrella-direction |
+| status | active-direction |
+| flagged | 2026-05-22 |
+| last-seen | 2026-05-22 |
+| description | Felina 定位為 local agent control plane，不只是 skill editor。Skills 是第一個落地的 capability kind，架構應避免 skill-only dead ends。 |
 
-  - **Canonical 儲存層**:
-    - `~/.glyphic/skills/<skill-name>/SKILL.md`(全域)與 `<project>/.glyphic/skills/<skill-name>/SKILL.md`(專案)兩個 scope 各自獨立。
-    - 主檔為 Markdown + YAML frontmatter,frontmatter 含 `agents: [<agent-name>, ...]` 同步控制欄位。
-    - 跟 git 一起追蹤(主檔本身就是 source of truth)。
+Near-term strategy:
+- Skills 先做完作為 capability system 的 reusable template。
+- Phase 1.5 / Phase 2 skill-sync 順序不動。
+- 新 capability family 上線前先用 vendor docs 驗證，同 `agent-skills-schema` 模式。
 
-  - **Agent 設定**:
-    - 寫死支援 Anthropic / OpenAI Codex / Google Gemini 三家。
-    - 各 agent 的 skill 目錄路徑(global / project)可由使用者於 Settings 頁調整,預設值來自 `agent-skills-schema-reference` 研究結果。
-    - 預留資料結構支援第 4 家,但 UI 不暴露(避免使用者誤設)。
+Architecture note:
+- Model toward `Capability`, `Artifact`, `RuntimeBinding`, `ExecutionRecord`，目前只暴露 `kind=skill`。
+- Future `Capability.kind` candidates: `skill`, `hook`, `subagent`, `workflow`, `mcp-tool`, `prompt-template`, `policy-pack`。
+- Agent capability research: `.session/agent-capability-research.md`。
 
-  - **初始化匯入**:
-    - 首次啟動或手動觸發時,掃描已知 agent 目錄(`~/.claude/skills/`、`.claude/skills/`、`.codex/skills/` 等)收集既存 skill。
-    - 衝突處理:同名 skill 在多個 agent 目錄發現時,呈現 diff 讓使用者選擇主版本來源,並設定 `agents: []` 為所有發現的 agent。
-    - 匯入後 skill 主檔放在 `~/.glyphic/skills/` 或 `<project>/.glyphic/skills/`,各 agent 目錄保留原檔不動(等待 phase 2 drift 偵測啟動雙向處理)。
+---
 
-  - **Skill CRUD**:
-    - List:依 scope 切分 tab(global / 各 project),顯示 skill 名稱、description、`agents` 標籤、最後修改日。
-    - Create / Edit:CodeMirror 編輯 SKILL.md(frontmatter + body),frontmatter 區用視覺化表單(欄位依 canonical schema)。
-    - Delete:刪 canonical;同步給 agent 的版本不主動刪,留待 phase 2 drift UI 處理。
+## Phase 1.5 — Target Freedom Sequence
 
-  - **單向匯出(push)**:
-    - 操作:點 skill 上的「Sync」按鈕 → 依 `agents` 欄位匯出到各 agent 目錄。
-    - 行為:純檔案複製(Windows 無 symlink 問題);target 目錄不存在自動建立。
-    - 不處理:drift 偵測、衝突、normalize 警示——皆 phase 2。
+`skill-sync-lifecycle` original umbrella scope was split on 2026-05-25.
+Recommended first proposal: `skill-target-lifecycle-safety`.
+`skill-identity-namespace-strategy` needs `$spectra-discuss` before implementation.
 
-  - **不包含的 phase 2 功能(明確 out of scope)**:
-    - 雙向同步(drift 偵測 + 三向 diff 衝突解決)
-    - 欄位 normalize 警示(target 不認識欄位的處理)
-    - Per-agent override(同 skill 多 agent 內容微調)
-    - Skill 社群化分享相關功能
+### skill-target-lifecycle-safety
 
-  - **影響的既有頁面**:
-    - Skills 頁重寫(使用 canonical 儲存層 + agent 同步)。
-    - Settings 頁加入 agent 路徑設定區。
-    - Templates 頁改寫為 skill 範本庫(初始化時可用)。
-    - Memory 頁不動。
-    - hooks / instructions / mcp / rules 仍保持取消註冊狀態。
+| Field | Value |
+|---|---|
+| type | planned-change |
+| status | planned |
+| flagged | 2026-05-22 |
+| last-seen | 2026-05-25 |
+| description | Target lifecycle safety before Felina writes, overwrites, deletes, detaches, or repairs agent-side skill files. |
 
-## Phase 2 — Skill 同步進階功能
+Scope:
+- **Push dry-run**: preview write paths + create/overwrite/no-op counts; user confirms to commit.
+- **Push-time drift check**: compare target SKILL.md hash with `last_sync.pushed_hash`; drift → prompt override / detach / cancel.
+- **Canonical delete prompt**: Cascade (delete agent files) / Detach (leave orphaned) / Cancel.
+- **Per-target removal prompt**: target row 移除時提示是否一併刪除 agent-side file（converge with cascade/detach semantics）。
+- **In-place target repoint**: "project not found" 時可 Browse 重新指向新路徑，取代 delete + re-add。
 
-- **Drift 偵測 + 衝突解決 UI**
-  flagged: 2026-05-20 / last-seen: 2026-05-20
-  App 開啟時掃描各 agent skill 目錄是否與 canonical 不一致,提供三向 diff 與「以主檔覆蓋 / 拉回主檔 / 解綁追蹤」三種解決動作。對應 phase 1 同步策略路線二的延伸實作。
+### clarify-skill-import-conflicts
 
-- **跨 agent 欄位 normalize 警示**
-  flagged: 2026-05-20 / last-seen: 2026-05-20
-  同步前比對 target agent schema,主檔有 target 不認識的欄位時提示使用者:過濾掉 / 保留原樣 / 對應到其他欄位,選擇記為 per-skill per-agent mapping rule 持久化。
+| Field | Value |
+|---|---|
+| type | planned-change |
+| status | planned |
+| flagged | 2026-05-22 |
+| last-seen | 2026-05-25 |
+| description | Clarify single-source import conflict semantics and make target creation explicit. |
 
-- **Per-agent override**
-  flagged: 2026-05-20 / last-seen: 2026-05-20
-  同一 skill 同步給多 agent 時,允許各 agent 端內容微調。資料模型需擴充(主檔 + agent override patch)。
+Scope:
+- **Import resolution 選項收斂**: wizard 的「保留 canonical」與「跳過」目前對有衝突的 candidate 執行結果完全相同（都 no-op 不寫入），是語意冗餘。應收斂或重新設計衝突解決選項，讓每個選項有明確不同的行為。
+- **Import target 顯式化**: import 時直接寫 sync-meta sidecar（取代現行讀取時隱性 backfill），並讓 overwrite / rename / keep 行為在 UI 與 backend contract 中可區分。
 
-## Phase 3 — Skill 社群化
+### resolve-multi-source-skill-import
 
-- **公司內部 skill 分享 marketplace**
-  flagged: 2026-05-20 / last-seen: 2026-05-20
-  延伸 server 端,使用者可發佈 / 訂閱他人的 skill。Server stack 初步討論:Vercel + Supabase,Node Express 是否必要待釐清。會影響 skill schema(需加唯一識別、版本、作者欄位)。
+| Field | Value |
+|---|---|
+| type | planned-change |
+| status | planned |
+| flagged | 2026-05-22 |
+| last-seen | 2026-05-25 |
+| description | Resolve imports where the same skill name appears in multiple sources or outside standard agent directories. |
 
-## 平行進行
+Scope:
+- **Multi-source import resolution**: 同名 skill 存在多個 agent dir 時，讓 user 選權威來源。
+- **Import-all + rename 批次衝突**: 批次匯入遇同名衝突時的 per-conflict keep/overwrite/rename 流程。
+- **Arbitrary-folder import**: 從任意資料夾匯入 SKILL.md（不限三家 agent dir）。
 
-- **Token 審計平台**
-  flagged: 2026-05-20 / last-seen: 2026-05-20
-  由同仁負責。排程 POST token 用量到 server,支援多 uid 與時間範圍查詢。Server stack 設計待同仁釐清。Glyphic 既有 token-savings / analytics 頁面在 cleanup-glyphic-base 階段一併移除,後續由本項目的方案取代。
+### skill-identity-namespace-strategy
+
+| Field | Value |
+|---|---|
+| type | suggestion |
+| status | discussed-concluded |
+| flagged | 2026-05-22 |
+| last-seen | 2026-05-25 |
+| description | Product-model decision for same-name skills across projects under Felina's single global canonical store. |
+
+Conclusion (2026-05-25):
+- **維持 single-global-by-name flat namespace**，不引入 project namespace。
+- **同名碰撞在 import 時由使用者選擇一個來源當 canonical 內容**，其餘來源以 disabled target 保留。
+- Import wizard 提供多來源 diff 預覽（歸 #15/#16 scope）。
+- Disabled target 可查看 agent 端現有內容（歸 #14/#15 scope）。
+- 版本差異長期由 Phase 2 forked overlay 處理。
+- Rationale: project namespace 會動到整個 identity model（sync-meta、fan-out、import、UI），成本與現階段需求不匹配。
+
+---
+
+## Phase 2 — Skill Sync Advanced
+
+### drift-detection-and-conflict-ui
+
+| Field | Value |
+|---|---|
+| type | suggestion |
+| status | not-committed |
+| flagged | 2026-05-20 |
+| last-seen | 2026-05-20 |
+| description | App 開啟時掃描 agent skill 目錄與 canonical 的差異，提供三向 diff + 覆蓋/拉回/解綁三種解決動作。 |
+
+### cross-agent-field-normalize
+
+| Field | Value |
+|---|---|
+| type | suggestion |
+| status | not-committed |
+| flagged | 2026-05-20 |
+| last-seen | 2026-05-20 |
+| description | 同步前比對 target agent schema，主檔有 target 不認識的欄位時提示過濾/保留/mapping，選擇持久化為 per-skill per-agent mapping rule。 |
+
+### forked-target-overlay
+
+| Field | Value |
+|---|---|
+| type | suggestion |
+| status | not-committed |
+| flagged | 2026-05-20 |
+| last-seen | 2026-05-22 |
+| description | Per-target 客製化：canonical 推到某 project 後，使用者手改的部分以 overlay 檔保留，canonical 更新時自動套新 base + 舊 overlay。 |
+
+Design route (2026-05-22 discuss 定案 Route 2 overlay):
+- Overlay 以獨立 `.patch.md` 存於 canonical sidecar `overlays/` 下。
+- MVP 用整段替換格式；未來可延伸 unified diff。
+- Render flow: `fan_out(canonical) → apply overlay(target) → write SKILL.md`。
+- Phase 1 已預留鉤子：sync-meta `targets[].mode` 含 `forked` placeholder、`last_sync[target].base_snapshot` 欄位。
+
+### local-versioning-and-snapshot-layer
+
+| Field | Value |
+|---|---|
+| type | suggestion |
+| status | not-committed |
+| flagged | 2026-05-22 |
+| last-seen | 2026-05-22 |
+| description | Phase 2 compare/overwrite/delete/conflict/overlay 的共用安全層：file snapshot + content hash + optional Git adapter + rollback。 |
+
+### sync-info-bar-scalability
+
+| Field | Value |
+|---|---|
+| type | suggestion |
+| status | not-committed |
+| flagged | 2026-05-22 |
+| last-seen | 2026-05-22 |
+| description | Sync info 面板在 agent 數量擴增時的 UI 縮放：摺疊/摘要視圖或 chip 化，失敗 target 展開、成功摺起。 |
+
+---
+
+## Phase 3 — Skill Community
+
+### skill-marketplace
+
+| Field | Value |
+|---|---|
+| type | suggestion |
+| status | not-committed |
+| flagged | 2026-05-20 |
+| last-seen | 2026-05-20 |
+| description | 公司內部 skill 分享 marketplace。使用者可發佈/訂閱他人 skill。Server stack 初步討論 Vercel + Supabase。會影響 skill schema（需加唯一識別、版本、作者欄位）。 |
+
