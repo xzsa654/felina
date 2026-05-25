@@ -8,6 +8,7 @@ const PAGE_TITLES: Record<Page, string> = {
   tokens: "Tokens",
   templates: "Templates",
   memory: "Memory",
+  history: "History",
 };
 
 const PAGE_DESCRIPTIONS: Record<Page, string> = {
@@ -17,6 +18,7 @@ const PAGE_DESCRIPTIONS: Record<Page, string> = {
   tokens: "Token analytics across all AI coding agents",
   templates: "Browse and add pre-built configurations",
   memory: "Project memory and context",
+  history: "Local agent session transcripts",
 };
 
 export default function Header() {

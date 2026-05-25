@@ -11,10 +11,10 @@ export default function DateRangeFilter({
   locale: Locale;
 }) {
   const PRESETS: { key: string; days: number | null }[] = [
+    { key: "all", days: null },
     { key: "days7", days: 7 },
     { key: "days30", days: 30 },
     { key: "days90", days: 90 },
-    { key: "all", days: null },
   ];
 
   return (

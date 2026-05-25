@@ -1,0 +1,837 @@
+# frontend-i18n Specification
+
+## Purpose
+
+TBD - created by archiving change 'add-token-i18n'. Update Purpose after archive.
+
+## Requirements
+
+### Requirement: Frontend exposes selectable locales
+
+The frontend SHALL support exactly two user-selectable locales for the initial i18n rollout: English (`en`) and Traditional Chinese (`zh-TW`). The frontend MUST default to English when no valid saved locale exists.
+
+#### Scenario: First launch uses English
+
+- **WHEN** the application starts without a saved locale
+- **THEN** the frontend SHALL render translatable `/tokens` text in English
+
+#### Scenario: Saved Traditional Chinese locale is restored
+
+- **WHEN** the application starts with `zh-TW` saved as the locale
+- **THEN** the frontend SHALL render translatable `/tokens` text in Traditional Chinese
+
+#### Scenario: Invalid saved locale falls back
+
+- **WHEN** the application starts with a saved locale value other than `en` or `zh-TW`
+- **THEN** the frontend SHALL use English as the active locale
+
+
+<!-- @trace
+source: add-token-i18n
+updated: 2026-05-22
+code:
+  - screenshots/hooks.png
+  - src/lib/types/index.ts
+  - src/lib/components/tokens/components/CacheEfficiencyCard.tsx
+  - src-tauri/src/commands/sessions.rs
+  - src/lib/components/sessions/SessionMonitor.svelte
+  - src/lib/components/analytics/AnalyticsPage.tsx
+  - src/lib/components/dashboard/DashboardPage.svelte
+  - src-tauri/src/commands/stats.rs
+  - src/lib/components/pipelines/nodes/WriteFileNode.svelte
+  - src-tauri/src/ctx/embed.rs
+  - src/lib/components/pipelines/nodes/GitNode.svelte
+  - src-tauri/src/filter/pipeline.rs
+  - src/lib/components/pipelines/nodes/InputNode.svelte
+  - src/lib/components/pipelines/nodes/ReadFileNode.svelte
+  - src/lib/components/sessions/SessionsPage.tsx
+  - src/lib/components/plugins/PluginsPage.tsx
+  - src/lib/components/pipelines/nodes/GithubNode.svelte
+  - src/lib/components/mcp/McpPage.svelte
+  - src/lib/types/token-analytics.ts
+  - src/lib/utils/format.ts
+  - src/lib/components/dashboard/ConfigCompletenessRing.svelte
+  - RELEASE_NOTES.md
+  - src/lib/components/settings/SettingsPage.svelte
+  - src/lib/components/pipelines/nodes/FilterNode.svelte
+  - src-tauri/src/commands/git.rs
+  - src/lib/i18n/locales/zh-TW.ts
+  - src/lib/tauri/commands.ts
+  - src/lib/components/tokens/components/TokenTimeSeries.tsx
+  - src/lib/components/pipelines/nodes/BaseNode.svelte
+  - src/router.tsx
+  - src/lib/components/terminal/TerminalPage.svelte
+  - src/lib/stores/pipeline-execution.svelte.ts
+  - src-tauri/src/commands/budget.rs
+  - CONTRIBUTING.md
+  - src-tauri/src/filter/tracker.rs
+  - src-tauri/src/tokens/scanner.rs
+  - src/lib/components/dashboard/AchievementGrid.tsx
+  - src/lib/components/tokens/components/DateRangeFilter.tsx
+  - screenshots/git.png
+  - src-tauri/src/ctx/db.rs
+  - src/lib/stores/terminal.svelte.ts
+  - src-tauri/src/tokens/scan_state.rs
+  - src/lib/components/pipelines/nodes/OutputNode.svelte
+  - src-tauri/src/commands/rules.rs
+  - src/lib/components/dashboard/StreakCard.tsx
+  - screenshots/dashboard.png
+  - src-tauri/src/tokens/storage.rs
+  - src-tauri/src/commands/memory.rs
+  - src/lib/components/shared/OnboardingWelcome.svelte
+  - src/lib/components/pipelines/CodeEditor.svelte
+  - screenshots/plugins.png
+  - src/lib/components/sessions/SessionMonitor.tsx
+  - src/lib/components/shared/ConfirmDialog.svelte
+  - src/lib/components/tokens/components/CostBudgetCard.tsx
+  - src/lib/components/hooks/HookCard.svelte
+  - src-tauri/src/tokens/parsers/mod.rs
+  - src/lib/stores/theme.svelte.ts
+  - src/lib/components/pipelines/nodes/ClaudeNode.svelte
+  - README.md
+  - src/lib/components/context-engine/ContextEnginePage.svelte
+  - src/lib/components/pipelines/PipelinesPage.tsx
+  - src/lib/components/pipelines/nodes/NotificationNode.svelte
+  - src/lib/components/tokens/components/TokenStatCards.tsx
+  - src/lib/components/shared/ProjectPicker.svelte
+  - src-tauri/src/tokens/parsers/claude_code.rs
+  - src-tauri/src/commands/plugins.rs
+  - src/lib/components/dashboard/StreakCard.svelte
+  - src/lib/components/pipelines/nodes/JsonExtractNode.svelte
+  - src/App.svelte
+  - src/lib/components/tokens/components/ModelBreakdownChart.tsx
+  - src-tauri/src/commands/hooks.rs
+  - src/lib/components/terminal/TerminalPage.tsx
+  - src/lib/components/keybindings/KeybindingsPage.tsx
+  - src-tauri/src/tokens/aggregator.rs
+  - src/lib/components/hooks/HookEditor.svelte
+  - src/lib/stores/navigation.ts
+  - src-tauri/src/ctx/config.rs
+  - src/lib/components/shared/CommandPalette.tsx
+  - src-tauri/src/tokens/pricing.rs
+  - src-tauri/src/filter/builtin.rs
+  - src/lib/components/settings/PermissionsEditor.svelte
+  - screenshots/analytics.png
+  - src/lib/components/tokens/components/RefreshButton.tsx
+  - src-tauri/src/commands/instructions.rs
+  - src-tauri/Cargo.toml
+  - src-tauri/src/tokens/tokscale.rs
+  - src/lib/components/pipelines/PipelineCanvas.svelte
+  - src/lib/stores/pipeline-execution.ts
+  - src/lib/components/dashboard/StatsOverview.svelte
+  - src/lib/components/layout/ContextGauge.svelte
+  - src/lib/components/tokens/components/ModelBreakdownTable.tsx
+  - screenshots/mcp.png
+  - src/lib/components/tokens/components/HourlyHeatmap.tsx
+  - src/lib/components/keybindings/KeybindingsPage.svelte
+  - src/lib/components/hooks/HooksPage.svelte
+  - src/lib/components/tokens/components/AgentStatusPanel.tsx
+  - src/lib/stores/terminal.ts
+  - src/lib/components/settings/GeneralSettings.svelte
+  - src/lib/components/tokens/components/LanguageSwitcher.tsx
+  - src/lib/components/skills/SkillsPage.svelte
+  - src/lib/components/pipelines/nodes/TransformNode.svelte
+  - src/lib/components/layout/Sidebar.svelte
+  - src-tauri/src/ctx/retrieve.rs
+  - src-tauri/src/tokens/mod.rs
+  - CODE_OF_CONDUCT.md
+  - src-tauri/src/ctx/mod.rs
+  - src/lib/components/tokens/components/TokenCostTimeSeries.tsx
+  - src-tauri/src/commands/skills.rs
+  - src/lib/components/dashboard/AchievementGrid.svelte
+  - src-tauri/src/filter/mod.rs
+  - src/lib/components/token-savings/TokenSavingsPage.tsx
+  - src-tauri/src/pty.rs
+  - src/lib/components/dashboard/ConfigCompletenessRing.tsx
+  - src/lib/components/dashboard/ActivityHeatmap.tsx
+  - src/lib/components/rules/RulesPage.svelte
+  - src/lib/components/shared/CommandPalette.svelte
+  - src/lib/components/git/GitPage.svelte
+  - screenshots/terminal.png
+  - src/lib/components/tokens/components/AgentDistribution.tsx
+  - src/lib/components/instructions/InstructionsPage.svelte
+  - src/lib/components/layout/UpdateBanner.svelte
+  - src-tauri/src/commands/mod.rs
+  - src/lib/components/pipelines/PipelinesPage.svelte
+  - src/lib/components/templates/TemplatesPage.svelte
+  - src/lib/components/pipelines/nodes/HttpNode.svelte
+  - src-tauri/src/commands/projects.rs
+  - src/lib/components/shared/OnboardingWelcome.tsx
+  - src/lib/components/hooks/HookHandlerForm.svelte
+  - src-tauri/src/commands/mcp.rs
+  - src/lib/components/dashboard/ActivityHeatmap.svelte
+  - src/lib/i18n/locales/en.ts
+  - src/lib/stores/project-context.svelte.ts
+  - src/lib/components/tokens/TokensPage.tsx
+  - screenshots/rules.png
+  - src/lib/components/pipelines/nodes/BashNode.svelte
+  - src/lib/i18n/index.ts
+  - SECURITY.md
+  - src-tauri/gen/schemas/windows-schema.json
+  - src-tauri/src/tokens/parsers/codex_cli.rs
+  - docs/token-usage-source-of-truth.md
+  - src-tauri/src/commands/tokens.rs
+  - src/lib/components/context-engine/ContextEnginePage.tsx
+  - src/lib/components/dashboard/StatsOverview.tsx
+  - src/lib/components/plugins/PluginsPage.svelte
+  - src/lib/components/layout/Header.svelte
+  - src/lib/components/token-savings/TokenSavingsPage.svelte
+  - src/lib/components/git/GitPage.tsx
+  - src-tauri/src/commands/token_savings.rs
+  - src/lib/components/layout/Header.tsx
+  - src/lib/components/shared/TemplateGallery.svelte
+  - screenshots/instructions.png
+  - src-tauri/src/commands/scheduler.rs
+  - src-tauri/src/bin/glyphic_filter.rs
+  - src/lib/components/dashboard/DashboardPage.tsx
+  - src/lib/components/pipelines/nodes/DelayNode.svelte
+  - src-tauri/src/tokens/reconciliation.rs
+  - package.json
+  - src-tauri/src/commands/pipelines.rs
+  - src-tauri/src/commands/settings.rs
+  - src/lib/components/memory/MemoryPage.svelte
+  - src/lib/components/tokens/components/GranularityPicker.tsx
+  - src-tauri/src/commands/maintenance.rs
+  - src/lib/components/analytics/AnalyticsPage.svelte
+  - src-tauri/src/commands/context_engine.rs
+  - src/lib/components/sessions/SessionsPage.svelte
+  - src-tauri/src/paths.rs
+  - svelte.config.js
+  - src-tauri/src/ctx/hook.rs
+  - src/lib/components/layout/Sidebar.tsx
+  - src-tauri/src/commands/keybindings.rs
+  - src-tauri/src/tokens/types.rs
+  - src-tauri/src/bin/glyphic_token_reconcile.rs
+  - src/lib/stores/locale.ts
+  - src-tauri/src/tokens/parsers/gemini_cli.rs
+  - CHANGELOG.md
+  - src-tauri/src/lib.rs
+  - src/lib/stores/navigation.svelte.ts
+  - src-tauri/src/bin/glyphic_ctx.rs
+  - .session/product-backlog.md
+  - src/lib/components/settings/EnvVarsEditor.svelte
+  - src-tauri/src/ctx/virtualize.rs
+-->
+
+---
+### Requirement: Tokens page provides language switching
+
+The `/tokens` page SHALL provide a visible language switcher that lets the user select English or Traditional Chinese. Changing the selected locale MUST update `/tokens` user-visible text without requiring a page reload.
+
+#### Scenario: User switches from English to Traditional Chinese
+
+- **WHEN** the active locale is English and the user selects Traditional Chinese on `/tokens`
+- **THEN** `/tokens` SHALL update its translatable labels, headings, controls, empty states, chart labels, table headers, button text, and status text to Traditional Chinese
+
+#### Scenario: User switches from Traditional Chinese to English
+
+- **WHEN** the active locale is Traditional Chinese and the user selects English on `/tokens`
+- **THEN** `/tokens` SHALL update its translatable labels, headings, controls, empty states, chart labels, table headers, button text, and status text to English
+
+#### Scenario: Locale selection persists
+
+- **WHEN** the user selects a locale on `/tokens` and restarts the application
+- **THEN** the frontend SHALL restore the selected locale for `/tokens`
+
+
+<!-- @trace
+source: add-token-i18n
+updated: 2026-05-22
+code:
+  - screenshots/hooks.png
+  - src/lib/types/index.ts
+  - src/lib/components/tokens/components/CacheEfficiencyCard.tsx
+  - src-tauri/src/commands/sessions.rs
+  - src/lib/components/sessions/SessionMonitor.svelte
+  - src/lib/components/analytics/AnalyticsPage.tsx
+  - src/lib/components/dashboard/DashboardPage.svelte
+  - src-tauri/src/commands/stats.rs
+  - src/lib/components/pipelines/nodes/WriteFileNode.svelte
+  - src-tauri/src/ctx/embed.rs
+  - src/lib/components/pipelines/nodes/GitNode.svelte
+  - src-tauri/src/filter/pipeline.rs
+  - src/lib/components/pipelines/nodes/InputNode.svelte
+  - src/lib/components/pipelines/nodes/ReadFileNode.svelte
+  - src/lib/components/sessions/SessionsPage.tsx
+  - src/lib/components/plugins/PluginsPage.tsx
+  - src/lib/components/pipelines/nodes/GithubNode.svelte
+  - src/lib/components/mcp/McpPage.svelte
+  - src/lib/types/token-analytics.ts
+  - src/lib/utils/format.ts
+  - src/lib/components/dashboard/ConfigCompletenessRing.svelte
+  - RELEASE_NOTES.md
+  - src/lib/components/settings/SettingsPage.svelte
+  - src/lib/components/pipelines/nodes/FilterNode.svelte
+  - src-tauri/src/commands/git.rs
+  - src/lib/i18n/locales/zh-TW.ts
+  - src/lib/tauri/commands.ts
+  - src/lib/components/tokens/components/TokenTimeSeries.tsx
+  - src/lib/components/pipelines/nodes/BaseNode.svelte
+  - src/router.tsx
+  - src/lib/components/terminal/TerminalPage.svelte
+  - src/lib/stores/pipeline-execution.svelte.ts
+  - src-tauri/src/commands/budget.rs
+  - CONTRIBUTING.md
+  - src-tauri/src/filter/tracker.rs
+  - src-tauri/src/tokens/scanner.rs
+  - src/lib/components/dashboard/AchievementGrid.tsx
+  - src/lib/components/tokens/components/DateRangeFilter.tsx
+  - screenshots/git.png
+  - src-tauri/src/ctx/db.rs
+  - src/lib/stores/terminal.svelte.ts
+  - src-tauri/src/tokens/scan_state.rs
+  - src/lib/components/pipelines/nodes/OutputNode.svelte
+  - src-tauri/src/commands/rules.rs
+  - src/lib/components/dashboard/StreakCard.tsx
+  - screenshots/dashboard.png
+  - src-tauri/src/tokens/storage.rs
+  - src-tauri/src/commands/memory.rs
+  - src/lib/components/shared/OnboardingWelcome.svelte
+  - src/lib/components/pipelines/CodeEditor.svelte
+  - screenshots/plugins.png
+  - src/lib/components/sessions/SessionMonitor.tsx
+  - src/lib/components/shared/ConfirmDialog.svelte
+  - src/lib/components/tokens/components/CostBudgetCard.tsx
+  - src/lib/components/hooks/HookCard.svelte
+  - src-tauri/src/tokens/parsers/mod.rs
+  - src/lib/stores/theme.svelte.ts
+  - src/lib/components/pipelines/nodes/ClaudeNode.svelte
+  - README.md
+  - src/lib/components/context-engine/ContextEnginePage.svelte
+  - src/lib/components/pipelines/PipelinesPage.tsx
+  - src/lib/components/pipelines/nodes/NotificationNode.svelte
+  - src/lib/components/tokens/components/TokenStatCards.tsx
+  - src/lib/components/shared/ProjectPicker.svelte
+  - src-tauri/src/tokens/parsers/claude_code.rs
+  - src-tauri/src/commands/plugins.rs
+  - src/lib/components/dashboard/StreakCard.svelte
+  - src/lib/components/pipelines/nodes/JsonExtractNode.svelte
+  - src/App.svelte
+  - src/lib/components/tokens/components/ModelBreakdownChart.tsx
+  - src-tauri/src/commands/hooks.rs
+  - src/lib/components/terminal/TerminalPage.tsx
+  - src/lib/components/keybindings/KeybindingsPage.tsx
+  - src-tauri/src/tokens/aggregator.rs
+  - src/lib/components/hooks/HookEditor.svelte
+  - src/lib/stores/navigation.ts
+  - src-tauri/src/ctx/config.rs
+  - src/lib/components/shared/CommandPalette.tsx
+  - src-tauri/src/tokens/pricing.rs
+  - src-tauri/src/filter/builtin.rs
+  - src/lib/components/settings/PermissionsEditor.svelte
+  - screenshots/analytics.png
+  - src/lib/components/tokens/components/RefreshButton.tsx
+  - src-tauri/src/commands/instructions.rs
+  - src-tauri/Cargo.toml
+  - src-tauri/src/tokens/tokscale.rs
+  - src/lib/components/pipelines/PipelineCanvas.svelte
+  - src/lib/stores/pipeline-execution.ts
+  - src/lib/components/dashboard/StatsOverview.svelte
+  - src/lib/components/layout/ContextGauge.svelte
+  - src/lib/components/tokens/components/ModelBreakdownTable.tsx
+  - screenshots/mcp.png
+  - src/lib/components/tokens/components/HourlyHeatmap.tsx
+  - src/lib/components/keybindings/KeybindingsPage.svelte
+  - src/lib/components/hooks/HooksPage.svelte
+  - src/lib/components/tokens/components/AgentStatusPanel.tsx
+  - src/lib/stores/terminal.ts
+  - src/lib/components/settings/GeneralSettings.svelte
+  - src/lib/components/tokens/components/LanguageSwitcher.tsx
+  - src/lib/components/skills/SkillsPage.svelte
+  - src/lib/components/pipelines/nodes/TransformNode.svelte
+  - src/lib/components/layout/Sidebar.svelte
+  - src-tauri/src/ctx/retrieve.rs
+  - src-tauri/src/tokens/mod.rs
+  - CODE_OF_CONDUCT.md
+  - src-tauri/src/ctx/mod.rs
+  - src/lib/components/tokens/components/TokenCostTimeSeries.tsx
+  - src-tauri/src/commands/skills.rs
+  - src/lib/components/dashboard/AchievementGrid.svelte
+  - src-tauri/src/filter/mod.rs
+  - src/lib/components/token-savings/TokenSavingsPage.tsx
+  - src-tauri/src/pty.rs
+  - src/lib/components/dashboard/ConfigCompletenessRing.tsx
+  - src/lib/components/dashboard/ActivityHeatmap.tsx
+  - src/lib/components/rules/RulesPage.svelte
+  - src/lib/components/shared/CommandPalette.svelte
+  - src/lib/components/git/GitPage.svelte
+  - screenshots/terminal.png
+  - src/lib/components/tokens/components/AgentDistribution.tsx
+  - src/lib/components/instructions/InstructionsPage.svelte
+  - src/lib/components/layout/UpdateBanner.svelte
+  - src-tauri/src/commands/mod.rs
+  - src/lib/components/pipelines/PipelinesPage.svelte
+  - src/lib/components/templates/TemplatesPage.svelte
+  - src/lib/components/pipelines/nodes/HttpNode.svelte
+  - src-tauri/src/commands/projects.rs
+  - src/lib/components/shared/OnboardingWelcome.tsx
+  - src/lib/components/hooks/HookHandlerForm.svelte
+  - src-tauri/src/commands/mcp.rs
+  - src/lib/components/dashboard/ActivityHeatmap.svelte
+  - src/lib/i18n/locales/en.ts
+  - src/lib/stores/project-context.svelte.ts
+  - src/lib/components/tokens/TokensPage.tsx
+  - screenshots/rules.png
+  - src/lib/components/pipelines/nodes/BashNode.svelte
+  - src/lib/i18n/index.ts
+  - SECURITY.md
+  - src-tauri/gen/schemas/windows-schema.json
+  - src-tauri/src/tokens/parsers/codex_cli.rs
+  - docs/token-usage-source-of-truth.md
+  - src-tauri/src/commands/tokens.rs
+  - src/lib/components/context-engine/ContextEnginePage.tsx
+  - src/lib/components/dashboard/StatsOverview.tsx
+  - src/lib/components/plugins/PluginsPage.svelte
+  - src/lib/components/layout/Header.svelte
+  - src/lib/components/token-savings/TokenSavingsPage.svelte
+  - src/lib/components/git/GitPage.tsx
+  - src-tauri/src/commands/token_savings.rs
+  - src/lib/components/layout/Header.tsx
+  - src/lib/components/shared/TemplateGallery.svelte
+  - screenshots/instructions.png
+  - src-tauri/src/commands/scheduler.rs
+  - src-tauri/src/bin/glyphic_filter.rs
+  - src/lib/components/dashboard/DashboardPage.tsx
+  - src/lib/components/pipelines/nodes/DelayNode.svelte
+  - src-tauri/src/tokens/reconciliation.rs
+  - package.json
+  - src-tauri/src/commands/pipelines.rs
+  - src-tauri/src/commands/settings.rs
+  - src/lib/components/memory/MemoryPage.svelte
+  - src/lib/components/tokens/components/GranularityPicker.tsx
+  - src-tauri/src/commands/maintenance.rs
+  - src/lib/components/analytics/AnalyticsPage.svelte
+  - src-tauri/src/commands/context_engine.rs
+  - src/lib/components/sessions/SessionsPage.svelte
+  - src-tauri/src/paths.rs
+  - svelte.config.js
+  - src-tauri/src/ctx/hook.rs
+  - src/lib/components/layout/Sidebar.tsx
+  - src-tauri/src/commands/keybindings.rs
+  - src-tauri/src/tokens/types.rs
+  - src-tauri/src/bin/glyphic_token_reconcile.rs
+  - src/lib/stores/locale.ts
+  - src-tauri/src/tokens/parsers/gemini_cli.rs
+  - CHANGELOG.md
+  - src-tauri/src/lib.rs
+  - src/lib/stores/navigation.svelte.ts
+  - src-tauri/src/bin/glyphic_ctx.rs
+  - .session/product-backlog.md
+  - src/lib/components/settings/EnvVarsEditor.svelte
+  - src-tauri/src/ctx/virtualize.rs
+-->
+
+---
+### Requirement: Tokens user interface uses translation resources
+
+The `/tokens` page and its direct React child components SHALL obtain user-visible static text from translation resources instead of hard-coded English literals. This includes page title, loading text, date range controls, granularity controls, stat card labels and subtitles, agent status labels, refresh button text, chart titles, chart legend names, chart tooltip labels, table headers, empty states, heatmap labels, and spending/cache labels.
+
+#### Scenario: Token analytics loading state is translated
+
+- **WHEN** `/tokens` is loading token analytics for the active locale
+- **THEN** the loading message SHALL be rendered from the active locale translation resource
+
+#### Scenario: Chart labels are translated
+
+- **WHEN** `/tokens` renders token usage, cost, model, agent, or heatmap visualizations
+- **THEN** chart titles, legend names, tooltip labels, and heatmap low-to-high labels SHALL be rendered from the active locale translation resource
+
+#### Scenario: Table and controls are translated
+
+- **WHEN** `/tokens` renders the model breakdown table, granularity picker, date range filter, or refresh control
+- **THEN** headings, column labels, option labels, and button text SHALL be rendered from the active locale translation resource
+
+
+<!-- @trace
+source: add-token-i18n
+updated: 2026-05-22
+code:
+  - screenshots/hooks.png
+  - src/lib/types/index.ts
+  - src/lib/components/tokens/components/CacheEfficiencyCard.tsx
+  - src-tauri/src/commands/sessions.rs
+  - src/lib/components/sessions/SessionMonitor.svelte
+  - src/lib/components/analytics/AnalyticsPage.tsx
+  - src/lib/components/dashboard/DashboardPage.svelte
+  - src-tauri/src/commands/stats.rs
+  - src/lib/components/pipelines/nodes/WriteFileNode.svelte
+  - src-tauri/src/ctx/embed.rs
+  - src/lib/components/pipelines/nodes/GitNode.svelte
+  - src-tauri/src/filter/pipeline.rs
+  - src/lib/components/pipelines/nodes/InputNode.svelte
+  - src/lib/components/pipelines/nodes/ReadFileNode.svelte
+  - src/lib/components/sessions/SessionsPage.tsx
+  - src/lib/components/plugins/PluginsPage.tsx
+  - src/lib/components/pipelines/nodes/GithubNode.svelte
+  - src/lib/components/mcp/McpPage.svelte
+  - src/lib/types/token-analytics.ts
+  - src/lib/utils/format.ts
+  - src/lib/components/dashboard/ConfigCompletenessRing.svelte
+  - RELEASE_NOTES.md
+  - src/lib/components/settings/SettingsPage.svelte
+  - src/lib/components/pipelines/nodes/FilterNode.svelte
+  - src-tauri/src/commands/git.rs
+  - src/lib/i18n/locales/zh-TW.ts
+  - src/lib/tauri/commands.ts
+  - src/lib/components/tokens/components/TokenTimeSeries.tsx
+  - src/lib/components/pipelines/nodes/BaseNode.svelte
+  - src/router.tsx
+  - src/lib/components/terminal/TerminalPage.svelte
+  - src/lib/stores/pipeline-execution.svelte.ts
+  - src-tauri/src/commands/budget.rs
+  - CONTRIBUTING.md
+  - src-tauri/src/filter/tracker.rs
+  - src-tauri/src/tokens/scanner.rs
+  - src/lib/components/dashboard/AchievementGrid.tsx
+  - src/lib/components/tokens/components/DateRangeFilter.tsx
+  - screenshots/git.png
+  - src-tauri/src/ctx/db.rs
+  - src/lib/stores/terminal.svelte.ts
+  - src-tauri/src/tokens/scan_state.rs
+  - src/lib/components/pipelines/nodes/OutputNode.svelte
+  - src-tauri/src/commands/rules.rs
+  - src/lib/components/dashboard/StreakCard.tsx
+  - screenshots/dashboard.png
+  - src-tauri/src/tokens/storage.rs
+  - src-tauri/src/commands/memory.rs
+  - src/lib/components/shared/OnboardingWelcome.svelte
+  - src/lib/components/pipelines/CodeEditor.svelte
+  - screenshots/plugins.png
+  - src/lib/components/sessions/SessionMonitor.tsx
+  - src/lib/components/shared/ConfirmDialog.svelte
+  - src/lib/components/tokens/components/CostBudgetCard.tsx
+  - src/lib/components/hooks/HookCard.svelte
+  - src-tauri/src/tokens/parsers/mod.rs
+  - src/lib/stores/theme.svelte.ts
+  - src/lib/components/pipelines/nodes/ClaudeNode.svelte
+  - README.md
+  - src/lib/components/context-engine/ContextEnginePage.svelte
+  - src/lib/components/pipelines/PipelinesPage.tsx
+  - src/lib/components/pipelines/nodes/NotificationNode.svelte
+  - src/lib/components/tokens/components/TokenStatCards.tsx
+  - src/lib/components/shared/ProjectPicker.svelte
+  - src-tauri/src/tokens/parsers/claude_code.rs
+  - src-tauri/src/commands/plugins.rs
+  - src/lib/components/dashboard/StreakCard.svelte
+  - src/lib/components/pipelines/nodes/JsonExtractNode.svelte
+  - src/App.svelte
+  - src/lib/components/tokens/components/ModelBreakdownChart.tsx
+  - src-tauri/src/commands/hooks.rs
+  - src/lib/components/terminal/TerminalPage.tsx
+  - src/lib/components/keybindings/KeybindingsPage.tsx
+  - src-tauri/src/tokens/aggregator.rs
+  - src/lib/components/hooks/HookEditor.svelte
+  - src/lib/stores/navigation.ts
+  - src-tauri/src/ctx/config.rs
+  - src/lib/components/shared/CommandPalette.tsx
+  - src-tauri/src/tokens/pricing.rs
+  - src-tauri/src/filter/builtin.rs
+  - src/lib/components/settings/PermissionsEditor.svelte
+  - screenshots/analytics.png
+  - src/lib/components/tokens/components/RefreshButton.tsx
+  - src-tauri/src/commands/instructions.rs
+  - src-tauri/Cargo.toml
+  - src-tauri/src/tokens/tokscale.rs
+  - src/lib/components/pipelines/PipelineCanvas.svelte
+  - src/lib/stores/pipeline-execution.ts
+  - src/lib/components/dashboard/StatsOverview.svelte
+  - src/lib/components/layout/ContextGauge.svelte
+  - src/lib/components/tokens/components/ModelBreakdownTable.tsx
+  - screenshots/mcp.png
+  - src/lib/components/tokens/components/HourlyHeatmap.tsx
+  - src/lib/components/keybindings/KeybindingsPage.svelte
+  - src/lib/components/hooks/HooksPage.svelte
+  - src/lib/components/tokens/components/AgentStatusPanel.tsx
+  - src/lib/stores/terminal.ts
+  - src/lib/components/settings/GeneralSettings.svelte
+  - src/lib/components/tokens/components/LanguageSwitcher.tsx
+  - src/lib/components/skills/SkillsPage.svelte
+  - src/lib/components/pipelines/nodes/TransformNode.svelte
+  - src/lib/components/layout/Sidebar.svelte
+  - src-tauri/src/ctx/retrieve.rs
+  - src-tauri/src/tokens/mod.rs
+  - CODE_OF_CONDUCT.md
+  - src-tauri/src/ctx/mod.rs
+  - src/lib/components/tokens/components/TokenCostTimeSeries.tsx
+  - src-tauri/src/commands/skills.rs
+  - src/lib/components/dashboard/AchievementGrid.svelte
+  - src-tauri/src/filter/mod.rs
+  - src/lib/components/token-savings/TokenSavingsPage.tsx
+  - src-tauri/src/pty.rs
+  - src/lib/components/dashboard/ConfigCompletenessRing.tsx
+  - src/lib/components/dashboard/ActivityHeatmap.tsx
+  - src/lib/components/rules/RulesPage.svelte
+  - src/lib/components/shared/CommandPalette.svelte
+  - src/lib/components/git/GitPage.svelte
+  - screenshots/terminal.png
+  - src/lib/components/tokens/components/AgentDistribution.tsx
+  - src/lib/components/instructions/InstructionsPage.svelte
+  - src/lib/components/layout/UpdateBanner.svelte
+  - src-tauri/src/commands/mod.rs
+  - src/lib/components/pipelines/PipelinesPage.svelte
+  - src/lib/components/templates/TemplatesPage.svelte
+  - src/lib/components/pipelines/nodes/HttpNode.svelte
+  - src-tauri/src/commands/projects.rs
+  - src/lib/components/shared/OnboardingWelcome.tsx
+  - src/lib/components/hooks/HookHandlerForm.svelte
+  - src-tauri/src/commands/mcp.rs
+  - src/lib/components/dashboard/ActivityHeatmap.svelte
+  - src/lib/i18n/locales/en.ts
+  - src/lib/stores/project-context.svelte.ts
+  - src/lib/components/tokens/TokensPage.tsx
+  - screenshots/rules.png
+  - src/lib/components/pipelines/nodes/BashNode.svelte
+  - src/lib/i18n/index.ts
+  - SECURITY.md
+  - src-tauri/gen/schemas/windows-schema.json
+  - src-tauri/src/tokens/parsers/codex_cli.rs
+  - docs/token-usage-source-of-truth.md
+  - src-tauri/src/commands/tokens.rs
+  - src/lib/components/context-engine/ContextEnginePage.tsx
+  - src/lib/components/dashboard/StatsOverview.tsx
+  - src/lib/components/plugins/PluginsPage.svelte
+  - src/lib/components/layout/Header.svelte
+  - src/lib/components/token-savings/TokenSavingsPage.svelte
+  - src/lib/components/git/GitPage.tsx
+  - src-tauri/src/commands/token_savings.rs
+  - src/lib/components/layout/Header.tsx
+  - src/lib/components/shared/TemplateGallery.svelte
+  - screenshots/instructions.png
+  - src-tauri/src/commands/scheduler.rs
+  - src-tauri/src/bin/glyphic_filter.rs
+  - src/lib/components/dashboard/DashboardPage.tsx
+  - src/lib/components/pipelines/nodes/DelayNode.svelte
+  - src-tauri/src/tokens/reconciliation.rs
+  - package.json
+  - src-tauri/src/commands/pipelines.rs
+  - src-tauri/src/commands/settings.rs
+  - src/lib/components/memory/MemoryPage.svelte
+  - src/lib/components/tokens/components/GranularityPicker.tsx
+  - src-tauri/src/commands/maintenance.rs
+  - src/lib/components/analytics/AnalyticsPage.svelte
+  - src-tauri/src/commands/context_engine.rs
+  - src/lib/components/sessions/SessionsPage.svelte
+  - src-tauri/src/paths.rs
+  - svelte.config.js
+  - src-tauri/src/ctx/hook.rs
+  - src/lib/components/layout/Sidebar.tsx
+  - src-tauri/src/commands/keybindings.rs
+  - src-tauri/src/tokens/types.rs
+  - src-tauri/src/bin/glyphic_token_reconcile.rs
+  - src/lib/stores/locale.ts
+  - src-tauri/src/tokens/parsers/gemini_cli.rs
+  - CHANGELOG.md
+  - src-tauri/src/lib.rs
+  - src/lib/stores/navigation.svelte.ts
+  - src-tauri/src/bin/glyphic_ctx.rs
+  - .session/product-backlog.md
+  - src/lib/components/settings/EnvVarsEditor.svelte
+  - src-tauri/src/ctx/virtualize.rs
+-->
+
+---
+### Requirement: Locale-aware formatting is used on Tokens page
+
+The `/tokens` page SHALL format user-visible numbers, dates, and USD currency values with the active locale. The system MUST NOT convert currencies or modify token analytics source values when locale changes.
+
+#### Scenario: Event count uses active locale formatting
+
+- **WHEN** `/tokens` displays event counts with the active locale set to `zh-TW`
+- **THEN** the count SHALL use Traditional Chinese compatible number grouping while preserving the numeric value
+
+#### Scenario: USD cost keeps currency semantics
+
+- **WHEN** `/tokens` displays token cost with either supported locale
+- **THEN** the value SHALL remain a USD amount and SHALL NOT be converted to another currency
+
+#### Scenario: Agent and model identifiers remain unchanged
+
+- **WHEN** `/tokens` displays agent identifiers or model names from analytics data
+- **THEN** the frontend SHALL display those identifiers exactly as provided by the data source
+
+<!-- @trace
+source: add-token-i18n
+updated: 2026-05-22
+code:
+  - screenshots/hooks.png
+  - src/lib/types/index.ts
+  - src/lib/components/tokens/components/CacheEfficiencyCard.tsx
+  - src-tauri/src/commands/sessions.rs
+  - src/lib/components/sessions/SessionMonitor.svelte
+  - src/lib/components/analytics/AnalyticsPage.tsx
+  - src/lib/components/dashboard/DashboardPage.svelte
+  - src-tauri/src/commands/stats.rs
+  - src/lib/components/pipelines/nodes/WriteFileNode.svelte
+  - src-tauri/src/ctx/embed.rs
+  - src/lib/components/pipelines/nodes/GitNode.svelte
+  - src-tauri/src/filter/pipeline.rs
+  - src/lib/components/pipelines/nodes/InputNode.svelte
+  - src/lib/components/pipelines/nodes/ReadFileNode.svelte
+  - src/lib/components/sessions/SessionsPage.tsx
+  - src/lib/components/plugins/PluginsPage.tsx
+  - src/lib/components/pipelines/nodes/GithubNode.svelte
+  - src/lib/components/mcp/McpPage.svelte
+  - src/lib/types/token-analytics.ts
+  - src/lib/utils/format.ts
+  - src/lib/components/dashboard/ConfigCompletenessRing.svelte
+  - RELEASE_NOTES.md
+  - src/lib/components/settings/SettingsPage.svelte
+  - src/lib/components/pipelines/nodes/FilterNode.svelte
+  - src-tauri/src/commands/git.rs
+  - src/lib/i18n/locales/zh-TW.ts
+  - src/lib/tauri/commands.ts
+  - src/lib/components/tokens/components/TokenTimeSeries.tsx
+  - src/lib/components/pipelines/nodes/BaseNode.svelte
+  - src/router.tsx
+  - src/lib/components/terminal/TerminalPage.svelte
+  - src/lib/stores/pipeline-execution.svelte.ts
+  - src-tauri/src/commands/budget.rs
+  - CONTRIBUTING.md
+  - src-tauri/src/filter/tracker.rs
+  - src-tauri/src/tokens/scanner.rs
+  - src/lib/components/dashboard/AchievementGrid.tsx
+  - src/lib/components/tokens/components/DateRangeFilter.tsx
+  - screenshots/git.png
+  - src-tauri/src/ctx/db.rs
+  - src/lib/stores/terminal.svelte.ts
+  - src-tauri/src/tokens/scan_state.rs
+  - src/lib/components/pipelines/nodes/OutputNode.svelte
+  - src-tauri/src/commands/rules.rs
+  - src/lib/components/dashboard/StreakCard.tsx
+  - screenshots/dashboard.png
+  - src-tauri/src/tokens/storage.rs
+  - src-tauri/src/commands/memory.rs
+  - src/lib/components/shared/OnboardingWelcome.svelte
+  - src/lib/components/pipelines/CodeEditor.svelte
+  - screenshots/plugins.png
+  - src/lib/components/sessions/SessionMonitor.tsx
+  - src/lib/components/shared/ConfirmDialog.svelte
+  - src/lib/components/tokens/components/CostBudgetCard.tsx
+  - src/lib/components/hooks/HookCard.svelte
+  - src-tauri/src/tokens/parsers/mod.rs
+  - src/lib/stores/theme.svelte.ts
+  - src/lib/components/pipelines/nodes/ClaudeNode.svelte
+  - README.md
+  - src/lib/components/context-engine/ContextEnginePage.svelte
+  - src/lib/components/pipelines/PipelinesPage.tsx
+  - src/lib/components/pipelines/nodes/NotificationNode.svelte
+  - src/lib/components/tokens/components/TokenStatCards.tsx
+  - src/lib/components/shared/ProjectPicker.svelte
+  - src-tauri/src/tokens/parsers/claude_code.rs
+  - src-tauri/src/commands/plugins.rs
+  - src/lib/components/dashboard/StreakCard.svelte
+  - src/lib/components/pipelines/nodes/JsonExtractNode.svelte
+  - src/App.svelte
+  - src/lib/components/tokens/components/ModelBreakdownChart.tsx
+  - src-tauri/src/commands/hooks.rs
+  - src/lib/components/terminal/TerminalPage.tsx
+  - src/lib/components/keybindings/KeybindingsPage.tsx
+  - src-tauri/src/tokens/aggregator.rs
+  - src/lib/components/hooks/HookEditor.svelte
+  - src/lib/stores/navigation.ts
+  - src-tauri/src/ctx/config.rs
+  - src/lib/components/shared/CommandPalette.tsx
+  - src-tauri/src/tokens/pricing.rs
+  - src-tauri/src/filter/builtin.rs
+  - src/lib/components/settings/PermissionsEditor.svelte
+  - screenshots/analytics.png
+  - src/lib/components/tokens/components/RefreshButton.tsx
+  - src-tauri/src/commands/instructions.rs
+  - src-tauri/Cargo.toml
+  - src-tauri/src/tokens/tokscale.rs
+  - src/lib/components/pipelines/PipelineCanvas.svelte
+  - src/lib/stores/pipeline-execution.ts
+  - src/lib/components/dashboard/StatsOverview.svelte
+  - src/lib/components/layout/ContextGauge.svelte
+  - src/lib/components/tokens/components/ModelBreakdownTable.tsx
+  - screenshots/mcp.png
+  - src/lib/components/tokens/components/HourlyHeatmap.tsx
+  - src/lib/components/keybindings/KeybindingsPage.svelte
+  - src/lib/components/hooks/HooksPage.svelte
+  - src/lib/components/tokens/components/AgentStatusPanel.tsx
+  - src/lib/stores/terminal.ts
+  - src/lib/components/settings/GeneralSettings.svelte
+  - src/lib/components/tokens/components/LanguageSwitcher.tsx
+  - src/lib/components/skills/SkillsPage.svelte
+  - src/lib/components/pipelines/nodes/TransformNode.svelte
+  - src/lib/components/layout/Sidebar.svelte
+  - src-tauri/src/ctx/retrieve.rs
+  - src-tauri/src/tokens/mod.rs
+  - CODE_OF_CONDUCT.md
+  - src-tauri/src/ctx/mod.rs
+  - src/lib/components/tokens/components/TokenCostTimeSeries.tsx
+  - src-tauri/src/commands/skills.rs
+  - src/lib/components/dashboard/AchievementGrid.svelte
+  - src-tauri/src/filter/mod.rs
+  - src/lib/components/token-savings/TokenSavingsPage.tsx
+  - src-tauri/src/pty.rs
+  - src/lib/components/dashboard/ConfigCompletenessRing.tsx
+  - src/lib/components/dashboard/ActivityHeatmap.tsx
+  - src/lib/components/rules/RulesPage.svelte
+  - src/lib/components/shared/CommandPalette.svelte
+  - src/lib/components/git/GitPage.svelte
+  - screenshots/terminal.png
+  - src/lib/components/tokens/components/AgentDistribution.tsx
+  - src/lib/components/instructions/InstructionsPage.svelte
+  - src/lib/components/layout/UpdateBanner.svelte
+  - src-tauri/src/commands/mod.rs
+  - src/lib/components/pipelines/PipelinesPage.svelte
+  - src/lib/components/templates/TemplatesPage.svelte
+  - src/lib/components/pipelines/nodes/HttpNode.svelte
+  - src-tauri/src/commands/projects.rs
+  - src/lib/components/shared/OnboardingWelcome.tsx
+  - src/lib/components/hooks/HookHandlerForm.svelte
+  - src-tauri/src/commands/mcp.rs
+  - src/lib/components/dashboard/ActivityHeatmap.svelte
+  - src/lib/i18n/locales/en.ts
+  - src/lib/stores/project-context.svelte.ts
+  - src/lib/components/tokens/TokensPage.tsx
+  - screenshots/rules.png
+  - src/lib/components/pipelines/nodes/BashNode.svelte
+  - src/lib/i18n/index.ts
+  - SECURITY.md
+  - src-tauri/gen/schemas/windows-schema.json
+  - src-tauri/src/tokens/parsers/codex_cli.rs
+  - docs/token-usage-source-of-truth.md
+  - src-tauri/src/commands/tokens.rs
+  - src/lib/components/context-engine/ContextEnginePage.tsx
+  - src/lib/components/dashboard/StatsOverview.tsx
+  - src/lib/components/plugins/PluginsPage.svelte
+  - src/lib/components/layout/Header.svelte
+  - src/lib/components/token-savings/TokenSavingsPage.svelte
+  - src/lib/components/git/GitPage.tsx
+  - src-tauri/src/commands/token_savings.rs
+  - src/lib/components/layout/Header.tsx
+  - src/lib/components/shared/TemplateGallery.svelte
+  - screenshots/instructions.png
+  - src-tauri/src/commands/scheduler.rs
+  - src-tauri/src/bin/glyphic_filter.rs
+  - src/lib/components/dashboard/DashboardPage.tsx
+  - src/lib/components/pipelines/nodes/DelayNode.svelte
+  - src-tauri/src/tokens/reconciliation.rs
+  - package.json
+  - src-tauri/src/commands/pipelines.rs
+  - src-tauri/src/commands/settings.rs
+  - src/lib/components/memory/MemoryPage.svelte
+  - src/lib/components/tokens/components/GranularityPicker.tsx
+  - src-tauri/src/commands/maintenance.rs
+  - src/lib/components/analytics/AnalyticsPage.svelte
+  - src-tauri/src/commands/context_engine.rs
+  - src/lib/components/sessions/SessionsPage.svelte
+  - src-tauri/src/paths.rs
+  - svelte.config.js
+  - src-tauri/src/ctx/hook.rs
+  - src/lib/components/layout/Sidebar.tsx
+  - src-tauri/src/commands/keybindings.rs
+  - src-tauri/src/tokens/types.rs
+  - src-tauri/src/bin/glyphic_token_reconcile.rs
+  - src/lib/stores/locale.ts
+  - src-tauri/src/tokens/parsers/gemini_cli.rs
+  - CHANGELOG.md
+  - src-tauri/src/lib.rs
+  - src/lib/stores/navigation.svelte.ts
+  - src-tauri/src/bin/glyphic_ctx.rs
+  - .session/product-backlog.md
+  - src/lib/components/settings/EnvVarsEditor.svelte
+  - src-tauri/src/ctx/virtualize.rs
+-->

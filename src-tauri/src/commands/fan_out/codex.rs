@@ -154,7 +154,9 @@ mod tests {
     #[test]
     fn skill_md_contains_only_name_and_description() {
         let tmp = unique_tmp("codex-md");
-        CodexRenderer.render(&sample_skill_with_ui_meta(), &tmp).unwrap();
+        CodexRenderer
+            .render(&sample_skill_with_ui_meta(), &tmp)
+            .unwrap();
         let md = fs::read_to_string(tmp.join("demo").join("SKILL.md")).unwrap();
         assert!(md.contains("name: demo"));
         assert!(md.contains("description: Demo skill"));
@@ -167,9 +169,10 @@ mod tests {
     #[test]
     fn openai_yaml_emitted_when_ui_meta_present() {
         let tmp = unique_tmp("codex-yaml");
-        CodexRenderer.render(&sample_skill_with_ui_meta(), &tmp).unwrap();
-        let yaml =
-            fs::read_to_string(tmp.join("demo").join("agents").join("openai.yaml")).unwrap();
+        CodexRenderer
+            .render(&sample_skill_with_ui_meta(), &tmp)
+            .unwrap();
+        let yaml = fs::read_to_string(tmp.join("demo").join("agents").join("openai.yaml")).unwrap();
         assert!(yaml.contains("interface:"));
         assert!(yaml.contains("display_name: Demo Skill"));
         assert!(yaml.contains("short_description: A demo"));

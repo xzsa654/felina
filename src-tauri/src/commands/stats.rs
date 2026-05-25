@@ -11,11 +11,10 @@ pub fn get_stats() -> Result<serde_json::Value, String> {
         return Ok(serde_json::json!({}));
     }
 
-    let content = std::fs::read_to_string(&path)
-        .map_err(|e| format!("failed to read stats: {e}"))?;
+    let content =
+        std::fs::read_to_string(&path).map_err(|e| format!("failed to read stats: {e}"))?;
 
-    serde_json::from_str(&content)
-        .map_err(|e| format!("failed to parse stats: {e}"))
+    serde_json::from_str(&content).map_err(|e| format!("failed to parse stats: {e}"))
 }
 
 #[derive(Serialize)]
@@ -62,8 +61,8 @@ pub fn compute_live_stats() -> Result<LiveStats, String> {
         return Err("history.jsonl not found".to_string());
     }
 
-    let file = std::fs::File::open(&history_path)
-        .map_err(|e| format!("failed to open history: {e}"))?;
+    let file =
+        std::fs::File::open(&history_path).map_err(|e| format!("failed to open history: {e}"))?;
     let reader = std::io::BufReader::new(file);
 
     let mut messages_by_date: HashMap<String, u32> = HashMap::new();
@@ -89,7 +88,10 @@ pub fn compute_live_stats() -> Result<LiveStats, String> {
             Err(_) => continue,
         };
 
-        let timestamp = entry.get("timestamp").and_then(|t| t.as_f64()).unwrap_or(0.0);
+        let timestamp = entry
+            .get("timestamp")
+            .and_then(|t| t.as_f64())
+            .unwrap_or(0.0);
         let session_id = entry
             .get("sessionId")
             .and_then(|s| s.as_str())
@@ -142,9 +144,7 @@ pub fn compute_live_stats() -> Result<LiveStats, String> {
 
     // Read cache for token data (we can't compute this from history.jsonl)
     let cache = get_stats().ok();
-    let model_usage = cache
-        .as_ref()
-        .and_then(|c| c.get("modelUsage").cloned());
+    let model_usage = cache.as_ref().and_then(|c| c.get("modelUsage").cloned());
     let daily_model_tokens = cache
         .as_ref()
         .and_then(|c| c.get("dailyModelTokens").cloned());

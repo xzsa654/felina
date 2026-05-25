@@ -101,6 +101,11 @@ pub fn felina_global_skills_dir() -> PathBuf {
     felina_home().join("skills")
 }
 
+pub fn felina_project_skills_dir(project_path: &str) -> PathBuf {
+    PathBuf::from(project_path).join(".felina").join("skills")
+}
+
+
 pub fn global_rules_dir() -> PathBuf {
     claude_home().join("rules")
 }
@@ -149,9 +154,15 @@ fn cwd_from_session_file_in(projects_root: &Path, hash: &str) -> Option<String> 
         if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
             continue;
         }
-        let Ok(content) = std::fs::read_to_string(&path) else { continue };
-        let Some(first_line) = content.lines().next() else { continue };
-        let Ok(json) = serde_json::from_str::<serde_json::Value>(first_line) else { continue };
+        let Ok(content) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        let Some(first_line) = content.lines().next() else {
+            continue;
+        };
+        let Ok(json) = serde_json::from_str::<serde_json::Value>(first_line) else {
+            continue;
+        };
         if let Some(cwd) = json.get("cwd").and_then(|v| v.as_str()) {
             if !cwd.is_empty() {
                 return Some(cwd.to_string());
@@ -200,7 +211,11 @@ fn drive_root_for_hash(hash: &str) -> Option<String> {
 /// letter) is already consumed by `drive_root_for_hash`. Segment resolution
 /// SHOULD start from index 1, not 0.
 fn drive_skip_count(hash: &str) -> usize {
-    if drive_root_for_hash(hash).is_some() { 1 } else { 0 }
+    if drive_root_for_hash(hash).is_some() {
+        1
+    } else {
+        0
+    }
 }
 
 fn resolve_segments(segments: &[&str], idx: usize, current: &str) -> Option<String> {
@@ -315,7 +330,9 @@ mod tests {
         // Must terminate with the canonical segments regardless of OS separator.
         assert_eq!(p.file_name().and_then(|s| s.to_str()), Some("skills"));
         assert_eq!(
-            p.parent().and_then(|p| p.file_name()).and_then(|s| s.to_str()),
+            p.parent()
+                .and_then(|p| p.file_name())
+                .and_then(|s| s.to_str()),
             Some(".felina"),
         );
         // Anchored under the user's home directory.
@@ -333,5 +350,20 @@ mod tests {
         // After clearing, falls back to real home.
         let real = felina_global_skills_dir();
         assert!(real.starts_with(dirs::home_dir().expect("home")));
+    }
+
+    #[test]
+    fn felina_project_skills_dir_under_project_root() {
+        // Use a fixed string; PathBuf normalises separators per-OS at display time.
+        let project = if cfg!(windows) { r"C:\proj" } else { "/proj" };
+        let p = felina_project_skills_dir(project);
+        assert!(p.starts_with(project));
+        assert_eq!(p.file_name().and_then(|s| s.to_str()), Some("skills"));
+        assert_eq!(
+            p.parent()
+                .and_then(|p| p.file_name())
+                .and_then(|s| s.to_str()),
+            Some(".felina"),
+        );
     }
 }

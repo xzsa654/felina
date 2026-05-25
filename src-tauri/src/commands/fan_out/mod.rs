@@ -135,24 +135,21 @@ pub fn skill_sync_one(name: String) -> Result<Vec<SyncResult>, String> {
 
         let renderer = renderer_for(target.agent);
         let pair = pair_for(&cfg, target.agent);
-        let target_dir = match renderer.resolve_target_dir(
-            target.scope,
-            target.project.as_deref(),
-            pair,
-        ) {
-            Ok(d) => d,
-            Err(e) => {
-                results.push(SyncResult {
-                    agent: target.agent,
-                    scope: target.scope,
-                    target_path: String::new(),
-                    success: false,
-                    error: Some(e),
-                    at: attempted_at.clone(),
-                });
-                continue;
-            }
-        };
+        let target_dir =
+            match renderer.resolve_target_dir(target.scope, target.project.as_deref(), pair) {
+                Ok(d) => d,
+                Err(e) => {
+                    results.push(SyncResult {
+                        agent: target.agent,
+                        scope: target.scope,
+                        target_path: String::new(),
+                        success: false,
+                        error: Some(e),
+                        at: attempted_at.clone(),
+                    });
+                    continue;
+                }
+            };
         let target_skill_dir = target_dir.join(&skill.name);
         let render_result = renderer.render(&skill, &target_dir);
         let final_result = match render_result {
@@ -164,8 +161,8 @@ pub fn skill_sync_one(name: String) -> Result<Vec<SyncResult>, String> {
             Ok(()) => {
                 // Record per-target last_sync entry: hash the rendered
                 // SKILL.md so future drift checks can compare hash equality.
-                let rendered = fs::read_to_string(target_skill_dir.join("SKILL.md"))
-                    .unwrap_or_default();
+                let rendered =
+                    fs::read_to_string(target_skill_dir.join("SKILL.md")).unwrap_or_default();
                 let key = target_key(&target);
                 meta.last_sync.insert(
                     key.clone(),
@@ -296,7 +293,11 @@ fn current_iso8601() -> String {
 
 fn civil_from_days(z: i64) -> (i64, u32, u32) {
     let z = z + 719_468;
-    let era = if z >= 0 { z / 146_097 } else { (z - 146_096) / 146_097 };
+    let era = if z >= 0 {
+        z / 146_097
+    } else {
+        (z - 146_096) / 146_097
+    };
     let doe = (z - era * 146_097) as u32;
     let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
     let y = yoe as i64 + era * 400;
@@ -314,10 +315,7 @@ fn civil_from_days(z: i64) -> (i64, u32, u32) {
 
 /// Ensure `target_dir/<skill_name>/` exists and return that path. Used by
 /// every renderer; centralised so skill-name validation runs once.
-pub(crate) fn prepare_skill_subdir(
-    target_dir: &Path,
-    skill_name: &str,
-) -> Result<PathBuf, String> {
+pub(crate) fn prepare_skill_subdir(target_dir: &Path, skill_name: &str) -> Result<PathBuf, String> {
     // Defence in depth: even though canonical writes already validated the
     // name, refuse to touch the filesystem if someone hands a renderer a
     // bad name directly.
@@ -327,11 +325,12 @@ pub(crate) fn prepare_skill_subdir(
         || skill_name.contains('\\')
         || skill_name == ".."
     {
-        return Err(format!("renderer refused unsafe skill name: {skill_name:?}"));
+        return Err(format!(
+            "renderer refused unsafe skill name: {skill_name:?}"
+        ));
     }
     let dir = target_dir.join(skill_name);
-    fs::create_dir_all(&dir)
-        .map_err(|e| format!("failed to create target skill dir: {e}"))?;
+    fs::create_dir_all(&dir).map_err(|e| format!("failed to create target skill dir: {e}"))?;
     Ok(dir)
 }
 
@@ -373,8 +372,8 @@ pub(crate) fn copy_bundled_siblings(
 }
 
 fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<(), String> {
-    let entries = fs::read_dir(src)
-        .map_err(|e| format!("failed to read {}: {e}", src.display()))?;
+    let entries =
+        fs::read_dir(src).map_err(|e| format!("failed to read {}: {e}", src.display()))?;
     for entry in entries.flatten() {
         let src_path = entry.path();
         let dst_path = dst.join(entry.file_name());
@@ -425,8 +424,7 @@ pub(crate) fn resolve_pair(
     match scope {
         SkillScope::Global => Ok(expand_user_path(&pair.global)),
         SkillScope::Project => {
-            let pp = project_path
-                .ok_or("project_path required for project scope")?;
+            let pp = project_path.ok_or("project_path required for project scope")?;
             Ok(PathBuf::from(pp).join(&pair.project_relative))
         }
     }
@@ -557,7 +555,11 @@ mod tests {
 
         let results = skill_sync_one("smoke-fanout".into()).expect("sync");
 
-        assert_eq!(results.len(), 3, "expected 3 SyncResult entries, got {results:#?}");
+        assert_eq!(
+            results.len(),
+            3,
+            "expected 3 SyncResult entries, got {results:#?}"
+        );
         for r in &results {
             assert!(r.success, "agent {:?} failed: {:?}", r.agent, r.error);
         }
@@ -568,7 +570,10 @@ mod tests {
             tmp.join(".gemini").join("skills").join("smoke-fanout"),
         ];
         for target in &target_roots {
-            assert!(target.join("SKILL.md").is_file(), "missing SKILL.md in {target:?}");
+            assert!(
+                target.join("SKILL.md").is_file(),
+                "missing SKILL.md in {target:?}"
+            );
             assert!(
                 target.join("scripts").join("helper.sh").is_file(),
                 "bundled scripts/helper.sh missing in {target:?}"
@@ -628,31 +633,52 @@ mod tests {
         // Only gemini should produce a SyncResult.
         assert_eq!(results.len(), 1, "expected one result, got {results:#?}");
         assert_eq!(results[0].agent, AgentId::Gemini);
-        assert!(results[0].success, "gemini push failed: {:?}", results[0].error);
+        assert!(
+            results[0].success,
+            "gemini push failed: {:?}",
+            results[0].error
+        );
 
         // Target dirs: anthropic + codex must NOT exist on disk.
         assert!(
-            !tmp.join(".claude").join("skills").join("skip-targets").exists(),
+            !tmp.join(".claude")
+                .join("skills")
+                .join("skip-targets")
+                .exists(),
             "anthropic (disabled) target was written",
         );
         assert!(
-            !tmp.join(".agents").join("skills").join("skip-targets").exists(),
+            !tmp.join(".agents")
+                .join("skills")
+                .join("skip-targets")
+                .exists(),
             "codex (detached) target was written",
         );
         assert!(
-            tmp.join(".gemini").join("skills").join("skip-targets").join("SKILL.md").is_file(),
+            tmp.join(".gemini")
+                .join("skills")
+                .join("skip-targets")
+                .join("SKILL.md")
+                .is_file(),
             "gemini (tracked enabled) target NOT written",
         );
 
         // last_sync should ONLY have the gemini entry.
         let after_meta: serde_json::Value = serde_json::from_str(
-            &fs::read_to_string(canonical_skill_dir.join(".felina-sync-meta.json")).unwrap()
+            &fs::read_to_string(canonical_skill_dir.join(".felina-sync-meta.json")).unwrap(),
         )
         .unwrap();
         let last_sync = after_meta["lastSync"].as_object().unwrap();
-        assert_eq!(last_sync.len(), 1, "expected 1 last_sync entry, got {last_sync:?}");
+        assert_eq!(
+            last_sync.len(),
+            1,
+            "expected 1 last_sync entry, got {last_sync:?}"
+        );
         let gemini_key = format!("gemini:project:{}", project);
-        assert!(last_sync.contains_key(&gemini_key), "missing key {gemini_key} in {last_sync:?}");
+        assert!(
+            last_sync.contains_key(&gemini_key),
+            "missing key {gemini_key} in {last_sync:?}"
+        );
     }
 
     #[test]
@@ -682,7 +708,7 @@ mod tests {
         assert!(results.iter().all(|r| r.success), "{results:#?}");
 
         let after_meta: serde_json::Value = serde_json::from_str(
-            &fs::read_to_string(canonical_skill_dir.join(".felina-sync-meta.json")).unwrap()
+            &fs::read_to_string(canonical_skill_dir.join(".felina-sync-meta.json")).unwrap(),
         )
         .unwrap();
 
@@ -691,11 +717,22 @@ mod tests {
 
         for (key, entry) in last_sync {
             let hash = entry["pushedHash"].as_str().expect("pushedHash string");
-            assert_eq!(hash.len(), 64, "SHA-256 hex must be 64 chars, key={key} got {hash:?}");
-            assert!(hash.chars().all(|c| c.is_ascii_hexdigit()), "non-hex pushedHash {hash}");
+            assert_eq!(
+                hash.len(),
+                64,
+                "SHA-256 hex must be 64 chars, key={key} got {hash:?}"
+            );
+            assert!(
+                hash.chars().all(|c| c.is_ascii_hexdigit()),
+                "non-hex pushedHash {hash}"
+            );
 
             let at = entry["at"].as_str().expect("at string");
-            assert_eq!(at.len(), 20, "ISO-8601 'YYYY-MM-DDTHH:MM:SSZ' length, key={key} got {at}");
+            assert_eq!(
+                at.len(),
+                20,
+                "ISO-8601 'YYYY-MM-DDTHH:MM:SSZ' length, key={key} got {at}"
+            );
             assert!(at.ends_with('Z'));
         }
     }
@@ -724,13 +761,20 @@ mod tests {
         assert_eq!(after_meta["version"], 2);
         assert_eq!(after_meta["dirty"], serde_json::Value::Bool(false));
         let last_sync = after_meta["lastSync"].as_object().expect("lastSync object");
-        assert_eq!(last_sync.len(), 1, "anthropic-only skill: one lastSync entry");
+        assert_eq!(
+            last_sync.len(),
+            1,
+            "anthropic-only skill: one lastSync entry"
+        );
 
         let after = canonical_skills_list().expect("list after");
         match &after[0] {
             SkillListEntry::Ok { skill, .. } => {
                 assert!(!skill.dirty, "expected dirty=false after push");
-                assert!(skill.last_synced.is_some(), "expected last_synced populated");
+                assert!(
+                    skill.last_synced.is_some(),
+                    "expected last_synced populated"
+                );
             }
             other => panic!("expected Ok entry, got {other:?}"),
         }

@@ -105,14 +105,13 @@ pub fn agent_paths_set(config: AgentPathsConfig) -> Result<(), String> {
 
     let path = paths::felina_global_settings_path();
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|e| format!("failed to create settings dir: {e}"))?;
+        fs::create_dir_all(parent).map_err(|e| format!("failed to create settings dir: {e}"))?;
     }
 
     // Read-modify-write so we don't clobber unrelated keys.
     let mut root: serde_json::Value = if path.exists() {
-        let raw = fs::read_to_string(&path)
-            .map_err(|e| format!("failed to read settings.json: {e}"))?;
+        let raw =
+            fs::read_to_string(&path).map_err(|e| format!("failed to read settings.json: {e}"))?;
         if raw.trim().is_empty() {
             serde_json::Value::Object(serde_json::Map::new())
         } else {
@@ -134,8 +133,7 @@ pub fn agent_paths_set(config: AgentPathsConfig) -> Result<(), String> {
 
     let pretty = serde_json::to_string_pretty(&root)
         .map_err(|e| format!("failed to encode settings.json: {e}"))?;
-    fs::write(&path, pretty)
-        .map_err(|e| format!("failed to write settings.json: {e}"))?;
+    fs::write(&path, pretty).map_err(|e| format!("failed to write settings.json: {e}"))?;
     Ok(())
 }
 
@@ -215,7 +213,12 @@ mod tests {
 
     #[test]
     fn validate_rejects_traversal() {
-        for bad_global in ["~/../../etc", "../escape", "~/.claude/../..", "~/.claude/skills/../boom"] {
+        for bad_global in [
+            "~/../../etc",
+            "../escape",
+            "~/.claude/../..",
+            "~/.claude/skills/../boom",
+        ] {
             let pair = AgentPathPair {
                 global: bad_global.into(),
                 project_relative: ".claude/skills".into(),

@@ -144,10 +144,7 @@ impl AgentParser for CodexCliParser {
     }
 
     fn parse_file(&self, path: &PathBuf) -> Result<Vec<TokenEvent>, String> {
-        let ext = path
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("");
+        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
 
         match ext {
             "jsonl" => self.parse_jsonl(path),
@@ -166,20 +163,18 @@ impl CodexCliParser {
     /// `payload.type` is `"token_count"`, using `last_token_usage` (the
     /// per-turn increment) to avoid double-counting.
     fn parse_jsonl(&self, path: &PathBuf) -> Result<Vec<TokenEvent>, String> {
-        let file = fs::File::open(path)
-            .map_err(|e| format!("Cannot open {}: {}", path.display(), e))?;
+        let file =
+            fs::File::open(path).map_err(|e| format!("Cannot open {}: {}", path.display(), e))?;
         let reader = BufReader::new(file);
         let mut events = Vec::new();
 
-        let session_id = path
-            .file_stem()
-            .map(|s| s.to_string_lossy().to_string());
+        let session_id = path.file_stem().map(|s| s.to_string_lossy().to_string());
 
         // State tracked across lines in this session file
         let mut current_model: Option<String> = None;
         let mut provider: String = "openai".to_string();
 
-        for line in reader.lines().take(500) {
+        for line in reader.lines() {
             let line = match line {
                 Ok(l) => l,
                 Err(_) => continue,
@@ -232,13 +227,14 @@ impl CodexCliParser {
                                     let output = u.output_tokens.unwrap_or(0);
                                     let total = u.total_tokens.unwrap_or(0);
 
-                                    let (input_tokens, output_tokens) =
-                                        if input == 0 && output == 0 && total > 0 {
-                                            ((total as f64 * 0.7) as u64,
-                                             (total as f64 * 0.3) as u64)
-                                        } else {
-                                            (input, output)
-                                        };
+                                    let (input_tokens, output_tokens) = if input == 0
+                                        && output == 0
+                                        && total > 0
+                                    {
+                                        ((total as f64 * 0.7) as u64, (total as f64 * 0.3) as u64)
+                                    } else {
+                                        (input, output)
+                                    };
 
                                     let model = current_model
                                         .clone()
@@ -280,14 +276,18 @@ impl CodexCliParser {
     fn parse_json_file(&self, path: &PathBuf) -> Result<Vec<TokenEvent>, String> {
         let content = fs::read_to_string(path)
             .map_err(|e| format!("Cannot read {}: {}", path.display(), e))?;
-        let session_id = path
-            .file_stem()
-            .map(|s| s.to_string_lossy().to_string());
+        let session_id = path.file_stem().map(|s| s.to_string_lossy().to_string());
 
         // New format: single session-line object
         if let Ok(entry) = serde_json::from_str::<CodexSessionLine>(&content) {
             let mut events = Vec::new();
-            self.process_new_format_line(&entry, &mut String::from("openai"), &mut None, &session_id, &mut events);
+            self.process_new_format_line(
+                &entry,
+                &mut String::from("openai"),
+                &mut None,
+                &session_id,
+                &mut events,
+            );
             return Ok(events);
         }
 
@@ -297,7 +297,13 @@ impl CodexCliParser {
             let mut current_model: Option<String> = None;
             let mut provider: String = "openai".to_string();
             for entry in &entries {
-                self.process_new_format_line(entry, &mut provider, &mut current_model, &session_id, &mut events);
+                self.process_new_format_line(
+                    entry,
+                    &mut provider,
+                    &mut current_model,
+                    &session_id,
+                    &mut events,
+                );
             }
             return Ok(events);
         }
@@ -372,8 +378,7 @@ impl CodexCliParser {
 
                                 let (input_tokens, output_tokens) =
                                     if input == 0 && output == 0 && total > 0 {
-                                        ((total as f64 * 0.7) as u64,
-                                         (total as f64 * 0.3) as u64)
+                                        ((total as f64 * 0.7) as u64, (total as f64 * 0.3) as u64)
                                     } else {
                                         (input, output)
                                     };
@@ -484,9 +489,9 @@ impl CodexCliParser {
                     .map(|s| s.to_string())
             });
 
-        let usage = value.get("usage").or_else(|| {
-            value.get("response").and_then(|r| r.get("usage"))
-        });
+        let usage = value
+            .get("usage")
+            .or_else(|| value.get("response").and_then(|r| r.get("usage")));
 
         if let (Some(model), Some(usage)) = (model, usage) {
             let input = usage

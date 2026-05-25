@@ -26,6 +26,12 @@ import type {
   AgentId,
   SkillScope,
 } from "$lib/types";
+import type {
+  AgentId as TokenAgentId,
+  SessionTranscript,
+  SessionTranscriptLocation,
+  HistorySessionsPage,
+} from "$lib/types/token-analytics";
 
 // Retained-for-reference wrappers (hooks / instructions / mcp / rules / budget / stats):
 // backend modules + frontend pages are kept on disk but unregistered from invoke_handler.
@@ -235,6 +241,7 @@ export const api = {
       dateEnd?: number;
       filterAgent?: string;
       filterModel?: string;
+      sourceOverride?: string;
     }) =>
       invoke<TokenAnalytics>("get_token_analytics", {
         granularity: params.granularity,
@@ -242,20 +249,84 @@ export const api = {
         dateEnd: params.dateEnd ?? null,
         filterAgent: params.filterAgent ?? null,
         filterModel: params.filterModel ?? null,
+        sourceOverride: params.sourceOverride ?? null,
       }),
     getModelBreakdown: (dateStart?: number, dateEnd?: number) =>
       invoke<ModelBreakdown[]>("get_model_breakdown", {
         dateStart: dateStart ?? null,
         dateEnd: dateEnd ?? null,
       }),
-    getCacheEfficiency: (dateStart?: number, dateEnd?: number) =>
+    getCacheEfficiency: (dateStart?: number, dateEnd?: number, sourceOverride?: string) =>
       invoke<CacheEfficiency>("get_cache_efficiency", {
         dateStart: dateStart ?? null,
         dateEnd: dateEnd ?? null,
+        sourceOverride: sourceOverride ?? null,
       }),
     getAvailableAgents: () =>
       invoke<AgentStatus[]>("get_available_agents"),
+    getAnalyticsPair: (params: {
+      dateStart?: number;
+      dateEnd?: number;
+      monthlySource?: string;
+      dailySource?: string;
+    }) =>
+      invoke<{ monthly: TokenAnalytics; daily: TokenAnalytics }>("get_token_analytics_pair", {
+        dateStart: params.dateStart ?? null,
+        dateEnd: params.dateEnd ?? null,
+        monthlySource: params.monthlySource ?? null,
+        dailySource: params.dailySource ?? null,
+      }),
+    getDayModelBreakdown: (date: string, sourceOverride?: string) =>
+      invoke<ModelBreakdown[]>("get_day_model_breakdown", {
+        date,
+        sourceOverride: sourceOverride ?? null,
+      }),
+    getDayHourly: (date: string, sourceOverride?: string) =>
+      invoke<import("$lib/types").DayHourlyBucket[]>("get_day_hourly", {
+        date,
+        sourceOverride: sourceOverride ?? null,
+      }),
+    getDayProjectBreakdown: (date: string, sourceOverride?: string) =>
+      invoke<import("$lib/types").DayProjectBreakdown[]>("get_day_project_breakdown", {
+        date,
+        sourceOverride: sourceOverride ?? null,
+      }),
+    getDayTopSessions: (date: string, limit: number, sourceOverride?: string) =>
+      invoke<import("$lib/types").DaySessionBreakdown[]>("get_day_top_sessions", {
+        date,
+        limit,
+        sourceOverride: sourceOverride ?? null,
+      }),
+    listHistorySessions: (params?: {
+      limit?: number;
+      offset?: number;
+      agentFilter?: "all" | TokenAgentId;
+      query?: string;
+    }) =>
+      invoke<HistorySessionsPage>("list_history_sessions", {
+        limit: params?.limit ?? null,
+        offset: params?.offset ?? null,
+        agentFilter: params?.agentFilter ?? null,
+        query: params?.query ?? null,
+      }),
+    readSessionTranscript: (agent: TokenAgentId, sessionId: string) =>
+      invoke<SessionTranscript>("read_session_transcript", {
+        agent,
+        sessionId,
+      }),
+    resolveSessionTranscript: (agent: TokenAgentId, sessionId: string) =>
+      invoke<SessionTranscriptLocation>("resolve_session_transcript", {
+        agent,
+        sessionId,
+      }),
+    revealSessionTranscript: (agent: TokenAgentId, sessionId: string) =>
+      invoke<SessionTranscriptLocation>("reveal_session_transcript", {
+        agent,
+        sessionId,
+      }),
     refresh: () => invoke<RefreshResult>("refresh_token_data"),
+    getAgentQuotaSnapshot: () =>
+      invoke<import("$lib/types").QuotaSnapshot>("get_agent_quota_snapshot"),
   },
 } as const;
 

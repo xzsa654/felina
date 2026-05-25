@@ -74,6 +74,16 @@ export function formatCostFull(n: number, locale: Locale = "en"): string {
 }
 
 /**
+ * Format context window size: 1_000_000 → "1M", 200_000 → "200K", 128_000 → "128K".
+ */
+export function formatCtx(tokens: number | null | undefined): string {
+  if (!tokens) return "";
+  if (tokens >= 1_000_000) return `${Math.round(tokens / 1_000_000)}M ctx`;
+  if (tokens >= 1_000) return `${Math.round(tokens / 1_000)}K ctx`;
+  return `${tokens} ctx`;
+}
+
+/**
  * Locale-aware date formatting.
  */
 export function formatDate(

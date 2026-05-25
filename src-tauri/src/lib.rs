@@ -32,15 +32,16 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_dialog::init())
-        .manage({
-            crate::commands::tokens::TokenState::new()
-                .expect("failed to init token state")
-        })
+        .manage(crate::commands::tokens::TokenState::new().expect("failed to init token state"))
         .setup(|app| {
             // Build tray menu
             let show = MenuItemBuilder::with_id("show", "Show Felina").build(app)?;
             let quit = MenuItemBuilder::with_id("quit", "Quit").build(app)?;
-            let menu = MenuBuilder::new(app).item(&show).separator().item(&quit).build()?;
+            let menu = MenuBuilder::new(app)
+                .item(&show)
+                .separator()
+                .item(&quit)
+                .build()?;
 
             // Create tray icon
             let icon = Image::from_path("icons/32x32.png")
@@ -137,9 +138,19 @@ pub fn run() {
             commands::maintenance::cleanup_directory,
             // Token Analytics
             commands::tokens::get_token_analytics,
+            commands::tokens::get_token_analytics_pair,
+            commands::tokens::get_agent_quota_snapshot,
             commands::tokens::get_model_breakdown,
             commands::tokens::get_cache_efficiency,
             commands::tokens::get_available_agents,
+            commands::tokens::get_day_hourly,
+            commands::tokens::get_day_project_breakdown,
+            commands::tokens::get_day_top_sessions,
+            commands::tokens::get_day_model_breakdown,
+            commands::tokens::list_history_sessions,
+            commands::tokens::read_session_transcript,
+            commands::tokens::resolve_session_transcript,
+            commands::tokens::reveal_session_transcript,
             commands::tokens::refresh_token_data,
         ])
         .run(tauri::generate_context!())

@@ -1,13 +1,18 @@
 pub mod aggregator;
+pub mod ccusage;
 pub mod parsers;
 pub mod pricing;
+pub mod reconciliation;
+pub mod scan_state;
 pub mod scanner;
 pub mod storage;
+pub mod tokscale;
+pub mod tokscale_ingestion;
 pub mod types;
 
 /// Parse an ISO 8601 timestamp (e.g. "2026-05-20T08:06:21.911Z") to a Unix epoch second.
 /// Returns `None` if the string is malformed or too short.
-pub(crate) fn parse_iso8601_to_epoch(s: &str) -> Option<i64> {
+pub fn parse_iso8601_to_epoch(s: &str) -> Option<i64> {
     let b = s.as_bytes();
     if b.len() < 19 {
         return None;

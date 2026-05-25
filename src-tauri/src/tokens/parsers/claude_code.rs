@@ -13,8 +13,6 @@ struct ConversationLine {
     #[serde(default)]
     message: Option<AssistantMessage>,
     #[serde(default)]
-    uuid: Option<String>,
-    #[serde(default)]
     timestamp: Option<String>,
 }
 
@@ -66,10 +64,7 @@ impl AgentParser for ClaudeCodeParser {
 
     fn data_directories(&self) -> Vec<PathBuf> {
         let home = dirs::home_dir().unwrap_or_default();
-        vec![
-            home.join(".claude").join("projects"),
-            home.join(".claude"),
-        ]
+        vec![home.join(".claude").join("projects"), home.join(".claude")]
     }
 
     fn file_patterns(&self) -> Vec<&str> {
@@ -77,10 +72,7 @@ impl AgentParser for ClaudeCodeParser {
     }
 
     fn parse_file(&self, path: &PathBuf) -> Result<Vec<TokenEvent>, String> {
-        let file_name = path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("");
+        let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
 
         // Handle stats-cache.json separately
         if file_name == "stats-cache.json" {
@@ -92,9 +84,7 @@ impl AgentParser for ClaudeCodeParser {
     }
 
     fn is_available(&self) -> bool {
-        self.data_directories()
-            .iter()
-            .any(|d| d.exists())
+        self.data_directories().iter().any(|d| d.exists())
     }
 }
 
@@ -104,8 +94,8 @@ impl ClaudeCodeParser {
     }
 
     fn parse_conversation_jsonl(&self, path: &PathBuf) -> Result<Vec<TokenEvent>, String> {
-        let file = fs::File::open(path)
-            .map_err(|e| format!("Cannot open {}: {}", path.display(), e))?;
+        let file =
+            fs::File::open(path).map_err(|e| format!("Cannot open {}: {}", path.display(), e))?;
         let reader = BufReader::new(file);
         let mut events = Vec::new();
 
@@ -124,8 +114,7 @@ impl ClaudeCodeParser {
                     .map(|n| n.to_string_lossy().to_string())
             });
 
-        // Limit to 500 lines per file for performance
-        for line in reader.lines().take(500) {
+        for line in reader.lines() {
             let line = match line {
                 Ok(l) => l,
                 Err(_) => continue,

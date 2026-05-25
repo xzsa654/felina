@@ -1,8 +1,13 @@
 use rusqlite::params;
+use std::collections::HashMap;
 use std::sync::Mutex;
 
 use crate::tokens::pricing::PricingService;
-use crate::tokens::storage::TokenStorage;
+use crate::tokens::scan_state::ScanState;
+use crate::tokens::storage::{TokenStorage, SOURCE_FELINA_PARSER, SOURCE_PARSER_FALLBACK};
+#[cfg(test)]
+use crate::tokens::tokscale::TokscaleAdapter;
+use crate::tokens::tokscale_ingestion;
 use crate::tokens::types::*;
 
 fn weekday_name(dow: u8) -> &'static str {
@@ -18,19 +23,46 @@ fn weekday_name(dow: u8) -> &'static str {
     }
 }
 
+fn parse_agent_id(agent: &str) -> AgentId {
+    match agent {
+        "codex-cli" => AgentId::CodexCli,
+        "gemini-cli" => AgentId::GeminiCli,
+        _ => AgentId::ClaudeCode,
+    }
+}
+
+fn is_synthetic_tokscale_session(session_id: &str) -> bool {
+    session_id.starts_with("tokscale-")
+}
+
 pub struct TokenAggregator {
     pub(crate) storage: TokenStorage,
     pub(crate) pricing: Mutex<PricingService>,
+    /// Cached result of pick_dated_source() — cleared on every refresh so the
+    /// next query re-evaluates after new data is ingested.
+    pub(crate) dated_source_cache: Mutex<Option<String>>,
 }
 
 impl TokenAggregator {
     pub fn new() -> Result<Self, String> {
         let storage = TokenStorage::new()?;
-        let pricing = Mutex::new(PricingService::new());
-        Ok(TokenAggregator { storage, pricing })
+        let mut svc = PricingService::new();
+        // Kick off background fetch of LiteLLM prices (no-op if cache is fresh).
+        svc.try_fetch_litellm();
+        let pricing = Mutex::new(svc);
+        Ok(TokenAggregator {
+            storage,
+            pricing,
+            dated_source_cache: Mutex::new(None),
+        })
     }
 
     /// Build a complete analytics response.
+    ///
+    /// `source_override`:
+    ///   - `None`            → use active_source (default behaviour)
+    ///   - `Some("auto_dated")` → pick the source with the most timestamp > 0 records
+    ///   - `Some("<name>")`  → use that source directly
     pub fn build_analytics(
         &self,
         granularity: TimeGranularity,
@@ -38,7 +70,17 @@ impl TokenAggregator {
         date_end: Option<i64>,
         filter_agent: Option<String>,
         filter_model: Option<String>,
+        source_override: Option<String>,
     ) -> Result<TokenAnalytics, String> {
+        let active_source = match source_override.as_deref() {
+            Some("auto_dated") => self.pick_dated_source()?,
+            Some(s) => s.to_string(),
+            None => self
+                .storage
+                .active_source()
+                .unwrap_or_else(|_| SOURCE_FELINA_PARSER.to_string()),
+        };
+
         let conn = self
             .storage
             .connection()
@@ -46,8 +88,9 @@ impl TokenAggregator {
             .map_err(|e| format!("Lock error: {}", e))?;
 
         // Build WHERE clause fragments
-        let mut conditions = Vec::new();
+        let mut conditions = vec!["source = ?1".to_string()];
         let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+        param_values.push(Box::new(active_source));
 
         if let Some(ref agent) = filter_agent {
             conditions.push(format!("agent = ?{}", param_values.len() + 1));
@@ -78,16 +121,21 @@ impl TokenAggregator {
 
         // Total aggregates
         let agg_sql = format!(
-            "SELECT COUNT(*), COALESCE(SUM(input_tokens),0), COALESCE(SUM(output_tokens),0),
+            "SELECT COALESCE(SUM(event_count),0), COALESCE(SUM(input_tokens),0), COALESCE(SUM(output_tokens),0),
                     COALESCE(SUM(cache_read_tokens),0), COALESCE(SUM(cache_write_tokens),0),
                     COALESCE(SUM(reasoning_tokens),0)
              FROM token_events {}",
             where_clause
         );
 
-        let (event_count, total_input, total_output, total_cache_read, total_cache_write, total_reasoning): (
-            u64, u64, u64, u64, u64, u64,
-        ) = conn
+        let (
+            event_count,
+            total_input,
+            total_output,
+            total_cache_read,
+            total_cache_write,
+            total_reasoning,
+        ): (u64, u64, u64, u64, u64, u64) = conn
             .query_row(&agg_sql, params_refs.as_slice(), |row| {
                 Ok((
                     row.get::<_, i64>(0)? as u64,
@@ -109,16 +157,15 @@ impl TokenAggregator {
             where_clause
         );
         if let Ok(mut stmt) = conn.prepare(&model_sql) {
-            let rows = stmt
-                .query_map(params_refs.as_slice(), |row| {
-                    Ok((
-                        row.get::<_, String>(0)?,
-                        row.get::<_, i64>(1)? as u64,
-                        row.get::<_, i64>(2)? as u64,
-                        row.get::<_, i64>(3)? as u64,
-                        row.get::<_, i64>(4)? as u64,
-                    ))
-                });
+            let rows = stmt.query_map(params_refs.as_slice(), |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, i64>(1)? as u64,
+                    row.get::<_, i64>(2)? as u64,
+                    row.get::<_, i64>(3)? as u64,
+                    row.get::<_, i64>(4)? as u64,
+                ))
+            });
             if let Ok(rows) = rows {
                 for row in rows.flatten() {
                     let (model, inp, out, cr, cw) = row;
@@ -142,12 +189,8 @@ impl TokenAggregator {
         }
 
         // Time series
-        let time_series = self.build_time_series(
-            &conn,
-            &where_clause,
-            &granularity,
-            params_refs.as_slice(),
-        )?;
+        let time_series =
+            self.build_time_series(&conn, &where_clause, &granularity, params_refs.as_slice())?;
 
         // Fill per-bucket costs via per-label×model pricing
         let time_series = self.fill_time_series_costs(
@@ -159,18 +202,23 @@ impl TokenAggregator {
         )?;
 
         // Model breakdown
-        let model_breakdown = self.build_model_breakdown(&conn, &where_clause, params_refs.as_slice())?;
+        let model_breakdown =
+            self.build_model_breakdown(&conn, &where_clause, params_refs.as_slice())?;
 
         // Agent breakdown
-        let agent_breakdown = self.build_agent_breakdown(&conn, &where_clause, params_refs.as_slice())?;
+        let agent_breakdown =
+            self.build_agent_breakdown(&conn, &where_clause, params_refs.as_slice())?;
+
+        // Top sessions for the same scope as the current analytics query.
+        let top_sessions =
+            self.build_top_sessions(&conn, &where_clause, params_refs.as_slice(), 5)?;
 
         // Hourly heatmap (last 7 days)
-        let hourly_heatmap = self.build_hourly_heatmap(&conn, &where_clause, params_refs.as_slice())?;
+        let hourly_heatmap =
+            self.build_hourly_heatmap(&conn, &where_clause, params_refs.as_slice())?;
 
         Ok(TokenAnalytics {
-            period_start: date_start
-                .map(|t| t.to_string())
-                .unwrap_or_default(),
+            period_start: date_start.map(|t| t.to_string()).unwrap_or_default(),
             period_end: date_end.map(|t| t.to_string()).unwrap_or_default(),
             total_input_tokens: total_input,
             total_output_tokens: total_output,
@@ -182,6 +230,7 @@ impl TokenAggregator {
             time_series,
             model_breakdown,
             agent_breakdown,
+            top_sessions,
             hourly_heatmap,
         })
     }
@@ -201,8 +250,8 @@ impl TokenAggregator {
         };
 
         let sql = format!(
-            "SELECT strftime('{}', datetime(timestamp, 'unixepoch', 'localtime')) as label,
-                    COUNT(*),
+            "SELECT CASE WHEN timestamp = 0 THEN 'all' ELSE strftime('{}', datetime(timestamp, 'unixepoch', 'localtime')) END as label,
+                    COALESCE(SUM(event_count),0),
                     COALESCE(SUM(input_tokens),0), COALESCE(SUM(output_tokens),0),
                     COALESCE(SUM(cache_read_tokens),0), COALESCE(SUM(cache_write_tokens),0),
                     COALESCE(SUM(reasoning_tokens),0),
@@ -253,7 +302,7 @@ impl TokenAggregator {
         };
 
         let sql = format!(
-            "SELECT strftime('{}', datetime(timestamp, 'unixepoch', 'localtime')) as label,
+            "SELECT CASE WHEN timestamp = 0 THEN 'all' ELSE strftime('{}', datetime(timestamp, 'unixepoch', 'localtime')) END as label,
                     model,
                     COALESCE(SUM(input_tokens),0),
                     COALESCE(SUM(output_tokens),0),
@@ -321,7 +370,7 @@ impl TokenAggregator {
             "SELECT model, provider, agent,
                     COALESCE(SUM(input_tokens),0), COALESCE(SUM(output_tokens),0),
                     COALESCE(SUM(cache_read_tokens),0), COALESCE(SUM(cache_write_tokens),0),
-                    COALESCE(SUM(reasoning_tokens),0), COUNT(*)
+                    COALESCE(SUM(reasoning_tokens),0), COALESCE(SUM(event_count),0)
              FROM token_events {}
              GROUP BY model, provider, agent
              ORDER BY COALESCE(SUM(input_tokens),0) + COALESCE(SUM(output_tokens),0) DESC",
@@ -344,11 +393,7 @@ impl TokenAggregator {
                 let reasoning: u64 = row.get::<_, i64>(7)? as u64;
                 let count: u64 = row.get::<_, i64>(8)? as u64;
 
-                let agent = match agent_str.as_str() {
-                    "codex-cli" => AgentId::CodexCli,
-                    "gemini-cli" => AgentId::GeminiCli,
-                    _ => AgentId::ClaudeCode,
-                };
+                let agent = parse_agent_id(&agent_str);
 
                 Ok(ModelBreakdown {
                     model,
@@ -359,17 +404,21 @@ impl TokenAggregator {
                     cache_read_tokens: cr,
                     cache_write_tokens: cw,
                     reasoning_tokens: reasoning,
-                    cost_usd: 0.0, // filled below
+                    cost_usd: 0.0,
                     event_count: count,
+                    max_input_tokens: None, // filled below
                 })
             })
             .map_err(|e| format!("Model breakdown map error: {}", e))?;
 
         let mut models: Vec<ModelBreakdown> = rows.filter_map(|r| r.ok()).collect();
 
-        // Fill costs
+        // Fill costs + context window
         for m in &mut models {
             let mut pricing = self.pricing.lock().unwrap();
+            if let Ok(p) = pricing.get_price(&m.model) {
+                m.max_input_tokens = p.max_input_tokens;
+            }
             let event = TokenEvent {
                 agent: m.agent.clone(),
                 provider: m.provider.clone(),
@@ -399,7 +448,7 @@ impl TokenAggregator {
             "SELECT agent,
                     COALESCE(SUM(input_tokens),0), COALESCE(SUM(output_tokens),0),
                     COALESCE(SUM(cache_read_tokens),0), COALESCE(SUM(cache_write_tokens),0),
-                    COUNT(*)
+                    COALESCE(SUM(reasoning_tokens),0), COALESCE(SUM(event_count),0)
              FROM token_events {}
              GROUP BY agent",
             where_clause
@@ -412,11 +461,7 @@ impl TokenAggregator {
         let rows = stmt
             .query_map(params, |row| {
                 let agent_str: String = row.get(0)?;
-                let agent = match agent_str.as_str() {
-                    "codex-cli" => AgentId::CodexCli,
-                    "gemini-cli" => AgentId::GeminiCli,
-                    _ => AgentId::ClaudeCode,
-                };
+                let agent = parse_agent_id(&agent_str);
 
                 Ok(AgentBreakdown {
                     agent,
@@ -424,13 +469,144 @@ impl TokenAggregator {
                     output_tokens: row.get::<_, i64>(2)? as u64,
                     cache_read_tokens: row.get::<_, i64>(3)? as u64,
                     cache_write_tokens: row.get::<_, i64>(4)? as u64,
+                    reasoning_tokens: row.get::<_, i64>(5)? as u64,
                     cost_usd: 0.0,
-                    event_count: row.get::<_, i64>(5)? as u64,
+                    event_count: row.get::<_, i64>(6)? as u64,
                 })
             })
             .map_err(|e| format!("Agent breakdown map error: {}", e))?;
 
         Ok(rows.filter_map(|r| r.ok()).collect())
+    }
+
+    fn build_top_sessions(
+        &self,
+        conn: &rusqlite::Connection,
+        where_clause: &str,
+        params: &[&dyn rusqlite::types::ToSql],
+        limit: usize,
+    ) -> Result<Vec<DaySessionBreakdown>, String> {
+        #[derive(Default)]
+        struct SessionRollup {
+            project: Option<String>,
+            model: String,
+            model_tokens: u64,
+            tokens: u64,
+            messages: u64,
+            cost_usd: f64,
+        }
+
+        let sql = format!(
+            "SELECT agent,
+                    session_id,
+                    project,
+                    model,
+                    provider,
+                    COALESCE(SUM(input_tokens),0),
+                    COALESCE(SUM(output_tokens),0),
+                    COALESCE(SUM(cache_read_tokens),0),
+                    COALESCE(SUM(cache_write_tokens),0),
+                    COALESCE(SUM(reasoning_tokens),0),
+                    COALESCE(SUM(event_count),0)
+             FROM token_events {}
+             AND session_id IS NOT NULL
+             AND session_id != ''
+             GROUP BY agent, session_id, project, model, provider",
+            where_clause
+        );
+
+        let mut stmt = conn
+            .prepare(&sql)
+            .map_err(|e| format!("Top sessions query error: {}", e))?;
+
+        let rows = stmt
+            .query_map(params, |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, i64>(5)? as u64,
+                    row.get::<_, i64>(6)? as u64,
+                    row.get::<_, i64>(7)? as u64,
+                    row.get::<_, i64>(8)? as u64,
+                    row.get::<_, i64>(9)? as u64,
+                    row.get::<_, i64>(10)? as u64,
+                ))
+            })
+            .map_err(|e| format!("Top sessions map error: {}", e))?;
+
+        let mut rollups: HashMap<(String, String), SessionRollup> = HashMap::new();
+        for row in rows.flatten() {
+            let (
+                agent,
+                session_id,
+                project,
+                model,
+                provider,
+                input,
+                output,
+                cr,
+                cw,
+                reasoning,
+                messages,
+            ) = row;
+            if is_synthetic_tokscale_session(&session_id) {
+                continue;
+            }
+            let tokens = input + output + cr + cw + reasoning;
+            let entry = rollups
+                .entry((agent.clone(), session_id))
+                .or_insert_with(SessionRollup::default);
+
+            entry.tokens += tokens;
+            entry.messages += messages;
+            if entry.project.is_none() {
+                entry.project = project;
+            }
+            if tokens > entry.model_tokens {
+                entry.model = model.clone();
+                entry.model_tokens = tokens;
+            }
+
+            let mut pricing = self.pricing.lock().unwrap();
+            let event = TokenEvent {
+                agent: parse_agent_id(&agent),
+                provider,
+                model,
+                timestamp: 0,
+                input_tokens: input,
+                output_tokens: output,
+                cache_read_tokens: cr,
+                cache_write_tokens: cw,
+                reasoning_tokens: reasoning,
+                project: None,
+                session_id: None,
+            };
+            entry.cost_usd += pricing.calculate_cost(&event);
+        }
+
+        let mut sessions: Vec<DaySessionBreakdown> = rollups
+            .into_iter()
+            .map(|((agent, session_id), rollup)| DaySessionBreakdown {
+                session_id,
+                agent: parse_agent_id(&agent),
+                project: rollup.project,
+                model: rollup.model,
+                tokens: rollup.tokens,
+                messages: rollup.messages,
+                cost_usd: rollup.cost_usd,
+            })
+            .collect();
+
+        sessions.sort_by(|a, b| {
+            b.tokens
+                .cmp(&a.tokens)
+                .then_with(|| a.session_id.cmp(&b.session_id))
+        });
+        sessions.truncate(limit);
+        Ok(sessions)
     }
 
     fn build_hourly_heatmap(
@@ -445,6 +621,7 @@ impl TokenAggregator {
                     CAST(strftime('%H', datetime(timestamp, 'unixepoch', 'localtime')) AS INTEGER) as hour,
                     COALESCE(SUM(input_tokens + output_tokens),0) as total_tokens
              FROM token_events {}
+             AND timestamp > 0
              GROUP BY dow, hour ORDER BY dow, hour",
             where_clause
         );
@@ -483,24 +660,24 @@ impl TokenAggregator {
                     COALESCE(SUM(cache_read_tokens),0),
                     COALESCE(SUM(cache_write_tokens),0)
              FROM token_events {}
+             AND timestamp > 0
              GROUP BY dow, hour, model
              ORDER BY dow, hour",
             where_clause
         );
 
         if let Ok(mut cost_stmt) = conn.prepare(&cost_sql) {
-            let cost_rows = cost_stmt
-                .query_map(params, |row| {
-                    Ok((
-                        row.get::<_, i64>(0)? as u8,
-                        row.get::<_, i64>(1)? as u8,
-                        row.get::<_, String>(2)?,
-                        row.get::<_, i64>(3)? as u64,
-                        row.get::<_, i64>(4)? as u64,
-                        row.get::<_, i64>(5)? as u64,
-                        row.get::<_, i64>(6)? as u64,
-                    ))
-                });
+            let cost_rows = cost_stmt.query_map(params, |row| {
+                Ok((
+                    row.get::<_, i64>(0)? as u8,
+                    row.get::<_, i64>(1)? as u8,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, i64>(3)? as u64,
+                    row.get::<_, i64>(4)? as u64,
+                    row.get::<_, i64>(5)? as u64,
+                    row.get::<_, i64>(6)? as u64,
+                ))
+            });
 
             if let Ok(cost_rows) = cost_rows {
                 let mut dow_hour_costs: std::collections::HashMap<(u8, u8), f64> =
@@ -537,7 +714,10 @@ impl TokenAggregator {
                         "Sat" => 6u8,
                         _ => 99u8,
                     };
-                    entry.cost_usd = dow_hour_costs.get(&(dow, entry.hour)).copied().unwrap_or(0.0);
+                    entry.cost_usd = dow_hour_costs
+                        .get(&(dow, entry.hour))
+                        .copied()
+                        .unwrap_or(0.0);
                 }
             }
         }
@@ -545,11 +725,331 @@ impl TokenAggregator {
         Ok(entries)
     }
 
+    /// Resolve the source to query (auto_dated, explicit name, or active).
+    fn resolve_source(&self, source_override: Option<&str>) -> Result<String, String> {
+        match source_override {
+            Some("auto_dated") => self.pick_dated_source(),
+            Some(s) => Ok(s.to_string()),
+            None => self
+                .storage
+                .active_source()
+                .map_err(|e| format!("active_source error: {}", e)),
+        }
+    }
+
+    /// Hourly token distribution for a single day (YYYY-MM-DD, local time).
+    pub fn build_day_hourly(
+        &self,
+        date: &str,
+        source_override: Option<String>,
+    ) -> Result<Vec<DayHourlyBucket>, String> {
+        let source = self.resolve_source(source_override.as_deref())?;
+        let conn = self
+            .storage
+            .connection()
+            .lock()
+            .map_err(|e| format!("Lock error: {}", e))?;
+
+        let sql = "SELECT CAST(strftime('%H', datetime(timestamp,'unixepoch','localtime')) AS INTEGER),
+                          COALESCE(SUM(input_tokens+output_tokens+cache_read_tokens+cache_write_tokens),0),
+                          COALESCE(SUM(event_count),0)
+                   FROM token_events
+                   WHERE source=?1 AND date(timestamp,'unixepoch','localtime')=?2 AND timestamp>0
+                   GROUP BY 1 ORDER BY 1";
+
+        let mut stmt = conn
+            .prepare(sql)
+            .map_err(|e| format!("hourly query: {}", e))?;
+        let rows = stmt
+            .query_map(rusqlite::params![source, date], |row| {
+                Ok(DayHourlyBucket {
+                    hour: row.get::<_, i64>(0)? as u8,
+                    tokens: row.get::<_, i64>(1)? as u64,
+                    messages: row.get::<_, i64>(2)? as u64,
+                })
+            })
+            .map_err(|e| format!("hourly map: {}", e))?;
+        Ok(rows.filter_map(|r| r.ok()).collect())
+    }
+
+    /// Per-project token breakdown for a single day.
+    pub fn build_day_project_breakdown(
+        &self,
+        date: &str,
+        source_override: Option<String>,
+    ) -> Result<Vec<DayProjectBreakdown>, String> {
+        let source = self.resolve_source(source_override.as_deref())?;
+        let conn = self
+            .storage
+            .connection()
+            .lock()
+            .map_err(|e| format!("Lock error: {}", e))?;
+
+        let sql = "SELECT COALESCE(NULLIF(project,''), '(no project)'),
+                          COALESCE(SUM(input_tokens+output_tokens+cache_read_tokens+cache_write_tokens),0),
+                          COALESCE(SUM(event_count),0)
+                   FROM token_events
+                   WHERE source=?1 AND date(timestamp,'unixepoch','localtime')=?2
+                   GROUP BY project ORDER BY 2 DESC LIMIT 10";
+
+        let mut stmt = conn
+            .prepare(sql)
+            .map_err(|e| format!("project query: {}", e))?;
+        let rows = stmt
+            .query_map(rusqlite::params![source, date], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, i64>(1)? as u64,
+                    row.get::<_, i64>(2)? as u64,
+                ))
+            })
+            .map_err(|e| format!("project map: {}", e))?;
+
+        let mut result: Vec<DayProjectBreakdown> = rows
+            .filter_map(|r| r.ok())
+            .map(|(project, tokens, messages)| DayProjectBreakdown {
+                project,
+                tokens,
+                messages,
+                cost_usd: 0.0,
+            })
+            .collect();
+
+        // Fill costs per project via model breakdown
+        for p in &mut result {
+            let cost_sql = "SELECT model, provider,
+                                   COALESCE(SUM(input_tokens),0),
+                                   COALESCE(SUM(output_tokens),0),
+                                   COALESCE(SUM(cache_read_tokens),0),
+                                   COALESCE(SUM(cache_write_tokens),0)
+                            FROM token_events
+                            WHERE source=?1 AND date(timestamp,'unixepoch','localtime')=?2
+                              AND COALESCE(NULLIF(project,''), '(no project)')=?3
+                            GROUP BY model, provider";
+            if let Ok(mut stmt2) = conn.prepare(cost_sql) {
+                if let Ok(crows) =
+                    stmt2.query_map(rusqlite::params![source, date, p.project], |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, String>(1)?,
+                            row.get::<_, i64>(2)? as u64,
+                            row.get::<_, i64>(3)? as u64,
+                            row.get::<_, i64>(4)? as u64,
+                            row.get::<_, i64>(5)? as u64,
+                        ))
+                    })
+                {
+                    for crow in crows.flatten() {
+                        let (model, provider, inp, out, cr, cw) = crow;
+                        let mut pricing = self.pricing.lock().unwrap();
+                        let event = TokenEvent {
+                            agent: AgentId::ClaudeCode,
+                            provider,
+                            model,
+                            timestamp: 0,
+                            input_tokens: inp,
+                            output_tokens: out,
+                            cache_read_tokens: cr,
+                            cache_write_tokens: cw,
+                            reasoning_tokens: 0,
+                            project: None,
+                            session_id: None,
+                        };
+                        p.cost_usd += pricing.calculate_cost(&event);
+                    }
+                }
+            }
+        }
+        Ok(result)
+    }
+
+    /// Top sessions by token consumption for a single day.
+    pub fn build_day_top_sessions(
+        &self,
+        date: &str,
+        limit: u64,
+        source_override: Option<String>,
+    ) -> Result<Vec<DaySessionBreakdown>, String> {
+        let source = self.resolve_source(source_override.as_deref())?;
+        let conn = self
+            .storage
+            .connection()
+            .lock()
+            .map_err(|e| format!("Lock error: {}", e))?;
+
+        let sql = "SELECT session_id,
+                          agent,
+                          project,
+                          model,
+                          COALESCE(SUM(input_tokens+output_tokens+cache_read_tokens+cache_write_tokens),0),
+                          COALESCE(SUM(event_count),0),
+                          provider
+                   FROM token_events
+                   WHERE source=?1 AND date(timestamp,'unixepoch','localtime')=?2
+                     AND session_id IS NOT NULL
+                   GROUP BY agent, session_id ORDER BY 5 DESC LIMIT ?3";
+
+        let mut stmt = conn
+            .prepare(sql)
+            .map_err(|e| format!("sessions query: {}", e))?;
+        let rows = stmt
+            .query_map(rusqlite::params![source, date, limit as i64], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, i64>(4)? as u64,
+                    row.get::<_, i64>(5)? as u64,
+                    row.get::<_, String>(6)?,
+                ))
+            })
+            .map_err(|e| format!("sessions map: {}", e))?;
+
+        let mut result: Vec<DaySessionBreakdown> = rows
+            .filter_map(|r| r.ok())
+            .map(
+                |(session_id, agent, project, model, tokens, messages, _provider)| {
+                    if is_synthetic_tokscale_session(&session_id) {
+                        return None;
+                    }
+                    let agent = match agent.as_str() {
+                        "codex-cli" => AgentId::CodexCli,
+                        "gemini-cli" => AgentId::GeminiCli,
+                        _ => AgentId::ClaudeCode,
+                    };
+                    Some(DaySessionBreakdown {
+                        session_id,
+                        agent,
+                        project,
+                        model,
+                        tokens,
+                        messages,
+                        cost_usd: 0.0,
+                    })
+                },
+            )
+            .flatten()
+            .collect();
+
+        // Fill costs
+        for s in &mut result {
+            let cost_sql = "SELECT model, provider,
+                                   COALESCE(SUM(input_tokens),0),
+                                   COALESCE(SUM(output_tokens),0),
+                                   COALESCE(SUM(cache_read_tokens),0),
+                                   COALESCE(SUM(cache_write_tokens),0)
+                            FROM token_events
+                            WHERE source=?1 AND date(timestamp,'unixepoch','localtime')=?2
+                              AND session_id=?3
+                            GROUP BY model, provider";
+            if let Ok(mut stmt2) = conn.prepare(cost_sql) {
+                if let Ok(crows) =
+                    stmt2.query_map(rusqlite::params![source, date, s.session_id], |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, String>(1)?,
+                            row.get::<_, i64>(2)? as u64,
+                            row.get::<_, i64>(3)? as u64,
+                            row.get::<_, i64>(4)? as u64,
+                            row.get::<_, i64>(5)? as u64,
+                        ))
+                    })
+                {
+                    for crow in crows.flatten() {
+                        let (model, provider, inp, out, cr, cw) = crow;
+                        let mut pricing = self.pricing.lock().unwrap();
+                        let event = TokenEvent {
+                            agent: AgentId::ClaudeCode,
+                            provider,
+                            model,
+                            timestamp: 0,
+                            input_tokens: inp,
+                            output_tokens: out,
+                            cache_read_tokens: cr,
+                            cache_write_tokens: cw,
+                            reasoning_tokens: 0,
+                            project: None,
+                            session_id: None,
+                        };
+                        s.cost_usd += pricing.calculate_cost(&event);
+                    }
+                }
+            }
+        }
+        Ok(result)
+    }
+
+    /// Build model breakdown for a single calendar day (YYYY-MM-DD, local time).
+    pub fn build_day_model_breakdown(
+        &self,
+        date: &str,
+        source_override: Option<String>,
+    ) -> Result<Vec<ModelBreakdown>, String> {
+        let source = match source_override.as_deref() {
+            Some("auto_dated") => self.pick_dated_source()?,
+            Some(s) => s.to_string(),
+            None => self
+                .storage
+                .active_source()
+                .unwrap_or_else(|_| SOURCE_FELINA_PARSER.to_string()),
+        };
+
+        let conn = self
+            .storage
+            .connection()
+            .lock()
+            .map_err(|e| format!("Lock error: {}", e))?;
+
+        let where_clause = "WHERE source = ?1 AND date(timestamp,'unixepoch','localtime') = ?2";
+        let params: Vec<Box<dyn rusqlite::types::ToSql>> =
+            vec![Box::new(source), Box::new(date.to_string())];
+        let params_refs: Vec<&dyn rusqlite::types::ToSql> =
+            params.iter().map(|p| p.as_ref()).collect();
+
+        self.build_model_breakdown(&conn, where_clause, params_refs.as_slice())
+    }
+
+    /// Build both monthly and daily analytics in a single call.
+    ///
+    /// `monthly_source`: source for the Overview/Models monthly query.
+    ///   Pass `None` to use active_source (fast — tokscale for "all time").
+    ///   Pass `Some("auto_dated")` only when a date range is active.
+    ///
+    /// `daily_source`: source for the Daily tab.
+    ///   Always pass `Some("auto_dated")` — tokscale has no timestamps.
+    pub fn build_analytics_pair(
+        &self,
+        date_start: Option<i64>,
+        date_end: Option<i64>,
+        monthly_source: Option<String>,
+        daily_source: Option<String>,
+    ) -> Result<TokenAnalyticsPair, String> {
+        let monthly = self.build_analytics(
+            TimeGranularity::Monthly,
+            date_start,
+            date_end,
+            None,
+            None,
+            monthly_source,
+        )?;
+        let daily = self.build_analytics(
+            TimeGranularity::Daily,
+            date_start,
+            date_end,
+            None,
+            None,
+            daily_source,
+        )?;
+        Ok(TokenAnalyticsPair { monthly, daily })
+    }
+
     /// Build cache efficiency metrics.
     pub fn build_cache_efficiency(
         &self,
         date_start: Option<i64>,
         date_end: Option<i64>,
+        source_override: Option<String>,
     ) -> Result<CacheEfficiency, String> {
         let analytics = self.build_analytics(
             TimeGranularity::Daily,
@@ -557,6 +1057,7 @@ impl TokenAggregator {
             date_end,
             None,
             None,
+            source_override,
         )?;
 
         let total_input = analytics.total_input_tokens + analytics.total_cache_read_tokens;
@@ -579,8 +1080,211 @@ impl TokenAggregator {
         })
     }
 
-    /// Trigger a re-scan and return result.
+    /// Pick the source that has the most events with a real timestamp (> 0).
+    /// Result is cached in-memory — one SQL query on first call, free thereafter.
+    fn pick_dated_source(&self) -> Result<String, String> {
+        // Return cached value if available.
+        {
+            let cache = self
+                .dated_source_cache
+                .lock()
+                .map_err(|e| format!("dated_source_cache lock error: {}", e))?;
+            if let Some(ref s) = *cache {
+                return Ok(s.clone());
+            }
+        }
+
+        // Query DB (scope conn lock so it's released before active_source).
+        let dated_source = {
+            let conn = self
+                .storage
+                .connection()
+                .lock()
+                .map_err(|e| format!("Lock error: {}", e))?;
+            let mut stmt = conn
+                .prepare(
+                    "SELECT source, COUNT(*) as cnt
+                     FROM token_events
+                     WHERE timestamp > 0
+                     GROUP BY source
+                     ORDER BY cnt DESC
+                     LIMIT 1",
+                )
+                .map_err(|e| format!("pick_dated_source prepare error: {}", e))?;
+            stmt.query_row([], |row| row.get::<_, String>(0)).ok()
+        };
+
+        let source = dated_source.unwrap_or_else(|| {
+            self.storage
+                .active_source()
+                .unwrap_or_else(|_| SOURCE_FELINA_PARSER.to_string())
+        });
+
+        if let Ok(mut cache) = self.dated_source_cache.lock() {
+            *cache = Some(source.clone());
+        }
+
+        Ok(source)
+    }
+
+    /// Invalidate the dated-source cache (called after refresh ingests new data).
+    fn invalidate_dated_source_cache(&self) {
+        if let Ok(mut cache) = self.dated_source_cache.lock() {
+            *cache = None;
+        }
+    }
+
+    /// Run the Felina parser scan and upsert results under SOURCE_FELINA_PARSER.
+    /// Called alongside tokscale so the Daily tab always has dated records.
+    ///
+    /// If `felina_parser` has no dated events yet, the scan cursor is cleared
+    /// first so that a full historical scan is performed instead of an
+    /// incremental one. This handles the case where the cursor was previously
+    /// advanced by an unrelated scan before any felina_parser data existed.
+    fn run_parser_scan(&self) -> Result<u64, String> {
+        use crate::tokens::scanner::TokenScanner;
+
+        // Check whether we already have dated felina_parser events.
+        let has_dated = {
+            let conn = self
+                .storage
+                .connection()
+                .lock()
+                .map_err(|e| format!("Lock error: {}", e))?;
+            let count: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM token_events WHERE source = ?1 AND timestamp > 0",
+                    rusqlite::params![SOURCE_FELINA_PARSER],
+                    |row| row.get(0),
+                )
+                .unwrap_or(0);
+            count > 0
+        };
+
+        // No dated data yet → clear cursors so the scan reads every file.
+        if !has_dated {
+            let conn = self
+                .storage
+                .connection()
+                .lock()
+                .map_err(|e| format!("Lock error: {}", e))?;
+            let _ = conn.execute(
+                "DELETE FROM scan_state WHERE agent IN ('claude-code', 'codex-cli', 'gemini-cli')",
+                [],
+            );
+        }
+
+        let registry = {
+            let mut r = crate::tokens::parsers::ParserRegistry::new();
+            r.register(Box::new(
+                crate::tokens::parsers::claude_code::ClaudeCodeParser::new(),
+            ));
+            r.register(Box::new(crate::tokens::parsers::codex_cli::CodexCliParser));
+            r.register(Box::new(
+                crate::tokens::parsers::gemini_cli::GeminiCliParser,
+            ));
+            r
+        };
+
+        let scan_state = ScanState::new()?;
+        let scanner = TokenScanner::new(registry);
+        let output = scanner.scan_all(&scan_state)?;
+        self.storage
+            .upsert_events_for_source(&output.events, SOURCE_FELINA_PARSER, "parser")
+    }
+
+    /// Trigger a tokscale-backed refresh and return result.
     pub fn refresh(&self) -> Result<RefreshResult, String> {
+        self.refresh_with_options(false)
+    }
+
+    pub fn refresh_with_options(
+        &self,
+        allow_parser_fallback: bool,
+    ) -> Result<RefreshResult, String> {
+        self.refresh_from_ingestion_result(
+            tokscale_ingestion::ingest_with_default_adapter(&self.storage),
+            allow_parser_fallback,
+        )
+    }
+
+    #[cfg(test)]
+    fn refresh_with_adapter(
+        &self,
+        adapter: &dyn TokscaleAdapter,
+        allow_parser_fallback: bool,
+    ) -> Result<RefreshResult, String> {
+        self.refresh_from_ingestion_result(
+            tokscale_ingestion::ingest_with_adapter(&self.storage, adapter),
+            allow_parser_fallback,
+        )
+    }
+
+    fn refresh_from_ingestion_result(
+        &self,
+        result: Result<tokscale_ingestion::TokscaleIngestionOutput, String>,
+        allow_parser_fallback: bool,
+    ) -> Result<RefreshResult, String> {
+        // Prune events older than 90 days on every refresh (best-effort, non-fatal).
+        let _ = self.storage.prune_older_than(90);
+        self.invalidate_dated_source_cache();
+
+        match result {
+            Ok(output) => {
+                // tokscale succeeded — also run the parser so felina_parser
+                // records (with real per-day timestamps) are populated in the
+                // DB. The Daily tab uses "auto_dated" which picks this source.
+                // Errors here are best-effort and do not affect the response.
+                let _ = self.run_parser_scan();
+
+                Ok(RefreshResult {
+                    agents_scanned: 0,
+                    files_scanned: 1,
+                    files_skipped: 0,
+                    events_parsed: output.event_counts.iter().sum(),
+                    events_inserted: output.events.len() as u64,
+                    errors: Vec::new(),
+                    active_source: crate::tokens::storage::SOURCE_TOKSCALE_EXPORT.to_string(),
+                    status: output.source_status,
+                    last_successful_source: Some(
+                        crate::tokens::storage::SOURCE_TOKSCALE_EXPORT.to_string(),
+                    ),
+                    fallback_used: false,
+                })
+            }
+            Err(err) if allow_parser_fallback => self.refresh_parser_fallback(&err),
+            Err(err) => {
+                let active_source = self
+                    .storage
+                    .active_source()
+                    .unwrap_or_else(|_| SOURCE_FELINA_PARSER.to_string());
+                let status = err
+                    .split(':')
+                    .next()
+                    .unwrap_or(tokscale_ingestion::STATUS_COMMAND_FAILED)
+                    .to_string();
+                Ok(RefreshResult {
+                    agents_scanned: 0,
+                    files_scanned: 0,
+                    files_skipped: 0,
+                    events_parsed: 0,
+                    events_inserted: 0,
+                    errors: vec![tokscale_ingestion::scan_error_from_status(
+                        &status,
+                        Some(err),
+                    )],
+                    active_source: active_source.clone(),
+                    status,
+                    last_successful_source: Some(active_source),
+                    fallback_used: false,
+                })
+            }
+        }
+    }
+
+    /// Explicit diagnostic fallback to the legacy Felina parser path.
+    pub fn refresh_parser_fallback(&self, reason: &str) -> Result<RefreshResult, String> {
+        let _ = self.storage.prune_older_than(90);
         use crate::tokens::scanner::TokenScanner;
 
         let registry = {
@@ -588,41 +1292,66 @@ impl TokenAggregator {
             r.register(Box::new(
                 crate::tokens::parsers::claude_code::ClaudeCodeParser::new(),
             ));
-            r.register(Box::new(
-                crate::tokens::parsers::codex_cli::CodexCliParser,
-            ));
+            r.register(Box::new(crate::tokens::parsers::codex_cli::CodexCliParser));
             r.register(Box::new(
                 crate::tokens::parsers::gemini_cli::GeminiCliParser,
             ));
             r
         };
 
+        let scan_state = ScanState::new()?;
         let scanner = TokenScanner::new(registry);
-        let events = scanner.scan_all()?;
-        let inserted = self.storage.upsert_events(&events)?;
+        let output = scanner.scan_all(&scan_state)?;
+        let parsed_count = output.events.len() as u64;
+        let inserted = self.storage.upsert_events_for_source(
+            &output.events,
+            SOURCE_PARSER_FALLBACK,
+            "fallback",
+        )?;
+        self.storage.set_active_source(SOURCE_PARSER_FALLBACK)?;
+        let mut errors = output.errors;
+        errors.push(ScanError {
+            agent: AgentId::ClaudeCode,
+            source: "tokscale_export".into(),
+            message: format!("parser fallback used after tokscale failure: {}", reason),
+        });
 
         Ok(RefreshResult {
-            agents_scanned: 1,
-            events_parsed: inserted,
-            errors: Vec::new(),
+            agents_scanned: output.agents_scanned,
+            files_scanned: output.files_scanned,
+            files_skipped: output.files_skipped,
+            events_parsed: parsed_count,
+            events_inserted: inserted,
+            errors,
+            active_source: SOURCE_PARSER_FALLBACK.to_string(),
+            status: "parser_fallback".to_string(),
+            last_successful_source: Some(SOURCE_PARSER_FALLBACK.to_string()),
+            fallback_used: true,
         })
     }
 
-    /// Get status of available agents.
+    /// Get status of available agents using scan state cursors for last_scanned
+    /// and last_error, not MAX(token_events.timestamp).
     pub fn get_agent_status(&self) -> Result<Vec<AgentStatus>, String> {
+        use crate::tokens::scan_state::ScanState;
+
         let registry = {
             let mut r = crate::tokens::parsers::ParserRegistry::new();
             r.register(Box::new(
                 crate::tokens::parsers::claude_code::ClaudeCodeParser::new(),
             ));
-            r.register(Box::new(
-                crate::tokens::parsers::codex_cli::CodexCliParser,
-            ));
+            r.register(Box::new(crate::tokens::parsers::codex_cli::CodexCliParser));
             r.register(Box::new(
                 crate::tokens::parsers::gemini_cli::GeminiCliParser,
             ));
             r
         };
+
+        let scan_state = ScanState::new()?;
+        let active_source = self
+            .storage
+            .active_source()
+            .unwrap_or_else(|_| SOURCE_FELINA_PARSER.to_string());
 
         let mut statuses = Vec::new();
         for parser in registry.all_parsers() {
@@ -637,20 +1366,34 @@ impl TokenAggregator {
                 .map_err(|e| format!("Lock error: {}", e))?;
             let event_count: u64 = conn
                 .query_row(
-                    "SELECT COUNT(*) FROM token_events WHERE agent = ?1",
-                    params![agent.to_string()],
+                    "SELECT COALESCE(SUM(event_count),0) FROM token_events WHERE agent = ?1 AND source = ?2",
+                    params![agent.to_string(), active_source],
                     |row| row.get::<_, i64>(0).map(|v| v as u64),
                 )
                 .unwrap_or(0);
 
-            let last_scanned = conn
-                .query_row(
-                    "SELECT MAX(timestamp) FROM token_events WHERE agent = ?1",
-                    params![agent.to_string()],
-                    |row| row.get::<_, Option<i64>>(0),
-                )
-                .unwrap_or(None)
-                .map(|ts| ts.to_string());
+            // Read scan state for this agent: collect last_scan_ts and last_error
+            // from all sources. The last_scanned is the max last_scan_ts across all
+            // source paths for this agent.
+            let mut last_scan_ts: Option<i64> = None;
+            let mut last_error: Option<String> = None;
+
+            for dir in parser.data_directories() {
+                let source_key = dir.to_string_lossy().to_string();
+                if let Ok(Some(cursor)) = scan_state.get_cursor(&agent, &source_key) {
+                    if cursor.last_scan_ts > 0 {
+                        last_scan_ts = Some(match last_scan_ts {
+                            Some(existing) => existing.max(cursor.last_scan_ts),
+                            None => cursor.last_scan_ts,
+                        });
+                    }
+                    if cursor.last_error.is_some() && last_error.is_none() {
+                        last_error = cursor.last_error;
+                    }
+                }
+            }
+
+            let last_scanned = last_scan_ts.map(|ts| ts.to_string());
 
             statuses.push(AgentStatus {
                 agent,
@@ -659,6 +1402,7 @@ impl TokenAggregator {
                 last_scanned,
                 event_count,
                 total_cost_usd: 0.0,
+                last_error,
             });
         }
 
@@ -671,8 +1415,313 @@ impl TokenAggregator {
         date_start: Option<i64>,
         date_end: Option<i64>,
     ) -> Result<Vec<ModelBreakdown>, String> {
-        let analytics =
-            self.build_analytics(TimeGranularity::Daily, date_start, date_end, None, None)?;
+        let analytics = self.build_analytics(
+            TimeGranularity::Daily,
+            date_start,
+            date_end,
+            None,
+            None,
+            None,
+        )?;
         Ok(analytics.model_breakdown)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tokens::reconciliation::{
+        ReconcileOptions, ReconciliationRecord, SourceCollection, SourceStatus, TokenSource,
+    };
+    use crate::tokens::storage::{SOURCE_FELINA_PARSER, SOURCE_TOKSCALE_EXPORT};
+    use std::collections::BTreeMap;
+    use std::path::PathBuf;
+
+    fn temp_db(name: &str) -> PathBuf {
+        std::env::temp_dir().join(format!("glyphic_aggregator_{}.db", name))
+    }
+
+    fn cleanup_db(path: &PathBuf) {
+        let _ = std::fs::remove_file(path);
+        let _ = std::fs::remove_file(path.with_extension("db-wal"));
+        let _ = std::fs::remove_file(path.with_extension("db-shm"));
+    }
+
+    fn aggregator(name: &str) -> (TokenAggregator, PathBuf) {
+        let db = temp_db(name);
+        cleanup_db(&db);
+        let storage = TokenStorage::with_path(db.clone()).expect("storage");
+        (
+            TokenAggregator {
+                storage,
+                pricing: Mutex::new(PricingService::new()),
+                dated_source_cache: Mutex::new(None),
+            },
+            db,
+        )
+    }
+
+    fn event(agent: AgentId, model: &str, input: u64, output: u64, session: &str) -> TokenEvent {
+        TokenEvent {
+            agent,
+            provider: "anthropic".into(),
+            model: model.into(),
+            timestamp: 1_700_000_000,
+            input_tokens: input,
+            output_tokens: output,
+            cache_read_tokens: 30,
+            cache_write_tokens: 40,
+            reasoning_tokens: 50,
+            project: None,
+            session_id: Some(session.into()),
+        }
+    }
+
+    #[test]
+    fn day_top_sessions_include_agent_identity_and_sort_by_tokens() {
+        let (aggregator, db) = aggregator("day_top_sessions_agent_sort");
+        aggregator
+            .storage
+            .upsert_events(&[
+                event(AgentId::ClaudeCode, "claude-sonnet", 100, 20, "shared"),
+                event(AgentId::CodexCli, "gpt-5", 800, 300, "shared"),
+                event(AgentId::GeminiCli, "gemini-pro", 200, 40, "gemini"),
+            ])
+            .expect("insert events");
+
+        let sessions = aggregator
+            .build_day_top_sessions("2023-11-15", 10, None)
+            .expect("top sessions");
+
+        assert_eq!(sessions.len(), 3);
+        assert_eq!(sessions[0].agent, AgentId::CodexCli);
+        assert_eq!(sessions[0].session_id, "shared");
+        assert_eq!(sessions[0].tokens, 1_170);
+        assert_eq!(sessions[1].agent, AgentId::GeminiCli);
+        assert_eq!(sessions[1].tokens, 310);
+        assert_eq!(sessions[2].agent, AgentId::ClaudeCode);
+        assert_eq!(sessions[2].session_id, "shared");
+        assert_eq!(sessions[2].tokens, 190);
+        cleanup_db(&db);
+    }
+
+    #[test]
+    fn analytics_response_includes_top_five_sessions_for_current_scope() {
+        let (aggregator, db) = aggregator("analytics_top_sessions");
+        aggregator
+            .storage
+            .upsert_events(&[
+                event(AgentId::ClaudeCode, "claude-sonnet", 100, 20, "s1"),
+                event(AgentId::CodexCli, "gpt-5", 800, 300, "s2"),
+                event(AgentId::GeminiCli, "gemini-pro", 200, 40, "s3"),
+                event(AgentId::ClaudeCode, "claude-sonnet", 180, 20, "s4"),
+                event(AgentId::CodexCli, "gpt-5", 120, 20, "s5"),
+                event(AgentId::GeminiCli, "gemini-pro", 60, 20, "s6"),
+                event(
+                    AgentId::ClaudeCode,
+                    "claude-sonnet",
+                    9_000,
+                    9_000,
+                    "tokscale-claude",
+                ),
+            ])
+            .expect("insert events");
+
+        let analytics = aggregator
+            .build_analytics(TimeGranularity::Daily, None, None, None, None, None)
+            .expect("analytics");
+
+        assert_eq!(analytics.top_sessions.len(), 5);
+        assert_eq!(analytics.top_sessions[0].agent, AgentId::CodexCli);
+        assert_eq!(analytics.top_sessions[0].session_id, "s2");
+        assert_eq!(analytics.top_sessions[0].tokens, 1_220);
+        assert!(!analytics
+            .top_sessions
+            .iter()
+            .any(|session| session.session_id == "tokscale-claude"));
+        assert!(!analytics
+            .top_sessions
+            .iter()
+            .any(|session| session.session_id == "s6"));
+        cleanup_db(&db);
+    }
+
+    #[test]
+    fn analytics_response_uses_active_tokscale_source_without_legacy_totals() {
+        let (aggregator, db) = aggregator("active_tokscale_shape");
+        aggregator
+            .storage
+            .upsert_events(&[event(
+                AgentId::ClaudeCode,
+                "legacy-model",
+                9_000,
+                9_000,
+                "legacy",
+            )])
+            .expect("legacy insert");
+        let tokscale_event = event(AgentId::CodexCli, "gpt-5.1-codex", 1_000, 200, "tokscale");
+        aggregator
+            .storage
+            .replace_tokscale_records(&[(&tokscale_event, 7)], "tokscale-test")
+            .expect("tokscale replace");
+
+        let analytics = aggregator
+            .build_analytics(TimeGranularity::Daily, None, None, None, None, None)
+            .expect("analytics");
+        let json = serde_json::to_value(&analytics).expect("analytics json");
+
+        assert_eq!(analytics.total_input_tokens, 1_000);
+        assert_eq!(analytics.total_output_tokens, 200);
+        assert_eq!(analytics.total_cache_read_tokens, 30);
+        assert_eq!(analytics.total_cache_write_tokens, 40);
+        assert_eq!(analytics.total_reasoning_tokens, 50);
+        assert_eq!(analytics.event_count, 7);
+        assert_eq!(analytics.agent_breakdown[0].agent, AgentId::CodexCli);
+        assert_eq!(analytics.agent_breakdown[0].reasoning_tokens, 50);
+        assert!(json.get("time_series").is_some());
+        assert!(json.get("model_breakdown").is_some());
+        assert!(json.get("agent_breakdown").is_some());
+        assert!(json.get("top_sessions").is_some());
+        cleanup_db(&db);
+    }
+
+    #[test]
+    fn active_source_can_roll_back_to_legacy_parser_rows() {
+        let (aggregator, db) = aggregator("rollback_source");
+        aggregator
+            .storage
+            .upsert_events(&[event(
+                AgentId::ClaudeCode,
+                "legacy-model",
+                321,
+                123,
+                "legacy",
+            )])
+            .expect("legacy insert");
+        let tokscale_event = event(AgentId::CodexCli, "gpt-5.1-codex", 999, 111, "tokscale");
+        aggregator
+            .storage
+            .replace_tokscale_records(&[(&tokscale_event, 3)], "tokscale-test")
+            .expect("tokscale replace");
+
+        aggregator
+            .storage
+            .set_active_source(SOURCE_FELINA_PARSER)
+            .expect("rollback active source");
+        let analytics = aggregator
+            .build_analytics(TimeGranularity::Daily, None, None, None, None, None)
+            .expect("analytics");
+
+        assert_eq!(analytics.total_input_tokens, 321);
+        assert_eq!(analytics.total_output_tokens, 123);
+        assert_eq!(analytics.event_count, 1);
+        assert_eq!(analytics.model_breakdown[0].model, "legacy-model");
+        cleanup_db(&db);
+    }
+
+    #[test]
+    fn all_scope_tokscale_rows_are_labeled_all_not_refresh_day() {
+        let (aggregator, db) = aggregator("all_scope_label");
+        let mut tokscale_event = event(AgentId::CodexCli, "gpt-5.1-codex", 999, 111, "tokscale");
+        tokscale_event.timestamp = 0;
+        aggregator
+            .storage
+            .replace_tokscale_records(&[(&tokscale_event, 3)], "tokscale-test")
+            .expect("tokscale replace");
+
+        let analytics = aggregator
+            .build_analytics(TimeGranularity::Daily, None, None, None, None, None)
+            .expect("analytics");
+
+        assert_eq!(analytics.time_series.len(), 1);
+        assert_eq!(analytics.time_series[0].label, "all");
+        assert!(analytics.hourly_heatmap.is_empty());
+        cleanup_db(&db);
+    }
+
+    #[test]
+    fn refresh_reports_tokscale_failure_without_automatic_parser_fallback() {
+        let (aggregator, db) = aggregator("refresh_failure_no_fallback");
+        aggregator
+            .storage
+            .set_active_source(SOURCE_TOKSCALE_EXPORT)
+            .expect("active source");
+
+        let result = aggregator
+            .refresh_with_adapter(
+                &StaticAdapter(SourceCollection {
+                    source: TokenSource::TokscaleExport,
+                    status: SourceStatus::CommandFailed,
+                    message: Some("exit 1".into()),
+                    version: None,
+                    records: Vec::new(),
+                }),
+                false,
+            )
+            .expect("refresh result");
+
+        assert_eq!(result.status, tokscale_ingestion::STATUS_COMMAND_FAILED);
+        assert_eq!(result.active_source, SOURCE_TOKSCALE_EXPORT);
+        assert_eq!(
+            result.last_successful_source.as_deref(),
+            Some(SOURCE_TOKSCALE_EXPORT)
+        );
+        assert!(!result.fallback_used);
+        assert_eq!(result.events_inserted, 0);
+        assert!(result.errors[0].message.contains("exit 1"));
+        cleanup_db(&db);
+    }
+
+    #[test]
+    fn refresh_success_reports_tokscale_source_and_message_count() {
+        let (aggregator, db) = aggregator("refresh_success");
+        let result = aggregator
+            .refresh_with_adapter(
+                &StaticAdapter(SourceCollection {
+                    source: TokenSource::TokscaleExport,
+                    status: SourceStatus::Ok,
+                    message: None,
+                    version: None,
+                    records: vec![ReconciliationRecord {
+                        source: TokenSource::TokscaleExport,
+                        agent: "claude-code".into(),
+                        provider: "anthropic".into(),
+                        model: "claude-sonnet-4-6".into(),
+                        timestamp_bucket: "all".into(),
+                        session_id: None,
+                        input_tokens: 10,
+                        output_tokens: 20,
+                        cache_read_tokens: 30,
+                        cache_write_tokens: 40,
+                        reasoning_tokens: 50,
+                        event_count: 6,
+                        source_metadata: BTreeMap::from([(
+                            "client".to_string(),
+                            "claude".to_string(),
+                        )]),
+                    }],
+                }),
+                false,
+            )
+            .expect("refresh result");
+
+        assert_eq!(result.status, tokscale_ingestion::STATUS_OK);
+        assert_eq!(result.active_source, SOURCE_TOKSCALE_EXPORT);
+        assert_eq!(result.events_parsed, 6);
+        assert_eq!(result.events_inserted, 1);
+        assert_eq!(
+            result.last_successful_source.as_deref(),
+            Some(SOURCE_TOKSCALE_EXPORT)
+        );
+        assert!(!result.fallback_used);
+        cleanup_db(&db);
+    }
+
+    struct StaticAdapter(SourceCollection);
+
+    impl TokscaleAdapter for StaticAdapter {
+        fn collect(&self, _options: &ReconcileOptions) -> SourceCollection {
+            self.0.clone()
+        }
     }
 }

@@ -248,7 +248,10 @@ fn collect_candidates_in(
     // Defence: refuse to read from a path that contains `..` segments — even
     // though `agent_paths_set` rejects these, a stale-on-disk settings file
     // or future bug shouldn't let a renderer wander up the tree.
-    if dir.components().any(|c| matches!(c, std::path::Component::ParentDir)) {
+    if dir
+        .components()
+        .any(|c| matches!(c, std::path::Component::ParentDir))
+    {
         return;
     }
     let entries = match fs::read_dir(dir) {
@@ -360,7 +363,10 @@ fn strip_frontmatter_for_preview(raw: &str) -> &str {
     let trimmed = raw.trim_start_matches('\u{feff}');
     let trimmed = trimmed.trim_start_matches(['\n', '\r']);
     if let Some(rest) = trimmed.strip_prefix("---") {
-        if let Some(rest) = rest.strip_prefix("\r\n").or_else(|| rest.strip_prefix('\n')) {
+        if let Some(rest) = rest
+            .strip_prefix("\r\n")
+            .or_else(|| rest.strip_prefix('\n'))
+        {
             if let Some(idx) = rest.find("\n---") {
                 let after = &rest[idx + 4..];
                 let body_start = if let Some(stripped) = after.strip_prefix("\r\n") {
@@ -462,8 +468,8 @@ fn write_canonical_from_source(
     if !source.is_file() {
         return Err(format!("import source missing: {}", candidate.source_path));
     }
-    let raw = fs::read_to_string(&source)
-        .map_err(|e| format!("failed to read import source: {e}"))?;
+    let raw =
+        fs::read_to_string(&source).map_err(|e| format!("failed to read import source: {e}"))?;
 
     // Normalize the source frontmatter when possible (fill missing
     // name/description/agents). When the source cannot be normalized
@@ -561,9 +567,8 @@ fn copy_bundled_siblings(src: &Path, dst: &Path) -> Result<(), String> {
                 .map_err(|e| format!("failed to create bundled dir {}: {e}", dst_path.display()))?;
             copy_dir_recursive(&src_path, &dst_path)?;
         } else if ft.is_file() {
-            fs::copy(&src_path, &dst_path).map_err(|e| {
-                format!("failed to copy bundled file {}: {e}", dst_path.display())
-            })?;
+            fs::copy(&src_path, &dst_path)
+                .map_err(|e| format!("failed to copy bundled file {}: {e}", dst_path.display()))?;
         }
         // Symlinks: ignored — safer than blindly following.
     }
@@ -601,11 +606,7 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<(), String> {
 ///
 /// Rejects malformed YAML, non-mapping roots, and nested/repeated frontmatter.
 /// Extra frontmatter is preserved verbatim.
-fn ensure_required_fields(
-    raw: &str,
-    name: &str,
-    source_agent: AgentId,
-) -> Result<String, String> {
+fn ensure_required_fields(raw: &str, name: &str, source_agent: AgentId) -> Result<String, String> {
     // Try to parse as-is first; if it succeeds, we already have everything
     // we need and just re-serialize.
     if let Ok(mut parsed) = parse_skill_md(raw) {
@@ -652,7 +653,10 @@ fn ensure_required_fields(
     } else {
         format!("{body}\n")
     };
-    Ok(format!("---\n{}\n---\n{body_norm}", fm_yaml.trim_end_matches('\n')))
+    Ok(format!(
+        "---\n{}\n---\n{body_norm}",
+        fm_yaml.trim_end_matches('\n')
+    ))
 }
 
 fn reserialize(skill: crate::commands::canonical_skills::CanonicalSkill) -> String {
@@ -776,7 +780,11 @@ mod tests {
             candidate("shared", AgentId::Codex),
         ];
         let grouped = group_by_name(raw);
-        assert_eq!(grouped.len(), 2, "expected one row per name, got {grouped:#?}");
+        assert_eq!(
+            grouped.len(),
+            2,
+            "expected one row per name, got {grouped:#?}"
+        );
 
         // BTreeMap → sorted: "shared" before "solo".
         let shared = &grouped[0];
@@ -787,7 +795,10 @@ mod tests {
 
         let solo = &grouped[1];
         assert_eq!(solo.skill_name, "solo");
-        assert!(solo.deferred.is_none(), "single-source must stay importable");
+        assert!(
+            solo.deferred.is_none(),
+            "single-source must stay importable"
+        );
     }
 
     /// Bug 1 building block: distinct names dedupe a name that appears in

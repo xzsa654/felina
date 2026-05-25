@@ -34,6 +34,7 @@ rayon = "1"
 walkdir = "2"
 serde_yaml = "0.9"
 sha2 = "0.10"
+reqwest = { version = "0.12", features = ["blocking", "json", "native-tls"], default-features = false }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 cocoa = "0.26"

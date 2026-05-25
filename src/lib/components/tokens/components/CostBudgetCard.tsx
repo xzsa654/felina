@@ -12,7 +12,9 @@ export default function CostBudgetCard({
 }) {
   if (!analytics) return null;
 
-  const nDays = analytics.time_series.length;
+  const datedBuckets = analytics.time_series.filter((bucket) => bucket.label !== "all");
+  const nDays = datedBuckets.length;
+  const allScopeOnly = analytics.time_series.length > 0 && nDays === 0;
 
   return (
     <div className="bg-bg-secondary border border-border rounded-lg p-4">
@@ -23,7 +25,7 @@ export default function CostBudgetCard({
         <div className="grid grid-cols-2 gap-3 text-sm">
           <div>
             <span className="text-xs text-text-muted">
-              {t(locale, "tokens.costBudget.totalCost")}
+              {t(locale, "tokens.costBudget.estimatedCost")}
             </span>
             <p className="text-lg font-semibold text-text-primary">
               {formatCostFull(analytics.total_cost_usd, locale)}
@@ -41,14 +43,24 @@ export default function CostBudgetCard({
         {nDays > 0 && (
           <div>
             <span className="text-xs text-text-muted">
-              {t(locale, "tokens.costBudget.avgDailyCost", { n: nDays })}
+              {t(locale, "tokens.costBudget.avgDailyEstimatedCost", { n: nDays })}
             </span>
             <p className="text-sm font-medium text-text-primary">
               {formatCostFull(
-                analytics.time_series.reduce((s, b) => s + b.cost_usd, 0) / nDays,
+                datedBuckets.reduce((s, b) => s + b.cost_usd, 0) / nDays,
                 locale,
               )}{" "}
               {t(locale, "tokens.costBudget.perDay")}
+            </p>
+          </div>
+        )}
+        {allScopeOnly && (
+          <div className="space-y-1">
+            <p className="text-xs text-text-muted">
+              {t(locale, "tokens.costBudget.allScopeAggregate")}
+            </p>
+            <p className="text-xs text-amber-400">
+              {t(locale, "tokens.costBudget.estimatedNotice")}
             </p>
           </div>
         )}

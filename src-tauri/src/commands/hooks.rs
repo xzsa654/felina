@@ -4,12 +4,12 @@ use crate::commands::settings;
 /// These commands are thin wrappers around settings read/write.
 
 #[tauri::command]
-pub fn get_hooks(
-    scope: String,
-    project_path: Option<String>,
-) -> Result<serde_json::Value, String> {
+pub fn get_hooks(scope: String, project_path: Option<String>) -> Result<serde_json::Value, String> {
     let settings = settings::read_settings(scope, project_path)?;
-    Ok(settings.get("hooks").cloned().unwrap_or(serde_json::json!({})))
+    Ok(settings
+        .get("hooks")
+        .cloned()
+        .unwrap_or(serde_json::json!({})))
 }
 
 #[tauri::command]

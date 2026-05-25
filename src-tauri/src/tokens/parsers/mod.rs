@@ -14,9 +14,7 @@ pub trait AgentParser: Send + Sync {
     fn parse_file(&self, path: &PathBuf) -> Result<Vec<TokenEvent>, String>;
     /// Whether this agent is detected as installed.
     fn is_available(&self) -> bool {
-        self.data_directories()
-            .iter()
-            .any(|d| d.exists())
+        self.data_directories().iter().any(|d| d.exists())
     }
 }
 

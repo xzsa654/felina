@@ -1,5 +1,10 @@
 export type {
   TokenBucket,
+  RateLimitBucket,
+  AnthropicRateLimits,
+  CodexRateLimits,
+  GeminiRateLimits,
+  QuotaSnapshot,
   TimeGranularity,
   ModelBreakdown,
   AgentBreakdown,
@@ -8,6 +13,15 @@ export type {
   CacheEfficiency,
   AgentStatus,
   RefreshResult,
+  DayHourlyBucket,
+  DayProjectBreakdown,
+  DaySessionBreakdown,
+  SessionTranscriptLocation,
+  HistorySession,
+  HistorySessionsPage,
+  SessionTranscript,
+  TranscriptMetadata,
+  TranscriptEntry,
 } from "./token-analytics";
 
 export type {
