@@ -8,71 +8,34 @@ TBD - created by archiving change 'cleanup-glyphic-base'. Update Purpose after a
 
 ### Requirement: Registered Pages
 
-The desktop app SHALL register exactly six pages in its navigation: `skills`, `projects`, `settings`, `templates`, `tokens`, and `memory`. The route table in `src/router.tsx`, the `NAV_ITEMS` array and `Page` type union in `src/lib/stores/navigation.ts`, and the `PAGE_TITLES` / `PAGE_DESCRIPTIONS` maps in `src/lib/components/layout/Header.tsx` MUST all be consistent and contain exactly these six entries and no others. (`tokens` is the pre-existing Token analytics page; `scope-model-simplification` only adds `projects` as a sibling of `skills` and does not remove `tokens`.)
+The desktop app SHALL register exactly seven pages in its navigation: `skills`, `projects`, `settings`, `templates`, `tokens`, `memory`, and `history`. The route table in `src/router.tsx` and the `NAV_ITEMS` array plus `Page` type union in `src/lib/stores/navigation.ts` MUST all be consistent and contain exactly these seven entries and no others. The app SHALL NOT render a shared application-level title bar above the page content; page titles are owned by each page (see the Page Title Provision requirement), so there is no `PAGE_TITLES` / `PAGE_DESCRIPTIONS` map to keep consistent.
 
 The `skills` and `projects` pages SHALL be siblings; the prior pattern of using an in-page Global/Project toggle on the Skills page to switch between two canonical-scope views SHALL be removed. The Skills page SHALL show only global canonical master files; the Projects page SHALL show a per-project managed-inventory view defined by the `projects-view` capability.
 
 #### Scenario: User opens the app
 
 - **WHEN** the user launches the app via `npm run tauri dev` or the bundled binary
-- **THEN** the Sidebar SHALL display nav items only for `skills`, `projects`, `settings`, `templates`, `tokens`, and `memory`
+- **THEN** the Sidebar SHALL display nav items only for `skills`, `projects`, `settings`, `templates`, `tokens`, `memory`, and `history`
 - **AND** each nav item SHALL navigate to its route defined in `src/router.tsx`
 
 #### Scenario: Navigation registration sources are consistent
 
-- **WHEN** an inspector compares the route paths in `src/router.tsx`, the `NAV_ITEMS` ids and `Page` type members in `src/lib/stores/navigation.ts`, and the keys of `PAGE_TITLES` / `PAGE_DESCRIPTIONS` in `src/lib/components/layout/Header.tsx`
-- **THEN** all four sources SHALL contain exactly the set `{skills, projects, settings, templates, tokens, memory}`
-- **AND** none SHALL contain a page id outside this set
+- **WHEN** an inspector compares the route paths in `src/router.tsx` and the `NAV_ITEMS` ids plus `Page` type members in `src/lib/stores/navigation.ts`
+- **THEN** both sources SHALL contain exactly the set `{skills, projects, settings, templates, tokens, memory, history}`
+- **AND** neither SHALL contain a page id outside this set
+- **AND** there SHALL be no `PAGE_TITLES` / `PAGE_DESCRIPTIONS` map in the codebase acting as a third navigation-consistency source
 
 #### Scenario: User invokes the Command Palette
 
 - **WHEN** the user presses Cmd+K (macOS) or Ctrl+K (Windows/Linux)
-- **THEN** the palette SHALL list only the six registered pages as navigation targets
+- **THEN** the palette SHALL list only the seven registered pages as navigation targets
 - **AND** entries for any removed or retained-but-unregistered page MUST NOT appear
-
-##### Example: Command Palette navigation targets
-
-- **GIVEN** `NAV_ITEMS` contains ids `[skills, projects, settings, templates, tokens, memory]`
-- **WHEN** the user opens the Command Palette
-- **THEN** the navigation section lists exactly: `Skills & Agents`, `Projects`, `Settings`, `Templates`, `Tokens`, `Memory`
-- **AND** no `hooks`, `mcp`, `rules`, or `instructions` entry appears (those modules are retained-for-reference, unregistered)
 
 #### Scenario: Skills page does not show a canonical-scope toggle
 
 - **WHEN** the user opens the Skills page
 - **THEN** the page header SHALL NOT render a Global/Project toggle
 - **AND** the page SHALL list canonical skills sourced exclusively from `~/.felina/skills/`
-
-
-<!-- @trace
-source: scope-model-simplification
-updated: 2026-05-24
-code:
-  - src/lib/components/layout/Header.tsx
-  - src/lib/components/projects/ManagedInventory.tsx
-  - src-tauri/Cargo.toml
-  - src/lib/components/projects/ProjectsPage.tsx
-  - src/lib/components/skills/SkillEditor.tsx
-  - src-tauri/src/commands/canonical_skills.rs
-  - src-tauri/src/commands/fan_out/mod.rs
-  - src/lib/components/layout/Sidebar.tsx
-  - src/lib/types/skills.ts
-  - src/lib/components/skills/SkillImportWizard.tsx
-  - src-tauri/src/commands/skill_import.rs
-  - src-tauri/src/paths.rs
-  - src/lib/components/settings/AgentPathsSection.tsx
-  - .session/product-backlog.md
-  - src/lib/components/projects/ProjectsList.tsx
-  - src/lib/components/skills/AddTargetDialog.tsx
-  - .session/agent-capability-research.md
-  - src/lib/components/skills/SkillList.tsx
-  - src/lib/components/skills/SkillsPage.tsx
-  - src/lib/components/skills/TargetEditor.tsx
-  - src/lib/stores/navigation.ts
-  - src/lib/stores/skills-store.ts
-  - src/lib/tauri/commands.ts
-  - src/router.tsx
--->
 
 ---
 ### Requirement: Retained-for-Reference Components
@@ -975,3 +938,26 @@ The project's development instructions (CLAUDE.md Gotchas section) SHALL include
 - **WHEN** a developer adds a new page component with user-facing text
 - **THEN** the component SHALL use `t(locale, key)` for all display text
 - **AND** the corresponding translation keys SHALL be added to both `en.ts` and `zh-TW.ts`
+
+---
+### Requirement: Page Title Provision
+
+The app SHALL NOT render a shared application-level header bar above the routed page content; the `AppLayout` in `src/router.tsx` SHALL NOT mount a global title/description component, and `src/lib/components/layout/Header.tsx` SHALL NOT exist. Each registered page SHALL render its own title within its own component. Pages under active development (`skills`, `projects`, `tokens`) SHALL render their existing in-page title (the `PageScaffold` `PageHeader` for `skills` and `projects`, the in-page heading for `tokens`). Legacy pages pending redevelopment (`settings`, `memory`, `history`) SHALL each render at least a minimal in-page title so that no registered page is title-less.
+
+#### Scenario: No global header bar above page content
+
+- **WHEN** an inspector reads `AppLayout` in `src/router.tsx`
+- **THEN** it SHALL NOT mount a shared header/title component above the `<Outlet />`
+- **AND** the file `src/lib/components/layout/Header.tsx` MUST NOT exist
+
+#### Scenario: Every registered page shows exactly one title
+
+- **WHEN** the user navigates to any of `skills`, `projects`, `settings`, `templates`, `tokens`, `memory`, or `history`
+- **THEN** the page SHALL display its title exactly once
+- **AND** no page SHALL display two stacked page-level titles
+
+#### Scenario: Legacy pages retain a placeholder title
+
+- **WHEN** the user opens `settings`, `memory`, or `history`
+- **THEN** each page SHALL display a non-empty in-page title
+- **AND** that title MAY be a minimal hardcoded heading not wired to the i18n system, because these pages are pending redevelopment
