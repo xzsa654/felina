@@ -59,7 +59,11 @@ Architecture note:
 
 ## Phase 1.5 — Target Freedom Sequence
 
-### skill-sync-lifecycle
+`skill-sync-lifecycle` original umbrella scope was split on 2026-05-25.
+Recommended first proposal: `skill-target-lifecycle-safety`.
+`skill-identity-namespace-strategy` needs `$spectra-discuss` before implementation.
+
+### skill-target-lifecycle-safety
 
 | Field | Value |
 |---|---|
@@ -67,20 +71,61 @@ Architecture note:
 | status | planned |
 | flagged | 2026-05-22 |
 | last-seen | 2026-05-25 |
-| description | Lifecycle safety: push dry-run, drift detection, cascade-vs-detach prompts, multi-source import resolution, arbitrary-folder import, scope moves. |
+| description | Target lifecycle safety before Felina writes, overwrites, deletes, detaches, or repairs agent-side skill files. |
 
 Scope:
-- **Import resolution 選項收斂**: wizard 的「保留 canonical」與「跳過」目前對有衝突的 candidate 執行結果完全相同（都 no-op 不寫入），是語意冗餘。應收斂或重新設計衝突解決選項，讓每個選項有明確不同的行為。
 - **Push dry-run**: preview write paths + create/overwrite/no-op counts; user confirms to commit.
 - **Push-time drift check**: compare target SKILL.md hash with `last_sync.pushed_hash`; drift → prompt override / detach / cancel.
 - **Canonical delete prompt**: Cascade (delete agent files) / Detach (leave orphaned) / Cancel.
 - **Per-target removal prompt**: target row 移除時提示是否一併刪除 agent-side file（converge with cascade/detach semantics）。
 - **In-place target repoint**: "project not found" 時可 Browse 重新指向新路徑，取代 delete + re-add。
+
+### clarify-skill-import-conflicts
+
+| Field | Value |
+|---|---|
+| type | planned-change |
+| status | planned |
+| flagged | 2026-05-22 |
+| last-seen | 2026-05-25 |
+| description | Clarify single-source import conflict semantics and make target creation explicit. |
+
+Scope:
+- **Import resolution 選項收斂**: wizard 的「保留 canonical」與「跳過」目前對有衝突的 candidate 執行結果完全相同（都 no-op 不寫入），是語意冗餘。應收斂或重新設計衝突解決選項，讓每個選項有明確不同的行為。
+- **Import target 顯式化**: import 時直接寫 sync-meta sidecar（取代現行讀取時隱性 backfill），並讓 overwrite / rename / keep 行為在 UI 與 backend contract 中可區分。
+
+### resolve-multi-source-skill-import
+
+| Field | Value |
+|---|---|
+| type | planned-change |
+| status | planned |
+| flagged | 2026-05-22 |
+| last-seen | 2026-05-25 |
+| description | Resolve imports where the same skill name appears in multiple sources or outside standard agent directories. |
+
+Scope:
 - **Multi-source import resolution**: 同名 skill 存在多個 agent dir 時，讓 user 選權威來源。
-- **Import target 顯式化**: import 時直接寫 sync-meta sidecar（取代現行讀取時隱性 backfill），與 multi-source resolution 整合。
 - **Import-all + rename 批次衝突**: 批次匯入遇同名衝突時的 per-conflict keep/overwrite/rename 流程。
-- **跨 project 同名 skill**: single-global-by-name 下同名不同內容 skill 的 namespace 策略。
 - **Arbitrary-folder import**: 從任意資料夾匯入 SKILL.md（不限三家 agent dir）。
+
+### skill-identity-namespace-strategy
+
+| Field | Value |
+|---|---|
+| type | suggestion |
+| status | discussed-concluded |
+| flagged | 2026-05-22 |
+| last-seen | 2026-05-25 |
+| description | Product-model decision for same-name skills across projects under Felina's single global canonical store. |
+
+Conclusion (2026-05-25):
+- **維持 single-global-by-name flat namespace**，不引入 project namespace。
+- **同名碰撞在 import 時由使用者選擇一個來源當 canonical 內容**，其餘來源以 disabled target 保留。
+- Import wizard 提供多來源 diff 預覽（歸 #15/#16 scope）。
+- Disabled target 可查看 agent 端現有內容（歸 #14/#15 scope）。
+- 版本差異長期由 Phase 2 forked overlay 處理。
+- Rationale: project namespace 會動到整個 identity model（sync-meta、fan-out、import、UI），成本與現階段需求不匹配。
 
 ---
 

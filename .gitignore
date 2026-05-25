@@ -1,3 +1,4 @@
+# model
 node_modules/
 dist/
 src-tauri/target/
@@ -6,13 +7,16 @@ src-tauri/target/
 .env
 .env.*
 
+# Agent
 CLAUDE.md
+AGENTS.md
+.agents/
+.claude/
 
+# Spectra
 .spectra/
 openspec/.vector-search.db*
-.claude/
-.agents/
-AGENTS.md
 .spectra.yaml
-openspec/config.yaml
+
+# Handoff
 .session/handoff

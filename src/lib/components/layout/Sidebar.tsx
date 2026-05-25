@@ -128,20 +128,11 @@ export default function Sidebar() {
             />
             <h2 className="text-xl font-bold text-text-primary">Felina</h2>
             <p className="text-sm text-text-muted mt-1">
-              AI Config Manager for Claude Code
+              Local agent CLI control plane
             </p>
             <p className="text-xs text-text-muted mt-1">Version {appVersion}</p>
 
             <div className="mt-6 space-y-2">
-              <a
-                href="https://caioricciuti.com"
-                target="_blank"
-                rel="noopener"
-                className="flex items-center justify-center gap-2 text-sm text-accent hover:text-accent-hover transition-colors"
-              >
-                <ExternalLink size={14} />
-                caioricciuti.com
-              </a>
               <a
                 href="https://github.com/xzsa654/felina"
                 target="_blank"
@@ -151,20 +142,19 @@ export default function Sidebar() {
                 <GithubIcon size={14} />
                 github.com/xzsa654/felina
               </a>
+              <a
+                href="https://github.com/xzsa654/felina/issues"
+                target="_blank"
+                rel="noopener"
+                className="flex items-center justify-center gap-2 text-sm text-accent hover:text-accent-hover transition-colors"
+              >
+                <ExternalLink size={14} />
+                Report an issue
+              </a>
             </div>
 
             <div className="mt-6 pt-4 border-t border-border">
-              <p className="text-xs text-text-muted">
-                Built by{" "}
-                <a
-                  href="https://caioricciuti.com"
-                  target="_blank"
-                  rel="noopener"
-                  className="text-accent hover:underline"
-                >
-                  Caio Ricciuti
-                </a>
-              </p>
+              <p className="text-xs text-text-muted">Built for local agent CLI workflows</p>
               <p className="text-[10px] text-text-muted mt-1">AGPL-3.0 License</p>
             </div>
           </div>
