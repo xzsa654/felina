@@ -271,7 +271,7 @@ mod tests {
     use std::path::PathBuf;
 
     /// Return a per-test temp DB path that will never collide with the real
-    /// ~/.glyphic/tokens.db or with other tests running in parallel.
+    /// ~/.felina/tokens.db or with other tests running in parallel.
     fn temp_db(name: &str) -> PathBuf {
         std::env::temp_dir().join(format!("glyphic_scanner_{}.db", name))
     }

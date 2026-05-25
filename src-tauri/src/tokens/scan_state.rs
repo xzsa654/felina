@@ -109,7 +109,7 @@ impl ScanState {
     fn db_path() -> PathBuf {
         dirs::home_dir()
             .unwrap_or_default()
-            .join(".glyphic")
+            .join(".felina")
             .join("tokens.db")
     }
 
@@ -196,7 +196,7 @@ mod tests {
     use std::path::PathBuf;
 
     /// Return a per-test temp DB path that will never collide with the real
-    /// ~/.glyphic/tokens.db or with other tests running in parallel.
+    /// ~/.felina/tokens.db or with other tests running in parallel.
     fn temp_db(name: &str) -> PathBuf {
         std::env::temp_dir().join(format!("glyphic_scan_state_{}.db", name))
     }

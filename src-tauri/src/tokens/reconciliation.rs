@@ -1041,7 +1041,7 @@ fn default_registry() -> ParserRegistry {
 fn default_token_db_path() -> PathBuf {
     dirs::home_dir()
         .unwrap_or_default()
-        .join(".glyphic")
+        .join(".felina")
         .join("tokens.db")
 }
 

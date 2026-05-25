@@ -318,7 +318,7 @@ impl PricingService {
     pub fn new() -> Self {
         let cache_path = dirs::home_dir()
             .unwrap_or_default()
-            .join(".glyphic")
+            .join(".felina")
             .join("pricing_cache.json");
 
         let mut service = PricingService {

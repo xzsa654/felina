@@ -9,13 +9,13 @@ pub const SOURCE_TOKSCALE_EXPORT: &str = "tokscale_export";
 pub const SOURCE_PARSER_FALLBACK: &str = "parser_fallback";
 const ACTIVE_SOURCE_KEY: &str = "active_source";
 
-/// SQLite-backed cache for token events at `~/.glyphic/tokens.db`.
+/// SQLite-backed cache for token events at `~/.felina/tokens.db`.
 pub struct TokenStorage {
     db: Mutex<Connection>,
 }
 
 impl TokenStorage {
-    /// Open or create the database at ~/.glyphic/tokens.db.
+    /// Open or create the database at ~/.felina/tokens.db.
     pub fn new() -> Result<Self, String> {
         Self::with_path(Self::db_path())
     }
@@ -41,7 +41,7 @@ impl TokenStorage {
     fn db_path() -> PathBuf {
         dirs::home_dir()
             .unwrap_or_default()
-            .join(".glyphic")
+            .join(".felina")
             .join("tokens.db")
     }
 
