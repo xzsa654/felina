@@ -757,7 +757,7 @@ pub async fn refresh_token_data(state: State<'_, TokenState>) -> Result<RefreshR
         let agg = aggregator
             .lock()
             .map_err(|e| format!("Lock error: {}", e))?;
-        agg.refresh()
+        agg.refresh_with_options(true)
     })
     .await
     .map_err(|e| format!("Task join error: {}", e))?;

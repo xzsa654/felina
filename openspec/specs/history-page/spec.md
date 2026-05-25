@@ -10,37 +10,36 @@ TBD - created by archiving change 'add-history-page'. Update Purpose after archi
 
 The system SHALL provide a History page at `/history` that lists local agent sessions discovered from supported agent transcript sources. Each listed session SHALL expose agent, session ID, project when available, model when available, date or timestamp when available, message count when available, token total when available, and transcript availability status.
 
+The History page SHALL trigger a token data refresh on mount to ensure the underlying database contains up-to-date session records before querying. The refresh SHALL run asynchronously and SHALL NOT block the initial page render; the page SHALL display a loading state until the refresh-then-query sequence completes.
+
 #### Scenario: User opens History
 
 - **WHEN** the user navigates to `/history`
-- **THEN** the system SHALL render the History page
-- **AND** the page SHALL request local session records
+- **THEN** the system SHALL trigger a token data refresh
+- **AND** after the refresh completes, the page SHALL request local session records
 - **AND** the page SHALL display a scannable session list when records exist
 
-#### Scenario: No local sessions exist
+#### Scenario: History page on first launch (empty DB)
 
-- **WHEN** the History page receives an empty session list
-- **THEN** the page SHALL display an empty state
-- **AND** the page SHALL NOT show stale session rows from a previous load
-
-##### Example: empty session list
-
-- **GIVEN** the previous visible list contained `codex-cli/abc123`
-- **WHEN** the next History load returns `[]`
-- **THEN** `codex-cli/abc123` SHALL NOT remain visible and the empty state SHALL be shown
+- **GIVEN** the token database has never been populated
+- **WHEN** the user navigates to `/history`
+- **THEN** the page SHALL trigger a refresh that scans local transcript files
+- **AND** after the refresh, the page SHALL display discovered sessions
 
 
 <!-- @trace
-source: add-history-page
+source: tokens-cross-platform-fix
 updated: 2026-05-25
 code:
-  - src/lib/components/memory/MemoryPage.tsx
-  - src/lib/components/layout/Header.tsx
-  - src/lib/components/settings/SettingsPage.tsx
-  - src/lib/i18n/locales/en.ts
-  - src/router.tsx
-  - src/lib/i18n/locales/zh-TW.ts
+  - .knowledge/knowledge-base/architecture.md
+  - src-tauri/src/tokens/ccusage.rs
+  - src-tauri/src/commands/tokens.rs
+  - .knowledge/_catalog.json
+  - src/lib/components/layout/Sidebar.tsx
   - src/lib/components/history/HistoryPage.tsx
+  - .knowledge/knowledge-base/_index.json
+  - .session/product-backlog.md
+  - README.md
 -->
 
 ---

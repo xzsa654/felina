@@ -145,14 +145,19 @@ export default function HistoryPage() {
     setSessions([]);
     setSelected(null);
     api.tokenAnalytics
-      .listHistorySessions({
-        limit: PAGE_SIZE,
-        offset: 0,
-        agentFilter,
-        query,
+      .refresh()
+      .catch(() => {})
+      .then(() => {
+        if (cancelled) return;
+        return api.tokenAnalytics.listHistorySessions({
+          limit: PAGE_SIZE,
+          offset: 0,
+          agentFilter,
+          query,
+        });
       })
       .then((page) => {
-        if (cancelled) return;
+        if (cancelled || !page) return;
         setSessions(page.sessions);
         setHistoryTotal(page.total);
         setHistoryOffset(page.sessions.length);
