@@ -88,6 +88,97 @@ export interface SyncResult {
   at: string;
 }
 
+export type SkillSyncPreviewOperation =
+  | "create"
+  | "overwrite"
+  | "noOp"
+  | "skipped"
+  | "blockedDrift"
+  | "overwriteUnknown";
+
+export type SkillSyncDriftResolution = "override" | "detach" | "cancel";
+
+export interface SkillSyncPreviewItem {
+  skillName: string;
+  targetKey: string;
+  agent: AgentId;
+  scope: SkillScope;
+  project?: string | null;
+  targetDir: string;
+  skillDir: string;
+  skillMdPath: string;
+  operation: SkillSyncPreviewOperation;
+  currentHash?: string | null;
+  renderedHash?: string | null;
+  lastSyncHash?: string | null;
+  error?: string | null;
+}
+
+export interface SkillSyncPreviewSummary {
+  create: number;
+  overwrite: number;
+  noOp: number;
+  skipped: number;
+  blockedDrift: number;
+  overwriteUnknown: number;
+}
+
+export interface SkillSyncPreview {
+  skillName: string;
+  items: SkillSyncPreviewItem[];
+  summary: SkillSyncPreviewSummary;
+}
+
+export interface SkillSyncAllPreview {
+  skills: SkillSyncPreview[];
+  summary: SkillSyncPreviewSummary;
+}
+
+export interface SkillSyncResolution {
+  targetKey: string;
+  resolution: SkillSyncDriftResolution;
+}
+
+export interface SkillSyncCommitRequest {
+  skillName: string;
+  resolutions: SkillSyncResolution[];
+}
+
+export interface SkillSyncAllCommitRequest {
+  resolutionsBySkill: Record<string, SkillSyncResolution[]>;
+}
+
+export type CanonicalDeletePolicy = "cascade" | "detach" | "cancel";
+
+export interface DeletePathResult {
+  path: string;
+  success: boolean;
+  error?: string | null;
+}
+
+export interface CanonicalSkillDeleteResult {
+  policy: CanonicalDeletePolicy;
+  canonicalPath: string;
+  canonicalDeleted: boolean;
+  targetResults: DeletePathResult[];
+}
+
+export type TargetRemovalPolicy = "removeTargetOnly" | "removeTargetAndDeleteFile" | "cancel";
+
+export interface SkillTargetRemovalResult {
+  policy: TargetRemovalPolicy;
+  targetKey: string;
+  targetRemoved: boolean;
+  deleteResult?: DeletePathResult | null;
+}
+
+export interface SkillTargetRepointResult {
+  oldTargetKey: string;
+  newTargetKey: string;
+  target: SkillTarget;
+  dirty: boolean;
+}
+
 export interface ConflictInfo {
   /** Canonical SKILL.md that already exists. */
   canonicalPath: string;

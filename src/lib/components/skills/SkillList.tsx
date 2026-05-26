@@ -1,7 +1,6 @@
 import { useMemo } from "react";
 import { AlertCircle, Send } from "lucide-react";
 import { skillListEntryCanonicalId, type SkillListEntry } from "$lib/types";
-import { useSkillsStore } from "$lib/stores/skills-store";
 import { useLocaleStore } from "$lib/stores/locale";
 import { t } from "$lib/i18n";
 
@@ -9,6 +8,8 @@ interface Props {
   entries: SkillListEntry[];
   selectedName: string | null;
   onSelect: (canonicalId: string) => void;
+  onPush: (canonicalId: string) => void;
+  pushingNames?: Set<string>;
 }
 
 /** Sort key: skills that need the user's attention float to the top —
@@ -35,10 +36,14 @@ function entryName(e: SkillListEntry): string {
  * The scope toggle lives in SkillsPage (not here) so this component stays
  * a pure presenter of the current scope's entries.
  */
-export default function SkillList({ entries, selectedName, onSelect }: Props) {
+export default function SkillList({
+  entries,
+  selectedName,
+  onSelect,
+  onPush,
+  pushingNames = new Set(),
+}: Props) {
   const locale = useLocaleStore((s) => s.locale);
-  const pushingNames = useSkillsStore((s) => s.pushingNames);
-  const syncOne = useSkillsStore((s) => s.syncOne);
 
   const sortedEntries = useMemo(() => {
     return [...entries].sort((a, b) => {
@@ -139,7 +144,7 @@ export default function SkillList({ entries, selectedName, onSelect }: Props) {
                   disabled={isPushing}
                   onClick={(e) => {
                     e.stopPropagation();
-                    void syncOne(canonicalId);
+                    onPush(canonicalId);
                   }}
                   className={`shrink-0 inline-flex items-center gap-1 text-xs px-2 py-1 rounded transition-colors ${
                     isPushing

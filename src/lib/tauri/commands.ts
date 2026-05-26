@@ -25,6 +25,15 @@ import type {
   OrphanFile,
   AgentId,
   SkillScope,
+  CanonicalDeletePolicy,
+  CanonicalSkillDeleteResult,
+  SkillSyncAllCommitRequest,
+  SkillSyncAllPreview,
+  SkillSyncCommitRequest,
+  SkillSyncPreview,
+  SkillTargetRemovalResult,
+  SkillTargetRepointResult,
+  TargetRemovalPolicy,
 } from "$lib/types";
 import type {
   AgentId as TokenAgentId,
@@ -124,6 +133,8 @@ export const api = {
     writeRaw: (name: string, content: string) =>
       invoke<{ normalizedFrom: string | null }>("canonical_skills_write_raw", { name, content }),
     delete: (name: string) => invoke<void>("canonical_skills_delete", { name }),
+    deleteWithPolicy: (name: string, policy: CanonicalDeletePolicy) =>
+      invoke<CanonicalSkillDeleteResult>("canonical_skills_delete_with_policy", { name, policy }),
   },
 
   // Fan-out sync (canonical → agent-native dirs). Push destinations come
@@ -131,6 +142,12 @@ export const api = {
   skillSync: {
     one: (name: string) => invoke<SyncResult[]>("skill_sync_one", { name }),
     all: () => invoke<SyncResult[]>("skill_sync_all"),
+    preview: (name: string) => invoke<SkillSyncPreview>("skill_sync_preview", { name }),
+    previewAll: () => invoke<SkillSyncAllPreview>("skill_sync_all_preview"),
+    commit: (request: SkillSyncCommitRequest) =>
+      invoke<SyncResult[]>("skill_sync_commit", { request }),
+    commitAll: (request: SkillSyncAllCommitRequest) =>
+      invoke<SyncResult[]>("skill_sync_all_commit", { request }),
     resolveTargetDir: (
       skillName: string,
       agent: AgentId,
@@ -180,6 +197,18 @@ export const api = {
   skillTargets: {
     set: (skillName: string, targets: SkillTarget[]) =>
       invoke<void>("skill_targets_set", { skillName, targets }),
+    remove: (skillName: string, target: SkillTarget, policy: TargetRemovalPolicy) =>
+      invoke<SkillTargetRemovalResult>("skill_target_remove_with_policy", {
+        skillName,
+        target,
+        policy,
+      }),
+    repoint: (skillName: string, target: SkillTarget, newProject: string) =>
+      invoke<SkillTargetRepointResult>("skill_target_repoint", {
+        skillName,
+        target,
+        newProject,
+      }),
   },
 
   // Orphan prune. Project paths to scan are derived from the skill's own

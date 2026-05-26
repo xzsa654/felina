@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
 import { Download, Grid2x2, List, Loader2, Plus, RefreshCw, Sparkles, Undo2 } from "lucide-react";
-import ConfirmDialog from "$lib/components/shared/ConfirmDialog";
 import { PageBody, PageHeader } from "$lib/components/shared/PageScaffold";
 import { useProjectContextStore } from "$lib/stores/project-context";
 import { useSkillsStore } from "$lib/stores/skills-store";
@@ -11,7 +10,10 @@ import { api } from "$lib/tauri/commands";
 import {
   skillListEntryCanonicalId,
   type CanonicalSkill,
+  type CanonicalDeletePolicy,
   type KnownProject,
+  type SkillSyncPreview,
+  type SkillSyncResolution,
   type SkillTarget,
 } from "$lib/types";
 import SkillList from "./SkillList";
@@ -21,6 +23,8 @@ import SkillImportBanner from "./SkillImportBanner";
 import SkillImportWizard from "./SkillImportWizard";
 import TargetEditor from "./TargetEditor";
 import CoverageMatrix from "./CoverageMatrix";
+import SyncPreviewDialog from "./SyncPreviewDialog";
+import DeletePolicyDialog from "./DeletePolicyDialog";
 import { isProjectMissing } from "$lib/utils/path";
 
 /**
@@ -64,10 +68,18 @@ export default function SkillsPage() {
   const [creatingNew, setCreatingNew] = useState(false);
   const [wizardOpen, setWizardOpen] = useState(false);
   const [reloading, setReloading] = useState(false);
-  const [pendingDelete, setPendingDelete] = useState<{ canonicalId: string; label: string } | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<{
+    canonicalId: string;
+    label: string;
+    targets: SkillTarget[];
+  } | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
   const [pendingTargets, setPendingTargets] = useState<SkillTarget[]>([]);
   const [knownProjects, setKnownProjects] = useState<KnownProject[]>([]);
   const [nameAdvisory, setNameAdvisory] = useState<string | null>(null);
+  const [pushPreview, setPushPreview] = useState<SkillSyncPreview | null>(null);
+  const [pushBusy, setPushBusy] = useState(false);
+  const [localPushingNames, setLocalPushingNames] = useState<Set<string>>(new Set());
 
   // Reload the Known Projects list (each entry carries a backend `exists`
   // stat). Reused by the entries-driven effect and the window-focus listener.
@@ -214,21 +226,59 @@ export default function SkillsPage() {
     setPendingDelete({
       canonicalId: selectedName,
       label: entry?.kind === "ok" ? entry.skill.name : entry?.name ?? selectedName,
+      targets: entry?.kind === "ok" ? entry.skill.targets : [],
     });
   }
 
-  async function confirmDelete() {
+  async function confirmDelete(policy: CanonicalDeletePolicy) {
     const pending = pendingDelete;
     if (!pending) return;
-    setPendingDelete(null);
+    setDeleteBusy(true);
     try {
-      await api.canonicalSkills.delete(pending.canonicalId);
+      await api.canonicalSkills.deleteWithPolicy(pending.canonicalId, policy);
       removeEntry(pending.canonicalId);
       setSelectedName((cur) => (cur === pending.canonicalId ? null : cur));
       setActiveSkill((cur) => (cur?.canonicalId === pending.canonicalId ? null : cur));
       setBrokenRaw((cur) => (cur?.name === pending.canonicalId ? null : cur));
+      setPendingDelete(null);
     } catch (e) {
       window.alert(t(locale, "skills.deleteDialog.failed", { error: String(e) }));
+    } finally {
+      setDeleteBusy(false);
+    }
+  }
+
+  async function handlePushOne(canonicalId: string) {
+    setLocalPushingNames((current) => new Set(current).add(canonicalId));
+    try {
+      const preview = await api.skillSync.preview(canonicalId);
+      setPushPreview(preview);
+    } catch (e) {
+      window.alert(String(e));
+    } finally {
+      setLocalPushingNames((current) => {
+        const next = new Set(current);
+        next.delete(canonicalId);
+        return next;
+      });
+    }
+  }
+
+  async function confirmPushOne(resolutionsBySkill: Record<string, SkillSyncResolution[]>) {
+    const preview = pushPreview;
+    if (!preview) return;
+    setPushBusy(true);
+    try {
+      await api.skillSync.commit({
+        skillName: preview.skillName,
+        resolutions: resolutionsBySkill[preview.skillName] ?? [],
+      });
+      await loadEntries();
+      setPushPreview(null);
+    } catch (e) {
+      window.alert(String(e));
+    } finally {
+      setPushBusy(false);
     }
   }
 
@@ -379,6 +429,8 @@ export default function SkillsPage() {
                     setSelectedName(n);
                     setNameAdvisory(null);
                   }}
+                  onPush={(name) => void handlePushOne(name)}
+                  pushingNames={localPushingNames}
                 />
               ) : (
                 <div className="text-sm text-text-secondary p-4">{t(locale, "skills.loading")}</div>
@@ -484,17 +536,20 @@ export default function SkillsPage() {
         />
       )}
 
-      <ConfirmDialog
+      <DeletePolicyDialog
         open={pendingDelete !== null}
-        title={t(locale, "skills.deleteDialog.title")}
-        message={
-          pendingDelete
-            ? t(locale, "skills.deleteDialog.message", { name: pendingDelete.label })
-            : ""
-        }
-        confirmLabel={t(locale, "skills.deleteDialog.confirm")}
-        onconfirm={confirmDelete}
+        name={pendingDelete?.label ?? ""}
+        targets={pendingDelete?.targets ?? []}
+        busy={deleteBusy}
+        onchoose={(policy) => void confirmDelete(policy)}
         oncancel={() => setPendingDelete(null)}
+      />
+      <SyncPreviewDialog
+        open={pushPreview !== null}
+        previews={pushPreview ? [pushPreview] : []}
+        busy={pushBusy}
+        onconfirm={(resolutionsBySkill) => void confirmPushOne(resolutionsBySkill)}
+        oncancel={() => setPushPreview(null)}
       />
     </>
   );

@@ -1,14 +1,16 @@
 import { useEffect, useState } from "react";
 import { AlertTriangle, FolderOpen, Plus, Search, Trash2 } from "lucide-react";
+import { open } from "@tauri-apps/plugin-dialog";
 import type { KnownProject, OrphanFile, SkillTarget } from "$lib/types";
 import { api } from "$lib/tauri/commands";
 import { openPath } from "$lib/tauri/shell";
 import { useSkillsStore } from "$lib/stores/skills-store";
 import { useLocaleStore } from "$lib/stores/locale";
 import { t } from "$lib/i18n";
-import { isProjectMissing } from "$lib/utils/path";
+import { isProjectMissing, normalizeProjectPath } from "$lib/utils/path";
 import ConfirmDialog from "$lib/components/shared/ConfirmDialog";
 import AddTargetDialog from "./AddTargetDialog";
+import type { TargetRemovalPolicy } from "$lib/types";
 
 type UIState = "tracked" | "disabled";
 
@@ -52,6 +54,8 @@ export default function TargetEditor({ skillName, projectPath, targets, onTarget
   const [dialogOpen, setDialogOpen] = useState(false);
   const [pruneOrphans, setPruneOrphans] = useState<OrphanFile[] | null>(null);
   const [pruneMessage, setPruneMessage] = useState<string | null>(null);
+  const [pendingRemove, setPendingRemove] = useState<SkillTarget | null>(null);
+  const [removing, setRemoving] = useState(false);
   // Resolved fan-out destination (`<target>/<canonical-id>/`) + on-disk
   // existence per target row, keyed by agent-scope-project. Drives the per-row
   // "Open target folder" button (disabled until a push creates the folder).
@@ -106,8 +110,12 @@ export default function TargetEditor({ skillName, projectPath, targets, onTarget
   }
 
   function handleRemove(idx: number) {
-    const next = targets.filter((_, i) => i !== idx);
-    void save(next);
+    if (buffered) {
+      const next = targets.filter((_, i) => i !== idx);
+      void save(next);
+      return;
+    }
+    setPendingRemove(targets[idx]);
   }
 
   function handleAdd(target: SkillTarget) {
@@ -139,6 +147,42 @@ export default function TargetEditor({ skillName, projectPath, targets, onTarget
     } catch (e) {
       setPruneMessage(t(locale, "skills.targets.pruneFailed", { error: String(e) }));
       setTimeout(() => setPruneMessage(null), 3000);
+    }
+  }
+
+  async function handleRemovePolicy(policy: TargetRemovalPolicy) {
+    const target = pendingRemove;
+    if (!target) return;
+    setRemoving(true);
+    try {
+      const result = await api.skillTargets.remove(skillName, target, policy);
+      if (!result.targetRemoved && result.deleteResult && !result.deleteResult.success) {
+        setPruneMessage(
+          t(locale, "skills.targets.removeFailed", {
+            error: result.deleteResult.error ?? result.deleteResult.path,
+          }),
+        );
+        setTimeout(() => setPruneMessage(null), 5000);
+      }
+      setPendingRemove(null);
+      await loadEntries();
+    } catch (e) {
+      setPruneMessage(t(locale, "skills.targets.removeFailed", { error: String(e) }));
+      setTimeout(() => setPruneMessage(null), 5000);
+    } finally {
+      setRemoving(false);
+    }
+  }
+
+  async function handleRepoint(target: SkillTarget) {
+    const dir = await open({ directory: true });
+    if (!dir) return;
+    try {
+      await api.skillTargets.repoint(skillName, target, normalizeProjectPath(dir));
+      await loadEntries();
+    } catch (e) {
+      setPruneMessage(t(locale, "skills.targets.repointFailed", { error: String(e) }));
+      setTimeout(() => setPruneMessage(null), 5000);
     }
   }
 
@@ -241,6 +285,17 @@ export default function TargetEditor({ skillName, projectPath, targets, onTarget
                     </button>
                   </div>
                   {!buffered && (
+                    <>
+                    {projectNotFound && (
+                      <button
+                        type="button"
+                        onClick={() => void handleRepoint(tgt)}
+                        className="px-2 py-1 text-[11px] rounded border border-amber-500/30 text-amber-300 hover:bg-amber-500/10"
+                        title={t(locale, "skills.targets.repointTitle")}
+                      >
+                        {t(locale, "skills.targets.repoint")}
+                      </button>
+                    )}
                     <button
                       type="button"
                       disabled={!dest?.exists}
@@ -261,6 +316,7 @@ export default function TargetEditor({ skillName, projectPath, targets, onTarget
                     >
                       <FolderOpen size={12} />
                     </button>
+                    </>
                   )}
                   <button
                     type="button"
@@ -301,6 +357,80 @@ export default function TargetEditor({ skillName, projectPath, targets, onTarget
         onconfirm={() => void handlePruneConfirm()}
         oncancel={() => setPruneOrphans(null)}
       />
+      <TargetRemovalDialog
+        open={pendingRemove !== null}
+        target={pendingRemove}
+        busy={removing}
+        onchoose={(policy) => void handleRemovePolicy(policy)}
+        oncancel={() => setPendingRemove(null)}
+      />
+    </div>
+  );
+}
+
+function TargetRemovalDialog({
+  open,
+  target,
+  busy,
+  onchoose,
+  oncancel,
+}: {
+  open: boolean;
+  target: SkillTarget | null;
+  busy: boolean;
+  onchoose: (policy: TargetRemovalPolicy) => void;
+  oncancel: () => void;
+}) {
+  const locale = useLocaleStore((s) => s.locale);
+  if (!open || !target) return null;
+  const label =
+    target.scope === "project"
+      ? `${target.agent}: ${target.project ?? ""}`
+      : `${target.agent}: global`;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center">
+      <button
+        type="button"
+        className="absolute inset-0 bg-black/50"
+        onClick={oncancel}
+        aria-label={t(locale, "skills.targets.removeCancel")}
+      />
+      <div className="relative bg-bg-secondary border border-border rounded shadow-2xl w-[32rem] max-w-[calc(100vw-2rem)] p-5 space-y-4 z-10">
+        <div>
+          <h3 className="text-base font-semibold text-text-primary">
+            {t(locale, "skills.targets.removeTitle")}
+          </h3>
+          <p className="text-sm text-text-muted mt-1">
+            {t(locale, "skills.targets.removeMessage", { target: label })}
+          </p>
+        </div>
+        <div className="grid grid-cols-3 gap-2">
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => onchoose("removeTargetOnly")}
+            className="rounded border border-border bg-bg-tertiary px-3 py-2 text-xs text-text-primary hover:bg-bg-hover disabled:opacity-50"
+          >
+            {t(locale, "skills.targets.removeOnly")}
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => onchoose("removeTargetAndDeleteFile")}
+            className="rounded border border-danger/40 bg-danger/10 px-3 py-2 text-xs text-danger hover:bg-danger/20 disabled:opacity-50"
+          >
+            {t(locale, "skills.targets.removeAndDelete")}
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => onchoose("cancel")}
+            className="rounded border border-border bg-bg-tertiary px-3 py-2 text-xs text-text-primary hover:bg-bg-hover disabled:opacity-50"
+          >
+            {t(locale, "skills.targets.removeCancel")}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
