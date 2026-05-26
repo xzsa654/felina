@@ -3,6 +3,9 @@ import { Send } from "lucide-react";
 import { useSkillsStore } from "$lib/stores/skills-store";
 import { useLocaleStore } from "$lib/stores/locale";
 import { t } from "$lib/i18n";
+import { api } from "$lib/tauri/commands";
+import SyncPreviewDialog from "./SyncPreviewDialog";
+import type { SkillSyncPreview, SkillSyncResolution } from "$lib/types";
 
 /**
  * Banner at the top of the Skills page that summarises how many canonical
@@ -15,8 +18,9 @@ import { t } from "$lib/i18n";
 export default function PendingPushBar() {
   const locale = useLocaleStore((s) => s.locale);
   const entries = useSkillsStore((s) => s.entries);
-  const syncAll = useSkillsStore((s) => s.syncAll);
+  const loadEntries = useSkillsStore((s) => s.loadEntries);
   const [pushing, setPushing] = useState(false);
+  const [preview, setPreview] = useState<SkillSyncPreview[] | null>(null);
 
   const dirtyCount = useMemo(
     () => entries.filter((e) => e.kind === "ok" && e.skill.dirty && e.skill.targets.length > 0).length,
@@ -47,7 +51,8 @@ export default function PendingPushBar() {
         onClick={async () => {
           setPushing(true);
           try {
-            await syncAll();
+            const next = await api.skillSync.previewAll();
+            setPreview(next.skills);
           } finally {
             setPushing(false);
           }
@@ -57,6 +62,22 @@ export default function PendingPushBar() {
         <Send size={12} />
         {pushing ? t(locale, "skills.pendingPush.pushing") : t(locale, "skills.pendingPush.pushAll")}
       </button>
+      <SyncPreviewDialog
+        open={preview !== null}
+        previews={preview ?? []}
+        busy={pushing}
+        oncancel={() => setPreview(null)}
+        onconfirm={async (resolutionsBySkill: Record<string, SkillSyncResolution[]>) => {
+          setPushing(true);
+          try {
+            await api.skillSync.commitAll({ resolutionsBySkill });
+            await loadEntries();
+            setPreview(null);
+          } finally {
+            setPushing(false);
+          }
+        }}
+      />
     </div>
   );
 }
