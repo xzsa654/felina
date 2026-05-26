@@ -861,6 +861,34 @@ pub fn skill_target_repoint(
     })
 }
 
+#[tauri::command]
+pub fn skill_target_read_content(skill_name: String, target_key: String) -> Result<String, String> {
+    let dir = canonical_skills_dir();
+    let skill_dir = dir.join(&skill_name);
+    let skill_md = skill_dir.join("SKILL.md");
+    if !skill_md.is_file() {
+        return Err(format!("skill not found: {skill_name}"));
+    }
+    let raw = fs::read_to_string(&skill_md).map_err(|e| format!("failed to read SKILL.md: {e}"))?;
+    let skill = parse_skill_md(&raw)?;
+    let (meta, _) = read_sync_meta_v2(&skill_dir, &skill);
+    let target = meta
+        .targets
+        .iter()
+        .find(|target| crate::commands::canonical_skills::target_key(target) == target_key)
+        .ok_or_else(|| "target not found".to_string())?;
+    let target_skill_dir = resolve_target_skill_dir(&skill_name, target)?;
+    let target_skill_md = target_skill_dir.join("SKILL.md");
+    if !target_skill_md.is_file() {
+        return Err(format!(
+            "agent-side SKILL.md does not exist or path cannot be resolved: {}",
+            target_skill_md.display()
+        ));
+    }
+    fs::read_to_string(&target_skill_md)
+        .map_err(|e| format!("failed to read agent-side SKILL.md: {e}"))
+}
+
 fn resolve_target_skill_dir(skill_name: &str, target: &SkillTarget) -> Result<PathBuf, String> {
     let cfg = super::agent_paths::agent_paths_get()?;
     let pair = match target.agent {
@@ -941,7 +969,8 @@ pub struct SkillTargetRepointResult {
 
 /// Scan agent directories for orphaned SKILL.md files belonging to this skill.
 /// A file is orphaned when the corresponding target is absent from the target
-/// list, or its mode is Detached / Disabled.
+/// list, or its mode is Detached / Forked. Disabled tracked targets still
+/// represent known agent-side files and are not orphaned.
 ///
 /// The scope/project pairs scanned are derived from `meta.targets` themselves
 /// (plus the always-checked global) — no caller-supplied `project_path` is
@@ -998,7 +1027,6 @@ pub fn skill_prune_orphans_scan(skill_name: String) -> Result<Vec<OrphanFile>, S
             let is_active = meta.targets.iter().any(|t| {
                 t.agent == agent
                     && t.scope == *check_scope
-                    && t.enabled
                     && matches!(t.mode, TargetMode::Tracked)
                     && match check_scope {
                         SkillScope::Global => true,
@@ -2044,7 +2072,7 @@ Hello.\n";
     }
 
     #[test]
-    fn orphan_scan_flags_disabled_and_detached() {
+    fn orphan_scan_preserves_disabled_tracked_and_flags_detached() {
         let tmp = tempdir();
         let _g = override_felina_home(&tmp);
         let project = tmp.to_string_lossy().to_string();
@@ -2071,7 +2099,7 @@ Hello.\n";
         fs::write(anthropic_dir.join("SKILL.md"), "rendered").unwrap();
         fs::write(codex_dir.join("SKILL.md"), "rendered").unwrap();
 
-        // anthropic = disabled, codex = detached — both should be orphans.
+        // anthropic = disabled tracked (known, not orphan), codex = detached (orphan).
         let skill_dir = tmp.join(".felina").join("skills").join("flag-test");
         write_sync_meta_v2(
             &skill_dir,
@@ -2104,11 +2132,14 @@ Hello.\n";
 
         assert_eq!(
             orphans.len(),
-            2,
-            "both disabled and detached are orphans: {orphans:?}"
+            1,
+            "only detached target should be orphaned: {orphans:?}"
         );
         let agents: Vec<AgentId> = orphans.iter().map(|o| o.agent).collect();
-        assert!(agents.contains(&AgentId::Anthropic), "disabled anthropic");
+        assert!(
+            !agents.contains(&AgentId::Anthropic),
+            "disabled tracked anthropic should not be orphaned"
+        );
         assert!(agents.contains(&AgentId::Codex), "detached codex");
     }
 
@@ -2235,6 +2266,101 @@ Hello.\n";
         let orphans = skill_prune_orphans_scan("clean".into()).unwrap();
 
         assert!(orphans.is_empty(), "no agent files on disk → no orphans");
+    }
+
+    #[test]
+    fn skill_target_read_content_reads_agent_side_skill_md() {
+        let tmp = tempdir();
+        let _g = override_felina_home(&tmp);
+        let project = tmp.to_string_lossy().to_string();
+
+        let mut fm = serde_yaml::Mapping::new();
+        fm.insert("name".into(), "code-review".into());
+        fm.insert("description".into(), "test".into());
+        fm.insert(
+            "agents".into(),
+            serde_yaml::Value::Sequence(vec!["codex".into()]),
+        );
+        canonical_skills_write(
+            "code-review".into(),
+            serde_yaml::Value::Mapping(fm),
+            "body".into(),
+        )
+        .unwrap();
+
+        let target = SkillTarget {
+            agent: AgentId::Codex,
+            scope: SkillScope::Project,
+            project: Some(project.clone()),
+            enabled: false,
+            mode: TargetMode::Tracked,
+        };
+        let skill_dir = tmp.join(".felina").join("skills").join("code-review");
+        write_sync_meta_v2(
+            &skill_dir,
+            &SyncMetaV2 {
+                version: 2,
+                targets: vec![target.clone()],
+                last_sync: BTreeMap::new(),
+                dirty: false,
+            },
+        )
+        .unwrap();
+        let agent_dir = tmp.join(".agents").join("skills").join("code-review");
+        fs::create_dir_all(&agent_dir).unwrap();
+        fs::write(agent_dir.join("SKILL.md"), "agent-side raw").unwrap();
+
+        let content = skill_target_read_content("code-review".into(), target_key(&target))
+            .expect("read agent content");
+
+        assert_eq!(content, "agent-side raw");
+    }
+
+    #[test]
+    fn skill_target_read_content_reports_missing_agent_file() {
+        let tmp = tempdir();
+        let _g = override_felina_home(&tmp);
+        let project = tmp.to_string_lossy().to_string();
+
+        let mut fm = serde_yaml::Mapping::new();
+        fm.insert("name".into(), "code-review".into());
+        fm.insert("description".into(), "test".into());
+        fm.insert(
+            "agents".into(),
+            serde_yaml::Value::Sequence(vec!["codex".into()]),
+        );
+        canonical_skills_write(
+            "code-review".into(),
+            serde_yaml::Value::Mapping(fm),
+            "body".into(),
+        )
+        .unwrap();
+
+        let target = SkillTarget {
+            agent: AgentId::Codex,
+            scope: SkillScope::Project,
+            project: Some(project),
+            enabled: false,
+            mode: TargetMode::Tracked,
+        };
+        let skill_dir = tmp.join(".felina").join("skills").join("code-review");
+        write_sync_meta_v2(
+            &skill_dir,
+            &SyncMetaV2 {
+                version: 2,
+                targets: vec![target.clone()],
+                last_sync: BTreeMap::new(),
+                dirty: false,
+            },
+        )
+        .unwrap();
+
+        let err = skill_target_read_content("code-review".into(), target_key(&target)).unwrap_err();
+
+        assert!(
+            err.contains("does not exist") || err.contains("resolve"),
+            "got: {err}"
+        );
     }
 
     /// Smoke regression (task 8.4 / handoff UI #3a): a freshly-written
@@ -2469,7 +2595,11 @@ Hello.\n";
             fm.insert("description".into(), "test".into());
             fm.insert(
                 "agents".into(),
-                serde_yaml::Value::Sequence(vec!["anthropic".into(), "codex".into(), "gemini".into()]),
+                serde_yaml::Value::Sequence(vec![
+                    "anthropic".into(),
+                    "codex".into(),
+                    "gemini".into(),
+                ]),
             );
             canonical_skills_write(name.into(), serde_yaml::Value::Mapping(fm), "body".into())
                 .unwrap();

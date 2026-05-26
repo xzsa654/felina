@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { AlertTriangle, FolderOpen, Plus, Search, Trash2 } from "lucide-react";
+import { AlertTriangle, Eye, FolderOpen, Plus, Search, Trash2, X } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
 import type { KnownProject, OrphanFile, SkillTarget } from "$lib/types";
 import { api } from "$lib/tauri/commands";
@@ -36,6 +36,11 @@ const STATE_KEYS: Record<UIState, "skills.targets.tracked" | "skills.targets.dis
 
 const STATES: UIState[] = ["tracked", "disabled"];
 
+function targetKey(target: SkillTarget): string {
+  if (target.scope === "global") return `${target.agent}:global`;
+  return `${target.agent}:project:${target.project ?? ""}`;
+}
+
 interface Props {
   skillName: string;
   /** Default project path for new project-scope targets added via the dialog. */
@@ -56,6 +61,12 @@ export default function TargetEditor({ skillName, projectPath, targets, onTarget
   const [pruneMessage, setPruneMessage] = useState<string | null>(null);
   const [pendingRemove, setPendingRemove] = useState<SkillTarget | null>(null);
   const [removing, setRemoving] = useState(false);
+  const [contentModal, setContentModal] = useState<{
+    target: SkillTarget;
+    content: string | null;
+    error: string | null;
+    loading: boolean;
+  } | null>(null);
   // Resolved fan-out destination (`<target>/<canonical-id>/`) + on-disk
   // existence per target row, keyed by agent-scope-project. Drives the per-row
   // "Open target folder" button (disabled until a push creates the folder).
@@ -186,6 +197,16 @@ export default function TargetEditor({ skillName, projectPath, targets, onTarget
     }
   }
 
+  async function handleReadContent(target: SkillTarget) {
+    setContentModal({ target, content: null, error: null, loading: true });
+    try {
+      const content = await api.skillTargets.readContent(skillName, targetKey(target));
+      setContentModal({ target, content, error: null, loading: false });
+    } catch (e) {
+      setContentModal({ target, content: null, error: String(e), loading: false });
+    }
+  }
+
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center justify-between">
@@ -298,6 +319,14 @@ export default function TargetEditor({ skillName, projectPath, targets, onTarget
                     )}
                     <button
                       type="button"
+                      onClick={() => void handleReadContent(tgt)}
+                      className="p-1 text-text-secondary hover:text-text-primary"
+                      title={t(locale, "skills.targets.viewContent")}
+                    >
+                      <Eye size={12} />
+                    </button>
+                    <button
+                      type="button"
                       disabled={!dest?.exists}
                       onClick={() => {
                         if (dest?.exists) {
@@ -364,6 +393,74 @@ export default function TargetEditor({ skillName, projectPath, targets, onTarget
         onchoose={(policy) => void handleRemovePolicy(policy)}
         oncancel={() => setPendingRemove(null)}
       />
+      <TargetContentModal
+        state={contentModal}
+        onclose={() => setContentModal(null)}
+      />
+    </div>
+  );
+}
+
+function TargetContentModal({
+  state,
+  onclose,
+}: {
+  state: {
+    target: SkillTarget;
+    content: string | null;
+    error: string | null;
+    loading: boolean;
+  } | null;
+  onclose: () => void;
+}) {
+  const locale = useLocaleStore((s) => s.locale);
+  if (!state) return null;
+  const label =
+    state.target.scope === "project"
+      ? `${state.target.agent}: ${state.target.project ?? ""}`
+      : `${state.target.agent}: ~/.felina`;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center">
+      <button
+        type="button"
+        className="absolute inset-0 bg-black/50"
+        onClick={onclose}
+        aria-label={t(locale, "skills.targets.contentClose")}
+      />
+      <div className="relative z-10 flex max-h-[80vh] w-[42rem] max-w-[calc(100vw-2rem)] flex-col rounded border border-border bg-bg-secondary shadow-2xl">
+        <div className="flex items-start justify-between gap-3 border-b border-border px-4 py-3">
+          <div className="min-w-0">
+            <h3 className="text-sm font-semibold text-text-primary">
+              {t(locale, "skills.targets.contentTitle", { target: label })}
+            </h3>
+          </div>
+          <button
+            type="button"
+            onClick={onclose}
+            className="p-1 text-text-secondary hover:text-text-primary"
+            title={t(locale, "skills.targets.contentClose")}
+          >
+            <X size={14} />
+          </button>
+        </div>
+        <div className="min-h-0 flex-1 overflow-auto p-4">
+          {state.loading && (
+            <div className="text-sm text-text-secondary">
+              {t(locale, "skills.targets.contentLoading")}
+            </div>
+          )}
+          {state.error && (
+            <div className="rounded border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-300">
+              {t(locale, "skills.targets.contentFailed", { error: state.error })}
+            </div>
+          )}
+          {state.content !== null && (
+            <pre className="whitespace-pre-wrap rounded border border-border bg-bg-primary p-3 font-mono text-xs text-text-primary">
+              {state.content}
+            </pre>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

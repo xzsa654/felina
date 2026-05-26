@@ -191,6 +191,8 @@ export interface ConflictInfo {
 export interface DeferredMultiSource {
   /** Distinct agents whose folders contained this skill name. */
   agents: AgentId[];
+  /** Full per-source candidates for this grouped skill name. */
+  candidates: ImportCandidate[];
   /** Human-readable note for the wizard row. */
   reason: string;
 }
@@ -219,10 +221,10 @@ export interface ImportCandidate {
 }
 
 export type ImportResolution =
-  | { kind: "keepCanonical" }
   | { kind: "overwriteCanonical" }
   | { kind: "skip" }
-  | { kind: "rename"; newName: string };
+  | { kind: "rename"; newName: string }
+  | { kind: "selectSource"; sourceIndex: number; newName?: string };
 
 export interface ImportSelection {
   candidate: ImportCandidate;

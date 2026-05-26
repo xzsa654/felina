@@ -18,7 +18,6 @@
 - suggestion 層級不要求明確交付物，但至少要能描述「解決什麼問題 / 滿足什麼需求」。
 
 不收的項目（歸其他位置）:
-- 工具 / 框架 / 流程 / 開發體驗問題 → `.session/design-backlog.md`
 - 當前 session 的 bug fix / 追加任務 → Spectra change tasks 或 handoff Open Questions
 - 純研究 / 調查 → `.session/` 下獨立文件（如 `agent-capability-research.md`）
 - 使用者隨口提到但未確認要做的想法 → 不記錄；等使用者明確表示「加進 backlog」再收
@@ -60,25 +59,8 @@ Architecture note:
 ## Phase 1.5 — Target Freedom Sequence
 
 `skill-sync-lifecycle` original umbrella scope was split on 2026-05-25.
-Recommended first proposal: `skill-target-lifecycle-safety`.
-`skill-identity-namespace-strategy` needs `$spectra-discuss` before implementation.
-
-### skill-target-lifecycle-safety
-
-| Field | Value |
-|---|---|
-| type | planned-change |
-| status | planned |
-| flagged | 2026-05-22 |
-| last-seen | 2026-05-25 |
-| description | Target lifecycle safety before Felina writes, overwrites, deletes, detaches, or repairs agent-side skill files. |
-
-Scope:
-- **Push dry-run**: preview write paths + create/overwrite/no-op counts; user confirms to commit.
-- **Push-time drift check**: compare target SKILL.md hash with `last_sync.pushed_hash`; drift → prompt override / detach / cancel.
-- **Canonical delete prompt**: Cascade (delete agent files) / Detach (leave orphaned) / Cancel.
-- **Per-target removal prompt**: target row 移除時提示是否一併刪除 agent-side file（converge with cascade/detach semantics）。
-- **In-place target repoint**: "project not found" 時可 Browse 重新指向新路徑，取代 delete + re-add。
+`skill-target-lifecycle-safety` completed and archived (2026-05-26).
+`skill-identity-namespace-strategy` has a parked Spectra change (0/16).
 
 ### clarify-skill-import-conflicts
 
@@ -113,10 +95,10 @@ Scope:
 
 | Field | Value |
 |---|---|
-| type | suggestion |
-| status | discussed-concluded |
+| type | planned-change |
+| status | parked (Spectra change, 0/16) |
 | flagged | 2026-05-22 |
-| last-seen | 2026-05-25 |
+| last-seen | 2026-05-26 |
 | description | Product-model decision for same-name skills across projects under Felina's single global canonical store. |
 
 Conclusion (2026-05-25):

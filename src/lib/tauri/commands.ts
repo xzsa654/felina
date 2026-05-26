@@ -209,6 +209,8 @@ export const api = {
         target,
         newProject,
       }),
+    readContent: (skillName: string, targetKey: string) =>
+      invoke<string>("skill_target_read_content", { skillName, targetKey }),
   },
 
   // Orphan prune. Project paths to scan are derived from the skill's own

@@ -201,6 +201,12 @@ The initial skill import feature SHALL write canonical master files only to `~/.
 
 The system SHALL parse source `SKILL.md` frontmatter with support for UTF-8 BOM, LF line endings, and CRLF line endings. The system SHALL distinguish repairable missing canonical fields from malformed source frontmatter. If the source frontmatter is parseable YAML mapping content, the importer SHALL treat the source skill directory name as the canonical identity and SHALL fill or normalize canonical fields using these rules: missing `name` is filled from the source skill directory name, a present-but-mismatched `name` is rewritten to the source skill directory name, missing `description` is filled with an empty string, and missing `agents` is filled with the source agent id. If the source frontmatter has YAML syntax errors, is not a YAML mapping, or contains a nested or repeated frontmatter block before the Markdown body, the importer SHALL write the source content verbatim to canonical storage so the skill surfaces as a broken canonical skill, rather than discarding the content or refusing the import.
 
+When the same skill name is found in two or more agent source directories during a single scan, the system SHALL NOT defer those candidates as unimportable. Instead, the import wizard SHALL present a multi-source selection UI that lets the user compare the body preview of each source and choose exactly one as the canonical content. The import resolution for a multi-source group SHALL be `SelectSource`, identifying the chosen source by its index within the grouped candidates. If the multi-source skill name collides with an existing canonical skill, source selection alone SHALL NOT overwrite the canonical skill; the wizard SHALL require an explicit Skip, OverwriteCanonical, or Rename decision after source selection. When the user chooses Rename for a multi-source group, `SelectSource` SHALL include the requested new canonical name, and the backend SHALL write the selected source under that new canonical identity. If the multi-source skill name collides with an existing canonical skill, the wizard SHALL display an inline conflict warning for the row using the same warning semantics as a single-source canonical conflict: canonical path is shown, and the diff summary SHALL describe the currently selected source versus the canonical skill. Before a source is selected, the warning SHALL state that a source must be selected before comparing or choosing OverwriteCanonical/Rename. The `ImportResolution` enum SHALL NOT contain `KeepCanonical` — the previously duplicated no-op semantics of `KeepCanonical` and `Skip` SHALL be consolidated into `Skip` only.
+
+After the user selects one source from a multi-source group, the system SHALL write that source's content to canonical storage and SHALL create a disabled target (`enabled: false`, `mode: tracked`) for each non-selected source. The disabled target's `agent` and `scope` SHALL be derived from the non-selected source's `source_agent` and the scan scope. This ensures that the non-selected agent-side skill files are not flagged as orphans by the prune scan.
+
+A disabled target in the per-skill target editor SHALL provide a "View content" action that reads and displays the agent-side `SKILL.md` content in a read-only in-app modal. The system SHALL resolve the target's agent-side skill directory using the same path resolution logic as fan-out (agent paths configuration, scope, project path, canonical directory identity) and SHALL read `SKILL.md` from that resolved path. When the agent-side file does not exist or the path cannot be resolved, the system SHALL display an error message in the modal rather than silently failing.
+
 A broken canonical skill (one whose `SKILL.md` fails to parse) SHALL NOT be fanned out to any agent directory. The system SHALL allow a user to open a broken skill in a raw editing mode that exposes the full raw `SKILL.md` text, and SHALL re-validate the content on save: when the saved content parses, the skill is no longer broken and becomes eligible for push; when it still fails to parse, the skill remains broken and the system SHALL surface the parse error. App actions that operate on canonical skills — including selection, read, push, raw repair, delete, and target list mutation (set, prune scan, prune apply) — SHALL use a stable canonical identity that continues to resolve the canonical directory even when a stored frontmatter `name` and the directory name diverge. Deep-link selection from the Projects view SHALL match the requested skill name against the canonical directory identity, not the parsed display `name`.
 
 The raw repair editor SHALL provide a Delete action that targets the canonical directory identity, so a `Broken` skill the user does not want to repair can be discarded without leaving the app. The raw repair editor SHALL also display the canonical `SKILL.md` filesystem path with a button that opens the containing folder in the OS file manager. Each row in the per-skill target editor SHALL provide a button that opens the resolved fan-out destination (`<target>/<canonical-id>/`) in the OS file manager, disabled when the destination is missing on disk.
@@ -212,6 +218,75 @@ When a raw repair or structured save of an existing skill produces parseable fro
 - **GIVEN** skill "shared-util" exists in `<projectA>/.claude/skills/shared-util/SKILL.md` and no global canonical master named "shared-util" exists
 - **WHEN** the user imports it through either the Skills import wizard or the Projects view "Import to global" action
 - **THEN** `~/.felina/skills/shared-util/SKILL.md` is created and its sync-meta sidecar includes a target with `agent=anthropic`, `scope=project`, `project=<projectA absolute path>`
+
+#### Scenario: Multi-source skill is importable with source selection
+
+- **GIVEN** skill "code-review" exists in both `~/.claude/skills/code-review/SKILL.md` (anthropic) and `~/.agents/skills/code-review/SKILL.md` (codex) with different content
+- **WHEN** the import wizard scans and finds both sources
+- **THEN** the wizard SHALL display a multi-source selection UI for "code-review"
+- **AND** the wizard SHALL show the body preview of each source for comparison
+- **AND** the user SHALL be able to select exactly one source as the canonical content
+
+##### Example: two-source selection
+
+- **GIVEN** anthropic source body preview starts with "# Code Review - Review pull requests..." and codex source body preview starts with "# Code Review - Analyze code changes..."
+- **WHEN** the user selects the anthropic source
+- **THEN** the canonical `~/.felina/skills/code-review/SKILL.md` SHALL contain the anthropic source content
+- **AND** the sync-meta SHALL include a disabled target with `agent=codex`, `enabled=false`, `mode=tracked`
+
+#### Scenario: Non-selected sources become disabled targets
+
+- **GIVEN** skill "my-helper" exists in anthropic (global), codex (global), and gemini (global) agent directories
+- **WHEN** the user imports "my-helper" selecting the anthropic source
+- **THEN** the canonical skill is created from the anthropic source content
+- **AND** the sync-meta includes a disabled target with `agent=codex`, `scope=global`, `enabled=false`, `mode=tracked`
+- **AND** the sync-meta includes a disabled target with `agent=gemini`, `scope=global`, `enabled=false`, `mode=tracked`
+- **AND** subsequent prune scan SHALL NOT flag the codex or gemini agent-side skill files as orphans
+
+#### Scenario: Multi-source canonical conflict requires explicit overwrite or rename
+
+- **GIVEN** a canonical skill "code-review" already exists in `~/.felina/skills/code-review/SKILL.md`
+- **AND** skill "code-review" exists in both anthropic and codex agent source directories with different content
+- **WHEN** the import wizard scans and finds both sources
+- **THEN** the wizard SHALL let the user select one source for comparison
+- **AND** the wizard SHALL also present Skip, OverwriteCanonical, and Rename decisions
+- **AND** selecting a source SHALL NOT by itself overwrite the existing canonical skill
+- **AND** if the user chooses Rename, the selected source SHALL be written under the requested new canonical name
+- **AND** disabled targets for non-selected sources SHALL be recorded under that new canonical skill sidecar
+
+#### Scenario: Multi-source canonical conflict shows selected-source warning
+
+- **GIVEN** a canonical skill "session-update" already exists in `~/.felina/skills/session-update/SKILL.md`
+- **AND** skill "session-update" exists in both anthropic and codex agent source directories
+- **WHEN** the import wizard scans and renders the multi-source row
+- **THEN** the row SHALL display an inline conflict warning with the canonical `SKILL.md` path
+- **AND** before the user selects a source, the warning SHALL instruct the user to select a source before comparing or choosing OverwriteCanonical/Rename
+- **WHEN** the user selects the anthropic source
+- **THEN** the warning SHALL display the anthropic source diff summary against the canonical skill
+- **WHEN** the user switches to the codex source
+- **THEN** the warning SHALL update to the codex source diff summary against the canonical skill
+
+#### Scenario: Target content is viewable in-app
+
+- **GIVEN** a canonical skill "code-review" has a target for codex at scope global
+- **AND** `~/.agents/skills/code-review/SKILL.md` exists on disk
+- **WHEN** the user activates "View content" on that target row in the target editor
+- **THEN** the system SHALL display the raw content of `~/.agents/skills/code-review/SKILL.md` in a read-only modal
+- **AND** the modal SHALL NOT allow editing
+
+#### Scenario: Target content view handles missing file
+
+- **GIVEN** a canonical skill "code-review" has a target for codex at scope global
+- **AND** `~/.agents/skills/code-review/SKILL.md` does not exist on disk
+- **WHEN** the user activates "View content" on that disabled target row
+- **THEN** the system SHALL display an error message indicating the file does not exist or the path cannot be resolved
+
+#### Scenario: KeepCanonical resolution is removed
+
+- **GIVEN** the import wizard presents resolution options for a conflict candidate
+- **WHEN** the user views available resolutions
+- **THEN** the available options SHALL be Skip, OverwriteCanonical, Rename, or SelectSource
+- **AND** KeepCanonical SHALL NOT appear as a resolution option
 
 #### Scenario: Import repairs missing canonical fields in valid source frontmatter
 
@@ -341,48 +416,52 @@ When a raw repair or structured save of an existing skill produces parseable fro
 
 
 <!-- @trace
-source: harden-skill-import-frontmatter-validation
-updated: 2026-05-25
+source: skill-identity-namespace-strategy
+updated: 2026-05-26
 code:
   - src-tauri/src/commands/skill_import.rs
-  - src/lib/i18n/locales/zh-TW.ts
-  - .knowledge/knowledge-base/dev-docs.md
-  - src/lib/components/shared/LanguageSwitcher.tsx
-  - src/lib/components/skills/SkillImportBanner.tsx
-  - .knowledge/experience/spectra.md
-  - src/lib/components/projects/ManagedInventory.tsx
-  - .session/product-backlog.md
-  - src-tauri/src/commands/fan_out/gemini.rs
-  - .knowledge/experience/_index.json
-  - src/lib/components/projects/ProjectsList.tsx
-  - .knowledge/knowledge-base/_index.json
-  - src-tauri/tauri.conf.json
-  - src/lib/tauri/shell.ts
-  - src/lib/components/skills/SkillsPage.tsx
-  - src/lib/stores/skills-store.ts
-  - src/lib/types/index.ts
-  - src/lib/types/skills.ts
-  - .gitattributes
-  - src/lib/components/tokens/TokensPage.tsx
-  - src-tauri/src/lib.rs
-  - src/lib/components/skills/AddTargetDialog.tsx
-  - src/lib/components/tokens/components/LanguageSwitcher.tsx
-  - src-tauri/src/commands/canonical_skills.rs
-  - src-tauri/src/commands/fan_out/codex.rs
-  - src-tauri/src/commands/fan_out/anthropic.rs
-  - src/lib/components/skills/SkillEditor.tsx
-  - src/lib/components/projects/ProjectsPage.tsx
-  - src/lib/components/skills/SkillList.tsx
-  - src/lib/components/skills/TargetEditor.tsx
-  - .knowledge/_catalog.json
-  - package.json
-  - src/lib/components/skills/PendingPushBar.tsx
-  - src-tauri/src/commands/fan_out/mod.rs
-  - src/lib/components/skills/CoverageMatrix.tsx
   - src/lib/components/layout/Sidebar.tsx
-  - src/lib/tauri/commands.ts
-  - src/lib/components/skills/SkillImportWizard.tsx
+  - src/lib/i18n/locales/zh-TW.ts
+  - src/lib/components/projects/ManagedInventory.tsx
+  - src/lib/components/skills/SyncPreviewDialog.tsx
+  - src/lib/types/index.ts
+  - .knowledge/knowledge-base/_index.json
+  - src/lib/components/skills/SkillsPage.tsx
+  - .knowledge/knowledge-base/platform.md
+  - .github/workflows/ci.yml
+  - .github/ISSUE_TEMPLATE/bug_report.md
+  - src-tauri/src/commands/known_projects.rs
+  - src/lib/types/skills.ts
+  - .github/workflows/release.yml
+  - .session/design-backlog.md
+  - src-tauri/src/tokens/ccusage.rs
   - src/lib/i18n/locales/en.ts
+  - .knowledge/knowledge-base/architecture.md
+  - src-tauri/src/commands/tokens.rs
+  - src/lib/components/projects/managed-inventory.ts
+  - src-tauri/src/commands/canonical_skills.rs
+  - src/lib/components/skills/CoverageMatrix.tsx
+  - src/lib/components/skills/TargetEditor.tsx
+  - src/lib/components/history/HistoryPage.tsx
+  - src/lib/components/skills/import-conflict-warning.ts
+  - src-tauri/src/commands/mod.rs
+  - .gitattributes
+  - README.md
+  - .github/ISSUE_TEMPLATE/feature_request.md
+  - src/lib/components/skills/SkillImportWizard.tsx
+  - src/lib/tauri/commands.ts
+  - src-tauri/src/commands/fan_out/mod.rs
+  - src-tauri/src/lib.rs
+  - src/lib/components/skills/DeletePolicyDialog.tsx
+  - src/lib/components/skills/SkillList.tsx
+  - .session/agent-capability-research.md
+  - .session/product-backlog.md
+  - src/lib/components/skills/PendingPushBar.tsx
+  - .github/pull_request_template.md
+  - src-tauri/src/paths.rs
+  - .knowledge/_catalog.json
+tests:
+  - tests/skill-import-conflict-warning.test.ts
 -->
 
 ---
