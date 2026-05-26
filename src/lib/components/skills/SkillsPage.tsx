@@ -394,7 +394,7 @@ export default function SkillsPage() {
                       {projectNotFound ? "!" : entry ? "✓" : "—"}
                     </span>
                     <span className="capitalize">{tgt.agent}</span>
-                    <span className="text-text-secondary">{tgt.scope}</span>
+                    <span className="text-text-secondary">{tgt.scope === "project" ? t(locale, "skills.addTargetDialog.scopeProject") : t(locale, "skills.addTargetDialog.scopeGlobal")}</span>
                     <span
                       className={
                         projectNotFound ? "text-red-400" : "text-text-secondary"

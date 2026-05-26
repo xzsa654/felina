@@ -2,7 +2,7 @@ import { Fragment, useMemo } from "react";
 import type { CanonicalSkill, KnownProject, SkillListEntry } from "$lib/types";
 import { isProjectMissing } from "$lib/utils/path";
 import { useLocaleStore } from "$lib/stores/locale";
-import { t } from "$lib/i18n";
+import { t, type Locale } from "$lib/i18n";
 
 type SyncState = "synced" | "dirty" | "not-synced" | "disabled" | "no-target";
 type StateTranslationKey =
@@ -35,7 +35,7 @@ const STATE_ICON: Record<SyncState, string> = {
   synced: "✓",
   dirty: "●",
   "not-synced": "—",
-  disabled: "○",
+  disabled: "⦸",
   "no-target": "",
 };
 
@@ -61,7 +61,7 @@ interface ColumnDef {
   label: string;
 }
 
-function buildColumns(skills: CanonicalSkill[]): ColumnDef[] {
+function buildColumns(skills: CanonicalSkill[], locale: Locale): ColumnDef[] {
   const seen = new Map<string, ColumnDef>();
   for (const skill of skills) {
     for (const tgt of skill.targets) {
@@ -72,7 +72,7 @@ function buildColumns(skills: CanonicalSkill[]): ColumnDef[] {
       if (!seen.has(key)) {
         let label: string;
         if (tgt.scope === "global") {
-          label = `${tgt.agent} / global`;
+          label = `${tgt.agent} / ${t(locale, "skills.addTargetDialog.scopeGlobal")}`;
         } else {
           const segments = (tgt.project ?? "").replace(/\\/g, "/").split("/");
           const short = segments.filter(Boolean).pop() ?? tgt.project ?? "";
@@ -101,7 +101,7 @@ export default function CoverageMatrix({ entries, knownProjects }: Props) {
     [entries],
   );
 
-  const columns = useMemo(() => buildColumns(skills), [skills]);
+  const columns = useMemo(() => buildColumns(skills, locale), [skills, locale]);
 
   if (skills.length === 0) {
     return (

@@ -119,6 +119,7 @@ pub fn run() {
             commands::canonical_skills::skill_targets_set,
             commands::canonical_skills::skill_target_remove_with_policy,
             commands::canonical_skills::skill_target_repoint,
+            commands::canonical_skills::skill_target_read_content,
             commands::canonical_skills::skill_prune_orphans_scan,
             commands::canonical_skills::skill_prune_orphans_apply,
             // Fan-out push.
