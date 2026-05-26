@@ -101,7 +101,12 @@ export default function SettingsPage() {
   async function saveBudget() {
     if (!budgetSettings) return;
     try {
-      await api.budget.set(budgetSettings.daily_limit, budgetSettings.monthly_limit, budgetSettings.plan_type);
+      await api.budget.set(
+        budgetSettings.daily_limit,
+        budgetSettings.monthly_limit,
+        budgetSettings.plan_type,
+        budgetSettings.quota_ttl_seconds,
+      );
       showSave("Felina settings saved!");
     } catch (e) {
       showSave(`Error: ${e}`);
@@ -250,6 +255,31 @@ export default function SettingsPage() {
                       setBudgetSettings({ ...budgetSettings, monthly_limit: isNaN(val) ? null : val });
                     }}
                   />
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="text-sm text-text-primary">Quota Refresh TTL</span>
+                  <p className="text-xs text-text-muted">Lower values may hit provider rate limits</p>
+                </div>
+                <div className="flex items-center gap-1">
+                  <input
+                    type="number"
+                    min={0.5}
+                    max={60}
+                    step={0.5}
+                    className="w-20 px-2 py-1.5 text-sm bg-bg-tertiary border border-border rounded-md text-text-primary focus:outline-none focus:border-accent"
+                    value={Math.round((budgetSettings.quota_ttl_seconds ?? 180) / 30) / 2}
+                    onChange={(e) => {
+                      const minutes = parseFloat(e.target.value);
+                      const seconds = Number.isFinite(minutes)
+                        ? Math.round(Math.min(60, Math.max(0.5, minutes)) * 60)
+                        : 180;
+                      setBudgetSettings({ ...budgetSettings, quota_ttl_seconds: seconds });
+                    }}
+                  />
+                  <span className="text-sm text-text-muted">min</span>
                 </div>
               </div>
 

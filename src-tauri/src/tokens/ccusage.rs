@@ -6,9 +6,10 @@ use std::process::Command;
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-const QUOTA_CACHE_TTL: Duration = Duration::from_secs(15 * 60);
 const QUOTA_BACKOFF_BASE: Duration = Duration::from_secs(60);
 const QUOTA_BACKOFF_MAX: Duration = Duration::from_secs(30 * 60);
+const QUOTA_TTL_MIN_SECONDS: u64 = 30;
+const QUOTA_TTL_MAX_SECONDS: u64 = 60 * 60;
 
 // ── Anthropic rate limits (from oauth/usage API) ─────────────────────────────
 
@@ -524,7 +525,6 @@ pub struct QuotaSnapshot {
 struct QuotaCache {
     snapshot: QuotaSnapshot,
     fetched_at: SystemTime,
-    expires_at: SystemTime,
     rate_limited_until: Option<SystemTime>,
     failure_count: u32,
 }
@@ -577,6 +577,14 @@ fn quota_backoff_duration(failure_count: u32) -> Duration {
         .min(QUOTA_BACKOFF_MAX)
 }
 
+fn quota_cache_ttl() -> Duration {
+    let seconds = crate::commands::budget::get_budget()
+        .map(|settings| settings.quota_ttl_seconds)
+        .unwrap_or_else(|_| crate::commands::budget::default_quota_ttl_seconds())
+        .clamp(QUOTA_TTL_MIN_SECONDS, QUOTA_TTL_MAX_SECONDS);
+    Duration::from_secs(seconds)
+}
+
 pub fn fetch_quota_snapshot() -> QuotaSnapshot {
     let ((anthropic_limits, codex_limits), gemini_limits) = rayon::join(
         || rayon::join(fetch_anthropic_rate_limits, fetch_codex_rate_limits),
@@ -599,24 +607,26 @@ pub fn get_quota_snapshot_cached() -> QuotaSnapshot {
     let mut cache = quota_cache().lock().unwrap_or_else(|e| e.into_inner());
 
     if let Some(cached) = cache.as_ref() {
+        let expires_at = cached.fetched_at + quota_cache_ttl();
+
         if let Some(until) = cached.rate_limited_until {
             if now < until {
                 return with_quota_metadata(
                     cached.snapshot.clone(),
                     cached.fetched_at,
-                    cached.expires_at,
+                    expires_at,
                     until,
                     true,
                 );
             }
         }
 
-        if now < cached.expires_at {
+        if now < expires_at {
             return with_quota_metadata(
                 cached.snapshot.clone(),
                 cached.fetched_at,
-                cached.expires_at,
-                cached.expires_at,
+                expires_at,
+                expires_at,
                 false,
             );
         }
@@ -624,7 +634,7 @@ pub fn get_quota_snapshot_cached() -> QuotaSnapshot {
 
     let fetched = fetch_quota_snapshot();
     let fetched_at = SystemTime::now();
-    let expires_at = fetched_at + QUOTA_CACHE_TTL;
+    let expires_at = fetched_at + quota_cache_ttl();
     let previous_failure_count = cache.as_ref().map(|c| c.failure_count).unwrap_or(0);
 
     let (failure_count, rate_limited_until) = if quota_has_429(&fetched) {
@@ -641,7 +651,6 @@ pub fn get_quota_snapshot_cached() -> QuotaSnapshot {
     *cache = Some(QuotaCache {
         snapshot: snapshot.clone(),
         fetched_at,
-        expires_at,
         rate_limited_until,
         failure_count,
     });

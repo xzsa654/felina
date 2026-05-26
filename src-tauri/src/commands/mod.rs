@@ -1,7 +1,7 @@
 // Retained-for-reference modules: kept on disk for future re-enablement
 // (e.g. agent-skills-schema-reference change). Not registered in invoke_handler.
 #[allow(dead_code)]
-mod budget;
+pub(crate) mod budget;
 #[allow(dead_code)]
 mod hooks;
 #[allow(dead_code)]
