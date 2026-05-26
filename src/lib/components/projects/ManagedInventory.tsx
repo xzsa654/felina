@@ -2,16 +2,11 @@ import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router";
 import { ArrowRight, Download } from "lucide-react";
 import { api } from "$lib/tauri/commands";
-import type {
-  AgentId,
-  ImportCandidate,
-  KnownProject,
-  SkillListEntry,
-} from "$lib/types";
-import { normalizeProjectPath } from "$lib/utils/path";
+import type { AgentId, KnownProject } from "$lib/types";
 import ConfirmDialog from "$lib/components/shared/ConfirmDialog";
 import { useLocaleStore } from "$lib/stores/locale";
 import { t } from "$lib/i18n";
+import { buildInventoryRows, type InventoryRow } from "./managed-inventory";
 
 interface Props {
   project: KnownProject | null;
@@ -25,44 +20,6 @@ const AGENT_CHIP_LABEL: Record<AgentId, string> = {
   codex: "codex",
   gemini: "gemini",
 };
-
-interface InventoryRow {
-  skillName: string;
-  /** A global canonical master has a target pointing at this project. */
-  managed: boolean;
-  /** Agents whose on-disk agent dir under this project contains the skill. */
-  agentsPresent: Set<AgentId>;
-  /** Scan candidate (for the Import action); null when managed-only / deferred-absent. */
-  candidate: ImportCandidate | null;
-  /** Multi-source candidate that cannot be imported in this version. */
-  deferred: boolean;
-}
-
-/** Agents a scan candidate covers: its multi-source list, or its single source. */
-function candidateAgents(c: ImportCandidate): AgentId[] {
-  return c.deferred ? c.deferred.agents : [c.sourceAgent];
-}
-
-/** A row's action kind, used as the secondary sort key. */
-function actionRank(r: InventoryRow): number {
-  if (!r.managed && !r.deferred) return 0; // import (Unmanaged, importable)
-  if (r.managed) return 1; // edit (Managed → click to edit)
-  return 2; // multi-source (deferred, not importable)
-}
-
-/**
- * Row order: status first (Managed before Unmanaged), then action
- * (import → edit → multi-source), then alphabetical by skill name.
- */
-function compareRows(a: InventoryRow, b: InventoryRow): number {
-  const statusA = a.managed ? 0 : 1;
-  const statusB = b.managed ? 0 : 1;
-  if (statusA !== statusB) return statusA - statusB;
-  const actA = actionRank(a);
-  const actB = actionRank(b);
-  if (actA !== actB) return actA - actB;
-  return a.skillName.localeCompare(b.skillName);
-}
 
 export default function ManagedInventory({ project, onChanged }: Props) {
   const locale = useLocaleStore((s) => s.locale);
@@ -92,43 +49,12 @@ export default function ManagedInventory({ project, onChanged }: Props) {
         api.canonicalSkills.list(),
       ]);
 
-      // Managed names: canonical masters with a target at this project.
-      // Also collect ALL global master names for import collision detection.
-      const want = normalizeProjectPath(projectPath);
-      const managedNames = new Set<string>();
+      const built = buildInventoryRows(projectPath, scan, canonical);
+
       const allGlobalNames = new Set<string>();
-      for (const e of canonical as SkillListEntry[]) {
-        if (e.kind !== "ok") continue;
-        allGlobalNames.add(e.skill.name);
-        const hit = e.skill.targets.some(
-          (tgt) => tgt.scope === "project" && normalizeProjectPath(tgt.project ?? "") === want,
-        );
-        if (hit) managedNames.add(e.skill.name);
+      for (const e of canonical) {
+        if (e.kind === "ok") allGlobalNames.add(e.skill.name);
       }
-
-      // Per-agent on-disk presence + importable candidate, from the scan.
-      const presence = new Map<string, Set<AgentId>>();
-      const candMap = new Map<string, ImportCandidate>();
-      for (const c of scan) {
-        candMap.set(c.skillName, c);
-        const set = presence.get(c.skillName) ?? new Set<AgentId>();
-        for (const a of candidateAgents(c)) set.add(a);
-        presence.set(c.skillName, set);
-      }
-
-      // Union of scan names ∪ managed names.
-      const names = new Set<string>([...presence.keys(), ...managedNames]);
-      const built: InventoryRow[] = [...names].map((skillName) => {
-        const cand = candMap.get(skillName) ?? null;
-        return {
-          skillName,
-          managed: managedNames.has(skillName),
-          agentsPresent: presence.get(skillName) ?? new Set<AgentId>(),
-          candidate: cand,
-          deferred: cand?.deferred != null,
-        };
-      });
-      built.sort(compareRows);
 
       setRows(built);
       setGlobalNames(allGlobalNames);
@@ -218,13 +144,16 @@ export default function ManagedInventory({ project, onChanged }: Props) {
             </tr>
           </thead>
           <tbody>
-            {rows.map((row) => (
+            {rows.map((row) => {
+              const clickable = row.managed || row.canonicalExists;
+              const navTarget = row.canonicalId ?? row.skillName;
+              return (
               <tr
                 key={row.skillName}
                 className={`border-b border-border/40 ${
-                  row.managed ? "cursor-pointer hover:bg-bg-secondary" : ""
+                  clickable ? "cursor-pointer hover:bg-bg-secondary" : ""
                 }`}
-                onClick={row.managed ? () => openSkill(row.skillName) : undefined}
+                onClick={clickable ? () => openSkill(navTarget) : undefined}
               >
                 <td className="px-3 py-2 font-mono text-text-primary">{row.skillName}</td>
                 <td className="px-3 py-2">
@@ -259,6 +188,10 @@ export default function ManagedInventory({ project, onChanged }: Props) {
                     <span className="inline-flex items-center gap-1 text-text-muted">
                       {t(locale, "projects.inventory.edit")} <ArrowRight size={12} />
                     </span>
+                  ) : row.canonicalExists ? (
+                    <span className="inline-flex items-center gap-1 text-text-muted">
+                      {t(locale, "projects.inventory.edit")} <ArrowRight size={12} />
+                    </span>
                   ) : row.deferred ? (
                     <span className="text-text-muted italic" title={t(locale, "projects.inventory.multiSourceTitle")}>
                       {t(locale, "projects.inventory.multiSource")}
@@ -281,7 +214,8 @@ export default function ManagedInventory({ project, onChanged }: Props) {
                   )}
                 </td>
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
       )}

@@ -236,7 +236,7 @@ export default function TargetEditor({ skillName, projectPath, targets, onTarget
                 className="flex items-center gap-2 text-xs border border-border rounded px-2 py-1.5"
               >
                 <span className="capitalize font-medium w-20">{tgt.agent}</span>
-                <span className="text-text-secondary w-14">{tgt.scope}</span>
+                <span className="text-text-secondary w-14">{tgt.scope === "project" ? t(locale, "skills.addTargetDialog.scopeProject") : t(locale, "skills.addTargetDialog.scopeGlobal")}</span>
                 {tgt.scope === "project" && (
                   <span className="text-text-secondary truncate max-w-[10rem]" title={tgt.project ?? ""}>
                     {tgt.project ?? ""}
@@ -386,7 +386,7 @@ function TargetRemovalDialog({
   const label =
     target.scope === "project"
       ? `${target.agent}: ${target.project ?? ""}`
-      : `${target.agent}: global`;
+      : `${target.agent}: ~/.felina`;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <button
