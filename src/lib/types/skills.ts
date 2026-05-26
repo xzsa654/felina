@@ -19,9 +19,19 @@ export interface SkillInfo {
 
 export type AgentId = "anthropic" | "codex" | "gemini";
 
+/**
+ * Push-destination discriminator for a {@link SkillTarget}.
+ *
+ * Only valid as `SkillTarget.scope`. Canonical master files live exclusively
+ * under `~/.felina/skills/` after `scope-model-simplification`; `"project"`
+ * here means "push destination is a particular project's agent directory",
+ * not a canonical-storage location.
+ */
 export type SkillScope = "global" | "project";
 
 export interface CanonicalSkill {
+  /** Stable canonical directory identity used for app actions. */
+  canonicalId: string;
   /** Skill name. Required canonical field. Filesystem directory segment. */
   name: string;
   /** One-line description. Required canonical field. */
@@ -55,8 +65,16 @@ export interface CanonicalSkill {
  * Wire format: serde-tagged with `kind` = `"ok" | "broken"`.
  */
 export type SkillListEntry =
-  | { kind: "ok"; skill: CanonicalSkill }
-  | { kind: "broken"; name: string; path: string; error: string };
+  | { kind: "ok"; canonicalId: string; skill: CanonicalSkill }
+  | { kind: "broken"; canonicalId: string; name: string; path: string; error: string };
+
+export function canonicalSkillId(skill: CanonicalSkill): string {
+  return skill.canonicalId || skill.name;
+}
+
+export function skillListEntryCanonicalId(entry: SkillListEntry): string {
+  return entry.canonicalId || (entry.kind === "ok" ? canonicalSkillId(entry.skill) : entry.name);
+}
 
 export interface SyncResult {
   agent: AgentId;
@@ -102,6 +120,11 @@ export interface ImportCandidate {
    * upcoming target-control change handles multi-source resolution.
    */
   deferred: DeferredMultiSource | null;
+  /**
+   * Set when the source file has malformed frontmatter. Blocked candidates
+   * cannot be imported — the wizard shows the error and disables selection.
+   */
+  validationError?: string | null;
 }
 
 export type ImportResolution =
@@ -154,4 +177,24 @@ export interface SyncMetaV2 {
   /** Keyed by stable per-target identifier (see Rust target_key helper). */
   lastSync: Record<string, LastSyncEntry>;
   dirty: boolean;
+}
+
+export type ProjectSource = "cwd" | "detected" | "saved";
+
+export interface KnownProject {
+  path: string;
+  /** Whether the project directory currently exists on disk (filesystem stat
+   *  performed by `known_projects_list`). Drives the "project not found"
+   *  degradation indicator — list membership alone can't detect an L3 saved
+   *  entry whose folder was renamed/deleted. */
+  exists: boolean;
+  sources: ProjectSource[];
+}
+
+export interface OrphanFile {
+  path: string;
+  agent: AgentId;
+  scope: SkillScope;
+  /** Originating project path when `scope === "project"`; absent for global. */
+  project?: string;
 }

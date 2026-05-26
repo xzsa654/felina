@@ -8,13 +8,20 @@
  * - The import banner's dismissed-flag is a pure UI preference and is
  *   persisted to localStorage so users aren't pestered after dismissing.
  *
- * The store doesn't double-track `dirty` separately from the backend
- * value — when a save lands, we re-call `loadEntries()` (or update the
- * entry inline). That keeps a single semantic source.
+ * After `scope-model-simplification`, canonical lives exclusively in
+ * `~/.felina/skills/`; the store no longer tracks a canonical scope.
+ * `projectPath` is retained only as a hint for the import scan banner so
+ * the Skills page can show "import from current project's agent dirs".
  */
 import { create } from "zustand";
 import { api } from "$lib/tauri/commands";
-import type { CanonicalSkill, SkillListEntry, SkillScope, SyncResult } from "$lib/types";
+import {
+  canonicalSkillId,
+  skillListEntryCanonicalId,
+  type CanonicalSkill,
+  type SkillListEntry,
+  type SyncResult,
+} from "$lib/types";
 
 const BANNER_DISMISSED_KEY = "felina.skills.importBannerDismissed";
 
@@ -36,20 +43,18 @@ function writeDismissed(value: boolean) {
       window.localStorage.removeItem(BANNER_DISMISSED_KEY);
     }
   } catch {
-    // localStorage may be unavailable (private mode / tauri webview restrictions);
-    // dismissal silently becomes session-only.
+    // localStorage may be unavailable; dismissal silently becomes session-only.
   }
 }
 
 interface SkillsStore {
   // Listing
-  scope: SkillScope;
   projectPath: string | null;
   entries: SkillListEntry[];
   loaded: boolean;
   error: string | null;
 
-  // Import banner (per Decision 6: dismissable + persistent)
+  // Import banner
   bannerDismissed: boolean;
   detectedImportCount: number;
 
@@ -58,7 +63,6 @@ interface SkillsStore {
   lastSyncResults: SyncResult[];
 
   // Actions
-  setScope: (scope: SkillScope) => void;
   setProjectPath: (path: string | null) => void;
   loadEntries: () => Promise<void>;
   refreshImportCount: () => Promise<void>;
@@ -66,13 +70,12 @@ interface SkillsStore {
   resetBannerDismissed: () => void;
   markEntryDirty: (name: string) => void;
   upsertEntry: (skill: CanonicalSkill) => void;
-  removeEntry: (name: string) => void;
-  syncOne: (name: string) => Promise<SyncResult[]>;
+  removeEntry: (canonicalId: string) => void;
+  syncOne: (canonicalId: string) => Promise<SyncResult[]>;
   syncAll: () => Promise<SyncResult[]>;
 }
 
 export const useSkillsStore = create<SkillsStore>((set, get) => ({
-  scope: "global",
   projectPath: null,
   entries: [],
   loaded: false,
@@ -84,27 +87,23 @@ export const useSkillsStore = create<SkillsStore>((set, get) => ({
   pushingNames: new Set(),
   lastSyncResults: [],
 
-  setScope: (scope) => {
-    set({ scope, loaded: false });
-  },
   setProjectPath: (path) => {
     set({ projectPath: path, loaded: false });
   },
 
   loadEntries: async () => {
-    const { scope, projectPath } = get();
     try {
-      const entries = await api.canonicalSkills.list(scope, projectPath ?? undefined);
-      set({ entries, loaded: true, error: null });
+      const entries = await api.canonicalSkills.list();
+      set({ entries: entries.map(normalizeEntry), loaded: true, error: null });
     } catch (e) {
       set({ entries: [], loaded: true, error: String(e) });
     }
   },
 
   refreshImportCount: async () => {
-    const { scope, projectPath } = get();
+    const { projectPath } = get();
     try {
-      const r = await api.skillImport.scanQuick(scope, projectPath ?? undefined);
+      const r = await api.skillImport.scanQuick(projectPath ?? undefined);
       set({ detectedImportCount: r.total });
     } catch {
       set({ detectedImportCount: 0 });
@@ -132,63 +131,54 @@ export const useSkillsStore = create<SkillsStore>((set, get) => ({
 
   upsertEntry: (skill) => {
     set((s) => {
+      const normalizedSkill = normalizeSkill(skill);
+      const canonicalId = canonicalSkillId(normalizedSkill);
       const next = s.entries.filter(
-        (e) => !(e.kind === "ok" && e.skill.name === skill.name),
+        (e) => !(e.kind === "ok" && skillListEntryCanonicalId(e) === canonicalId),
       );
-      next.push({ kind: "ok", skill });
+      next.push({ kind: "ok", canonicalId, skill: normalizedSkill });
       next.sort((a, b) => entryName(a).localeCompare(entryName(b)));
       return { entries: next };
     });
   },
 
-  removeEntry: (name) => {
+  removeEntry: (canonicalId) => {
     set((s) => ({
-      entries: s.entries.filter((e) => entryName(e) !== name),
+      entries: s.entries.filter((e) =>
+        skillListEntryCanonicalId(e) !== canonicalId,
+      ),
     }));
   },
 
-  syncOne: async (name) => {
-    const { scope, projectPath } = get();
+  syncOne: async (canonicalId) => {
     set((s) => {
       const next = new Set(s.pushingNames);
-      next.add(name);
+      next.add(canonicalId);
       return { pushingNames: next };
     });
     try {
-      const results = await api.skillSync.one(scope, name, projectPath ?? undefined);
-      const allOk = results.every((r) => r.success);
-      set((s) => ({
-        entries: allOk
-          ? s.entries.map((e) =>
-              e.kind === "ok" && e.skill.name === name
-                ? {
-                    ...e,
-                    skill: {
-                      ...e.skill,
-                      dirty: false,
-                      lastSynced: new Date().toISOString(),
-                    },
-                  }
-                : e,
-            )
-          : s.entries,
-        lastSyncResults: results,
-      }));
+      const results = await api.skillSync.one(canonicalId);
+      await get().loadEntries();
+      set({ lastSyncResults: results, error: null });
       return results;
+    } catch (e) {
+      // A broken (unparseable) skill is rejected by the backend push guard.
+      // Surface the parse error on the page banner instead of letting it
+      // propagate as an unhandled rejection.
+      set({ error: String(e) });
+      return [];
     } finally {
       set((s) => {
         const next = new Set(s.pushingNames);
-        next.delete(name);
+        next.delete(canonicalId);
         return { pushingNames: next };
       });
     }
   },
 
   syncAll: async () => {
-    const { scope, projectPath } = get();
     try {
-      const results = await api.skillSync.all(scope, projectPath ?? undefined);
-      // Reload to pick up sync-meta sidecar changes for every skill.
+      const results = await api.skillSync.all();
       await get().loadEntries();
       set({ lastSyncResults: results });
       return results;
@@ -201,6 +191,19 @@ export const useSkillsStore = create<SkillsStore>((set, get) => ({
 
 function entryName(e: SkillListEntry): string {
   return e.kind === "ok" ? e.skill.name : e.name;
+}
+
+function normalizeSkill(skill: CanonicalSkill): CanonicalSkill {
+  const canonicalId = canonicalSkillId(skill);
+  return skill.canonicalId === canonicalId ? skill : { ...skill, canonicalId };
+}
+
+function normalizeEntry(entry: SkillListEntry): SkillListEntry {
+  const canonicalId = skillListEntryCanonicalId(entry);
+  if (entry.kind === "ok") {
+    return { ...entry, canonicalId, skill: normalizeSkill(entry.skill) };
+  }
+  return { ...entry, canonicalId };
 }
 
 // ---------------------------------------------------------------------------

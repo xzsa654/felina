@@ -63,7 +63,7 @@ export default function AgentPathsSection() {
 
   async function reloadCounts() {
     try {
-      const g = await api.skillImport.scanQuick("global");
+      const g = await api.skillImport.scanQuick();
       setCounts((prev) => ({
         ...prev,
         global: { anthropic: g.anthropic, codex: g.codex, gemini: g.gemini },
@@ -73,7 +73,7 @@ export default function AgentPathsSection() {
     }
     if (projectPath) {
       try {
-        const p = await api.skillImport.scanQuick("project", projectPath);
+        const p = await api.skillImport.scanQuick(projectPath);
         setCounts((prev) => ({
           ...prev,
           project: { anthropic: p.anthropic, codex: p.codex, gemini: p.gemini },

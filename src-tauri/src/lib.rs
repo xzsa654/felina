@@ -31,6 +31,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_dialog::init())
         .manage(crate::commands::tokens::TokenState::new().expect("failed to init token state"))
         .setup(|app| {
             // Build tray menu
@@ -110,11 +111,17 @@ pub fn run() {
             // Multi-agent skills foundation: canonical storage.
             commands::canonical_skills::canonical_skills_list,
             commands::canonical_skills::canonical_skills_read,
+            commands::canonical_skills::canonical_skills_read_raw,
             commands::canonical_skills::canonical_skills_write,
+            commands::canonical_skills::canonical_skills_write_raw,
             commands::canonical_skills::canonical_skills_delete,
+            commands::canonical_skills::skill_targets_set,
+            commands::canonical_skills::skill_prune_orphans_scan,
+            commands::canonical_skills::skill_prune_orphans_apply,
             // Fan-out push.
             commands::fan_out::skill_sync_one,
             commands::fan_out::skill_sync_all,
+            commands::fan_out::skill_target_dir_resolve,
             // Initial skill import.
             commands::skill_import::skill_import_scan_quick,
             commands::skill_import::skill_import_scan,
@@ -122,6 +129,10 @@ pub fn run() {
             // Settings → Agent Paths.
             commands::agent_paths::agent_paths_get,
             commands::agent_paths::agent_paths_set,
+            // Known Projects.
+            commands::known_projects::known_projects_list,
+            commands::known_projects::known_projects_add,
+            commands::known_projects::known_projects_remove,
             // Maintenance
             commands::maintenance::get_disk_usage,
             commands::maintenance::cleanup_directory,

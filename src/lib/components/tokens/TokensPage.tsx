@@ -7,7 +7,7 @@ import type {
 import { useLocaleStore } from "$lib/stores/locale";
 import { t } from "$lib/i18n";
 import { PageBody } from "$lib/components/shared/PageScaffold";
-import LanguageSwitcher from "./components/LanguageSwitcher";
+import LanguageSwitcher from "$lib/components/shared/LanguageSwitcher";
 import TokenStatCards from "./components/TokenStatCards";
 import TokenTimeSeries from "./components/TokenTimeSeries";
 import TokenCostTimeSeries from "./components/TokenCostTimeSeries";

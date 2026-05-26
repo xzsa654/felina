@@ -3,6 +3,7 @@ import { Link, useMatch } from "react-router";
 import { getVersion } from "@tauri-apps/api/app";
 import { NAV_ITEMS } from "$lib/stores/navigation";
 import { useThemeStore } from "$lib/stores/theme";
+import LanguageSwitcher from "$lib/components/shared/LanguageSwitcher";
 import {
   Settings as SettingsIcon,
   Brain,
@@ -14,12 +15,14 @@ import {
   GitBranch as GithubIcon,
   X as XIcon,
   Coins,
+  FolderOpen,
   History,
 } from "lucide-react";
 import logoUrl from "$lib/assets/logo.png";
 
 const ICON_MAP: Record<string, React.ComponentType<{ size?: number; className?: string }>> = {
   sparkles: Sparkles,
+  folder: FolderOpen,
   gear: SettingsIcon,
   templates: LayoutGrid,
   tokens: Coins,
@@ -82,24 +85,23 @@ export default function Sidebar() {
         })}
       </nav>
 
-      {/* Theme toggle */}
+      {/* Global UI preferences */}
       <div className="px-4 py-2 border-t border-border">
+        <div className="flex items-center gap-2">
+          <LanguageSwitcher />
         <button
-          className="w-full flex items-center gap-3 px-3 py-2 text-sm text-text-secondary hover:bg-bg-hover hover:text-text-primary rounded-md transition-colors"
+          className="shrink-0 flex items-center justify-center w-8 h-8 text-text-secondary hover:bg-bg-hover hover:text-text-primary rounded-md transition-colors"
           onClick={toggleTheme}
+          title={theme === "dark" ? "Light Mode" : "Dark Mode"}
+          aria-label={theme === "dark" ? "Light Mode" : "Dark Mode"}
         >
           {theme === "dark" ? (
-            <>
-              <Sun size={16} />
-              <span>Light Mode</span>
-            </>
+            <Sun size={16} />
           ) : (
-            <>
-              <Moon size={16} />
-              <span>Dark Mode</span>
-            </>
+            <Moon size={16} />
           )}
         </button>
+        </div>
       </div>
 
       {/* About Dialog */}
@@ -126,20 +128,11 @@ export default function Sidebar() {
             />
             <h2 className="text-xl font-bold text-text-primary">Felina</h2>
             <p className="text-sm text-text-muted mt-1">
-              AI Config Manager for Claude Code
+              Local agent CLI control plane
             </p>
             <p className="text-xs text-text-muted mt-1">Version {appVersion}</p>
 
             <div className="mt-6 space-y-2">
-              <a
-                href="https://caioricciuti.com"
-                target="_blank"
-                rel="noopener"
-                className="flex items-center justify-center gap-2 text-sm text-accent hover:text-accent-hover transition-colors"
-              >
-                <ExternalLink size={14} />
-                caioricciuti.com
-              </a>
               <a
                 href="https://github.com/xzsa654/felina"
                 target="_blank"
@@ -149,20 +142,19 @@ export default function Sidebar() {
                 <GithubIcon size={14} />
                 github.com/xzsa654/felina
               </a>
+              <a
+                href="https://github.com/xzsa654/felina/issues"
+                target="_blank"
+                rel="noopener"
+                className="flex items-center justify-center gap-2 text-sm text-accent hover:text-accent-hover transition-colors"
+              >
+                <ExternalLink size={14} />
+                Report an issue
+              </a>
             </div>
 
             <div className="mt-6 pt-4 border-t border-border">
-              <p className="text-xs text-text-muted">
-                Built by{" "}
-                <a
-                  href="https://caioricciuti.com"
-                  target="_blank"
-                  rel="noopener"
-                  className="text-accent hover:underline"
-                >
-                  Caio Ricciuti
-                </a>
-              </p>
+              <p className="text-xs text-text-muted">Built for local agent CLI workflows</p>
               <p className="text-[10px] text-text-muted mt-1">AGPL-3.0 License</p>
             </div>
           </div>

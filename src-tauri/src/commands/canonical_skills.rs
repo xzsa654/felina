@@ -1,10 +1,11 @@
 //! Canonical skill main-file storage layer.
 //!
-//! `~/.felina/skills/<name>/SKILL.md` (global) and
-//! `<project>/.felina/skills/<name>/SKILL.md` (project) are the source of
-//! truth for skills the user edits. Agent-native skill dirs (`.claude/skills`,
-//! `.agents/skills`, `.gemini/skills`) are fan-out *outputs* — see
-//! `commands::fan_out`.
+//! `~/.felina/skills/<name>/SKILL.md` is the single source of truth for skills
+//! the user edits. (Project-scoped canonical storage was removed by
+//! `scope-model-simplification`; see that change for the migration command
+//! that moves legacy `<project>/.felina/skills/` masters into global.)
+//! Agent-native skill dirs (`.claude/skills`, `.agents/skills`,
+//! `.gemini/skills`) are fan-out *outputs* — see `commands::fan_out`.
 //!
 //! Decisions referenced (see design.md):
 //! - Decision 1: `.felina/skills/` prefix.
@@ -27,7 +28,12 @@ pub enum AgentId {
     Gemini,
 }
 
-/// Skill scope discriminator.
+/// Push-destination discriminator for `SkillTarget`.
+///
+/// **Only valid as `SkillTarget.scope`.** Canonical master files live
+/// exclusively under `~/.felina/skills/` after `scope-model-simplification`;
+/// the enum no longer participates in canonical-storage routing. `Project`
+/// here means "fan-out push goes to a particular project's agent directory".
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum SkillScope {
@@ -44,6 +50,9 @@ pub enum SkillScope {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CanonicalSkill {
+    /// Stable canonical directory identity used for app actions.
+    #[serde(default)]
+    pub canonical_id: String,
     pub name: String,
     pub description: String,
     pub agents: Vec<AgentId>,
@@ -67,18 +76,10 @@ pub struct CanonicalSkill {
     pub last_sync: BTreeMap<String, LastSyncEntry>,
 }
 
-/// Resolve the canonical skills directory for a scope.
-pub fn canonical_skills_dir_for_scope(
-    scope: SkillScope,
-    project_path: Option<&str>,
-) -> Result<PathBuf, String> {
-    match scope {
-        SkillScope::Global => Ok(paths::felina_global_skills_dir()),
-        SkillScope::Project => {
-            let pp = project_path.ok_or("project_path required for project scope")?;
-            Ok(paths::felina_project_skills_dir(pp))
-        }
-    }
+/// Canonical skills directory. After `scope-model-simplification` this is
+/// always `~/.felina/skills/`; project-scoped canonical storage was removed.
+pub fn canonical_skills_dir() -> PathBuf {
+    paths::felina_global_skills_dir()
 }
 
 /// Split a SKILL.md text into `(frontmatter_yaml, body)`.
@@ -87,7 +88,7 @@ pub fn canonical_skills_dir_for_scope(
 /// - `---\n<yaml>\n---\n<body>` — standard YAML frontmatter
 /// - `---\r\n<yaml>\r\n---\r\n<body>` — CRLF (Windows)
 /// - text with no leading `---` — entire content treated as body
-fn split_frontmatter(raw: &str) -> (String, String) {
+pub(crate) fn split_frontmatter(raw: &str) -> (String, String) {
     // Tolerate optional BOM + leading whitespace before the opening fence.
     let trimmed = raw.trim_start_matches('\u{feff}');
     let trimmed = trimmed.trim_start_matches(['\n', '\r']);
@@ -152,6 +153,7 @@ pub fn parse_skill_md(raw: &str) -> Result<CanonicalSkill, String> {
     let agents = take_required_agents(map)?;
 
     Ok(CanonicalSkill {
+        canonical_id: String::new(),
         name,
         description,
         agents,
@@ -221,9 +223,11 @@ fn take_required_agents(map: &mut serde_yaml::Mapping) -> Result<Vec<AgentId>, S
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum SkillListEntry {
     Ok {
+        canonical_id: String,
         skill: CanonicalSkill,
     },
     Broken {
+        canonical_id: String,
         /// Directory name (best-available identifier when frontmatter is unreadable).
         name: String,
         /// Absolute path to the broken SKILL.md (for the "open raw file" link).
@@ -332,26 +336,19 @@ pub fn target_key(t: &SkillTarget) -> String {
 }
 
 /// Build a v2 sync-meta whose target list is derived from a canonical skill's
-/// `agents` frontmatter field (one tracked enabled target per agent at the
-/// skill's own scope/project). Used both for v1 backfill and for the
-/// "no sidecar yet" case.
-fn backfill_from_skill(
-    skill: &CanonicalSkill,
-    scope: SkillScope,
-    project_path: Option<&str>,
-    dirty: bool,
-) -> SyncMetaV2 {
-    let project = match scope {
-        SkillScope::Project => project_path.map(|s| s.to_string()),
-        SkillScope::Global => None,
-    };
+/// `agents` frontmatter field (one tracked enabled global target per agent).
+/// Used both for v1 backfill and for the "no sidecar yet" case. Canonical is
+/// always global after `scope-model-simplification`, so targets default to
+/// `scope=Global, project=None`; the user can add project targets via the
+/// target editor.
+fn backfill_from_skill(skill: &CanonicalSkill, dirty: bool) -> SyncMetaV2 {
     let targets = skill
         .agents
         .iter()
         .map(|&agent| SkillTarget {
             agent,
-            scope,
-            project: project.clone(),
+            scope: SkillScope::Global,
+            project: None,
             enabled: true,
             mode: TargetMode::Tracked,
         })
@@ -374,36 +371,24 @@ fn backfill_from_skill(
 pub(crate) fn read_sync_meta_v2(
     skill_dir: &Path,
     skill: &CanonicalSkill,
-    scope: SkillScope,
-    project_path: Option<&str>,
 ) -> (SyncMetaV2, Option<String>) {
     let path = skill_dir.join(SYNC_META_FILENAME);
     let raw = match fs::read_to_string(&path) {
         Ok(s) => s,
         // No sidecar yet → treat as a fresh skill that has never been pushed.
-        Err(_) => return (backfill_from_skill(skill, scope, project_path, false), None),
+        Err(_) => return (backfill_from_skill(skill, false), None),
     };
 
     // Probe the JSON: native v2 is identified by `version: 2`. Anything
     // missing `version` / `targets` is v1 (or corrupt — same fallback).
     let probe: serde_json::Value = match serde_json::from_str(&raw) {
         Ok(v) => v,
-        Err(_) => return (backfill_from_skill(skill, scope, project_path, false), None),
+        Err(_) => return (backfill_from_skill(skill, false), None),
     };
 
     if probe.get("version").and_then(|v| v.as_u64()) == Some(2) && probe.get("targets").is_some() {
         if let Ok(meta) = serde_json::from_str::<SyncMetaV2>(&raw) {
-            // v2 + non-empty targets → use as-is.
-            if !meta.targets.is_empty() {
-                return (meta, None);
-            }
-            // v2 + empty targets is the "fresh sidecar / not yet backfilled"
-            // state produced by mark_sync_meta_dirty without skill context.
-            // Backfill from the canonical's agents but preserve any
-            // already-recorded last_sync entries and dirty flag.
-            let mut result = backfill_from_skill(skill, scope, project_path, meta.dirty);
-            result.last_sync = meta.last_sync;
-            return (result, None);
+            return (meta, None);
         }
         // v2 markers present but parse failed → fall through to v1/backfill
         // rather than panicking the UI list.
@@ -411,8 +396,25 @@ pub(crate) fn read_sync_meta_v2(
 
     // v1 sidecar: backfill targets, preserve dirty + last_synced.
     let v1: SyncMetaV1 = serde_json::from_str(&raw).unwrap_or_default();
-    let meta = backfill_from_skill(skill, scope, project_path, v1.dirty);
+    let meta = backfill_from_skill(skill, v1.dirty);
     (meta, v1.last_synced)
+}
+
+/// Read the on-disk v2 sidecar WITHOUT backfilling from the skill's `agents`
+/// field. Returns `SyncMetaV2::default()` (empty targets) when the sidecar is
+/// absent, legacy v1, or corrupt.
+///
+/// Use this (not `read_sync_meta_v2`) when composing a target list explicitly
+/// — import / future scope moves — so a freshly written skill does NOT inherit
+/// a synthetic global target per `agents` entry (which would otherwise appear
+/// alongside the intended target, e.g. "global + projectA" after importing
+/// projectA's copy).
+pub(crate) fn read_sync_meta_v2_no_backfill(skill_dir: &Path) -> SyncMetaV2 {
+    let path = skill_dir.join(SYNC_META_FILENAME);
+    match fs::read_to_string(&path) {
+        Ok(raw) => serde_json::from_str::<SyncMetaV2>(&raw).unwrap_or_default(),
+        Err(_) => SyncMetaV2::default(),
+    }
 }
 
 /// Write a v2 sync-meta sidecar. Overwrites the existing file completely
@@ -433,10 +435,7 @@ fn mark_sync_meta_dirty(skill_dir: &Path) {
     let raw = match fs::read_to_string(&path) {
         Ok(s) => s,
         Err(_) => {
-            let meta = SyncMetaV2 {
-                dirty: true,
-                ..SyncMetaV2::default()
-            };
+            let meta = SyncMetaV2 { dirty: true, ..SyncMetaV2::default() };
             let _ = write_sync_meta_v2(skill_dir, &meta);
             return;
         }
@@ -453,7 +452,8 @@ fn mark_sync_meta_dirty(skill_dir: &Path) {
 
     if is_v2 {
         let mut meta: SyncMetaV2 = serde_json::from_str(&raw).unwrap_or_default();
-        meta.dirty = true;
+        let has_pushable = meta.targets.iter().any(|t| t.enabled && !matches!(t.mode, TargetMode::Detached | TargetMode::Forked));
+        meta.dirty = has_pushable;
         let _ = write_sync_meta_v2(skill_dir, &meta);
     } else {
         // v1 or corrupt — preserve v1 shape (last_synced lives on) and
@@ -469,64 +469,6 @@ fn mark_sync_meta_dirty(skill_dir: &Path) {
     }
 }
 
-/// Regenerate the v2 sidecar's `targets` to mirror the canonical skill's
-/// current `agents` frontmatter list. Preserves `last_sync` entries whose
-/// `target_key()` still maps to a target in the new list (so unchanged
-/// agents keep their push provenance) and drops orphaned ones. No-op for
-/// missing sidecars and for v1 sidecars (the next push backfills v1 → v2
-/// from the current agents anyway, so realignment there is redundant).
-///
-/// This is what enforces the design decision "target 來源等同 agents 欄位"
-/// on the write path: without it, ticking a new agent in SkillEditor would
-/// be silently ignored by fan-out because the existing v2 targets list
-/// remains the old one.
-fn align_v2_targets_to_agents(
-    skill_dir: &Path,
-    agents: &[AgentId],
-    scope: SkillScope,
-    project_path: Option<&str>,
-) {
-    let path = skill_dir.join(SYNC_META_FILENAME);
-    let raw = match fs::read_to_string(&path) {
-        Ok(s) => s,
-        Err(_) => return,
-    };
-    let is_v2 = serde_json::from_str::<serde_json::Value>(&raw)
-        .ok()
-        .and_then(|v| {
-            v.get("version")
-                .and_then(|n| n.as_u64())
-                .map(|n| n == 2 && v.get("targets").is_some())
-        })
-        .unwrap_or(false);
-    if !is_v2 {
-        return;
-    }
-    let mut meta: SyncMetaV2 = match serde_json::from_str(&raw) {
-        Ok(m) => m,
-        Err(_) => return,
-    };
-    let project = match scope {
-        SkillScope::Project => project_path.map(|s| s.to_string()),
-        SkillScope::Global => None,
-    };
-    let new_targets: Vec<SkillTarget> = agents
-        .iter()
-        .map(|&a| SkillTarget {
-            agent: a,
-            scope,
-            project: project.clone(),
-            enabled: true,
-            mode: TargetMode::Tracked,
-        })
-        .collect();
-    let valid_keys: std::collections::HashSet<String> =
-        new_targets.iter().map(target_key).collect();
-    meta.last_sync.retain(|k, _| valid_keys.contains(k));
-    meta.targets = new_targets;
-    let _ = write_sync_meta_v2(skill_dir, &meta);
-}
-
 /// Pick the most-recent `at` timestamp across a per-target last_sync map,
 /// for surfacing a single `CanonicalSkill.last_synced` value to the UI.
 /// ISO-8601 UTC strings (`...Z`) compare lexicographically as time order.
@@ -534,15 +476,13 @@ fn pick_latest_at(last_sync: &BTreeMap<String, LastSyncEntry>) -> Option<String>
     last_sync.values().map(|e| e.at.clone()).max()
 }
 
-/// List canonical skills under the given scope. A missing canonical
-/// directory returns an empty Vec — never an error.
-/// Broken skills (parse failures) are returned as `SkillListEntry::Broken`.
+/// List canonical skills in the single global canonical dir
+/// (`~/.felina/skills/`). A missing canonical directory returns an empty Vec
+/// — never an error. Broken skills (parse failures) are returned as
+/// `SkillListEntry::Broken`.
 #[tauri::command]
-pub fn canonical_skills_list(
-    scope: SkillScope,
-    project_path: Option<String>,
-) -> Result<Vec<SkillListEntry>, String> {
-    let dir = canonical_skills_dir_for_scope(scope, project_path.as_deref())?;
+pub fn canonical_skills_list() -> Result<Vec<SkillListEntry>, String> {
+    let dir = canonical_skills_dir();
     if !dir.exists() {
         return Ok(Vec::new());
     }
@@ -572,6 +512,7 @@ pub fn canonical_skills_list(
             Ok(s) => s,
             Err(e) => {
                 out.push(SkillListEntry::Broken {
+                    canonical_id: dir_name.clone(),
                     name: dir_name,
                     path: skill_md.to_string_lossy().to_string(),
                     error: format!("read failed: {e}"),
@@ -582,16 +523,20 @@ pub fn canonical_skills_list(
 
         match parse_skill_md(&raw) {
             Ok(mut skill) => {
-                let (meta, legacy_last) =
-                    read_sync_meta_v2(&skill_dir, &skill, scope, project_path.as_deref());
+                skill.canonical_id = dir_name.clone();
+                let (meta, legacy_last) = read_sync_meta_v2(&skill_dir, &skill);
                 skill.dirty = meta.dirty;
                 skill.last_synced = legacy_last.or_else(|| pick_latest_at(&meta.last_sync));
                 skill.targets = meta.targets;
                 skill.last_sync = meta.last_sync;
-                out.push(SkillListEntry::Ok { skill });
+                out.push(SkillListEntry::Ok {
+                    canonical_id: dir_name,
+                    skill,
+                });
             }
             Err(e) => {
                 out.push(SkillListEntry::Broken {
+                    canonical_id: dir_name.clone(),
                     name: dir_name,
                     path: skill_md.to_string_lossy().to_string(),
                     error: e,
@@ -606,7 +551,7 @@ pub fn canonical_skills_list(
 
 fn entry_name(e: &SkillListEntry) -> &str {
     match e {
-        SkillListEntry::Ok { skill } => &skill.name,
+        SkillListEntry::Ok { skill, .. } => &skill.name,
         SkillListEntry::Broken { name, .. } => name,
     }
 }
@@ -615,12 +560,8 @@ fn entry_name(e: &SkillListEntry) -> &str {
 /// SKILL.md is missing or its frontmatter can't be parsed — matches the
 /// spec's "Frontmatter fails to parse" scenario.
 #[tauri::command]
-pub fn canonical_skills_read(
-    scope: SkillScope,
-    project_path: Option<String>,
-    name: String,
-) -> Result<CanonicalSkill, String> {
-    let dir = canonical_skills_dir_for_scope(scope, project_path.as_deref())?;
+pub fn canonical_skills_read(name: String) -> Result<CanonicalSkill, String> {
+    let dir = canonical_skills_dir();
     let skill_dir = dir.join(&name);
     let skill_md = skill_dir.join("SKILL.md");
     if !skill_md.is_file() {
@@ -628,12 +569,84 @@ pub fn canonical_skills_read(
     }
     let raw = fs::read_to_string(&skill_md).map_err(|e| format!("failed to read SKILL.md: {e}"))?;
     let mut skill = parse_skill_md(&raw)?;
-    let (meta, legacy_last) = read_sync_meta_v2(&skill_dir, &skill, scope, project_path.as_deref());
+    skill.canonical_id = name.clone();
+    let (meta, legacy_last) = read_sync_meta_v2(&skill_dir, &skill);
     skill.dirty = meta.dirty;
     skill.last_synced = legacy_last.or_else(|| pick_latest_at(&meta.last_sync));
     skill.targets = meta.targets;
     skill.last_sync = meta.last_sync;
     Ok(skill)
+}
+
+/// Read the raw `SKILL.md` text of a canonical skill by name, regardless of
+/// whether its frontmatter parses. Used by the editor's raw repair mode to
+/// open a `Broken` skill — `canonical_skills_read` cannot be reused because it
+/// errors on parse failure. Errors only when the file is missing or unreadable.
+#[tauri::command]
+pub fn canonical_skills_read_raw(name: String) -> Result<String, String> {
+    validate_skill_name(&name)?;
+    let skill_md = canonical_skills_dir().join(&name).join("SKILL.md");
+    if !skill_md.is_file() {
+        return Err(format!("skill not found: {name}"));
+    }
+    fs::read_to_string(&skill_md).map_err(|e| format!("failed to read SKILL.md: {e}"))
+}
+
+/// Result of a raw `SKILL.md` write. Carries normalization info so the
+/// frontend can show an advisory when the YAML `name` was corrected.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WriteRawResult {
+    /// Set when the YAML `name` was normalized to the canonical directory
+    /// identity. Contains the original (pre-normalization) parsed `name`.
+    pub normalized_from: Option<String>,
+}
+
+/// Write raw `SKILL.md` text for a canonical skill by name (editor raw-mode
+/// save). After writing, if the content parses and its frontmatter `name`
+/// differs from the canonical directory identity, the `name` is rewritten to
+/// match the directory. Returns normalization info so the UI can show an
+/// advisory. Marks the skill dirty so a now-valid skill becomes pushable.
+#[tauri::command]
+pub fn canonical_skills_write_raw(name: String, content: String) -> Result<WriteRawResult, String> {
+    validate_skill_name(&name)?;
+    let skill_dir = canonical_skills_dir().join(&name);
+    fs::create_dir_all(&skill_dir)
+        .map_err(|e| format!("failed to create canonical skill dir: {e}"))?;
+    let skill_md = skill_dir.join("SKILL.md");
+    fs::write(&skill_md, &content)
+        .map_err(|e| format!("failed to write SKILL.md: {e}"))?;
+
+    let mut normalized_from: Option<String> = None;
+    if let Ok(skill) = parse_skill_md(&content) {
+        if skill.name != name {
+            normalized_from = Some(skill.name);
+            let (fm_text, body) = split_frontmatter(&content);
+            if !fm_text.is_empty() {
+                if let Ok(mut value) = serde_yaml::from_str::<serde_yaml::Value>(&fm_text) {
+                    if let Some(map) = value.as_mapping_mut() {
+                        map.insert(
+                            serde_yaml::Value::String("name".into()),
+                            serde_yaml::Value::String(name.clone()),
+                        );
+                        if let Ok(fm_yaml) = serde_yaml::to_string(&value) {
+                            let fm_trimmed = fm_yaml.trim_end_matches('\n');
+                            let body_normalized = if body.ends_with('\n') || body.is_empty() {
+                                body
+                            } else {
+                                format!("{body}\n")
+                            };
+                            let out = format!("---\n{fm_trimmed}\n---\n{body_normalized}");
+                            let _ = fs::write(&skill_md, out);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    mark_sync_meta_dirty(&skill_dir);
+    Ok(WriteRawResult { normalized_from })
 }
 
 /// Reject skill names that could escape the canonical skills directory.
@@ -663,25 +676,32 @@ fn validate_skill_name(name: &str) -> Result<(), String> {
 /// mapping containing `name`/`description`/`agents` plus any extras) and
 /// `body` to `<scope_dir>/<name>/SKILL.md`. Creates parents as needed.
 ///
-/// Note: the `name` parameter is the directory name and is validated;
-/// callers should ensure the frontmatter's `name` field matches.
+/// The `name` parameter is the canonical directory identity. If the
+/// frontmatter mapping's `name` field differs, it is silently normalized
+/// to match the directory — the directory identity is authoritative after
+/// creation.
 #[tauri::command]
 pub fn canonical_skills_write(
-    scope: SkillScope,
-    project_path: Option<String>,
     name: String,
     frontmatter: serde_yaml::Value,
     body: String,
 ) -> Result<(), String> {
     validate_skill_name(&name)?;
-    let dir = canonical_skills_dir_for_scope(scope, project_path.as_deref())?;
+    let dir = canonical_skills_dir();
     let skill_dir = dir.join(&name);
     fs::create_dir_all(&skill_dir)
         .map_err(|e| format!("failed to create canonical skill dir: {e}"))?;
 
-    let fm_yaml = serde_yaml::to_string(&frontmatter)
+    let mut fm = frontmatter;
+    if let serde_yaml::Value::Mapping(ref mut map) = fm {
+        map.insert(
+            serde_yaml::Value::String("name".into()),
+            serde_yaml::Value::String(name.clone()),
+        );
+    }
+
+    let fm_yaml = serde_yaml::to_string(&fm)
         .map_err(|e| format!("failed to serialize frontmatter: {e}"))?;
-    // `to_string` already emits trailing `\n`; trim then bracket with fences.
     let fm_trimmed = fm_yaml.trim_end_matches('\n');
     let body_normalized = if body.ends_with('\n') {
         body
@@ -691,32 +711,203 @@ pub fn canonical_skills_write(
     let out = format!("---\n{fm_trimmed}\n---\n{body_normalized}");
     fs::write(skill_dir.join("SKILL.md"), out)
         .map_err(|e| format!("failed to write SKILL.md: {e}"))?;
-    // Freshly-written canonical is by definition out-of-sync with every
-    // agent target. Flip sync-meta dirty=true (preserving last_synced) so
-    // the per-skill Push button surfaces as "Push" rather than "Re-push".
     mark_sync_meta_dirty(&skill_dir);
-    // Keep v2 sidecar targets in lock-step with the canonical's agents
-    // frontmatter (design: target 來源等同 agents 欄位). Without this,
-    // adding/removing an agent in SkillEditor would not change what
-    // fan-out pushes until the next manual sidecar edit.
-    let agents: Vec<AgentId> = frontmatter
-        .get("agents")
-        .cloned()
-        .and_then(|v| serde_yaml::from_value::<Vec<AgentId>>(v).ok())
-        .unwrap_or_default();
-    align_v2_targets_to_agents(&skill_dir, &agents, scope, project_path.as_deref());
     Ok(())
+}
+
+/// Overwrite a skill's target list in its sync-meta sidecar. Prunes
+/// `last_sync` entries whose key no longer matches any target in the new
+/// list; preserves entries for targets that remain. Flips `dirty=true`.
+#[tauri::command]
+pub fn skill_targets_set(
+    skill_name: String,
+    targets: Vec<SkillTarget>,
+) -> Result<(), String> {
+    let dir = canonical_skills_dir();
+    let skill_dir = dir.join(&skill_name);
+    if !skill_dir.is_dir() {
+        return Err(format!("skill not found: {skill_name}"));
+    }
+    let valid_keys: std::collections::HashSet<String> =
+        targets.iter().map(target_key).collect();
+    let path = skill_dir.join(SYNC_META_FILENAME);
+    let mut meta = match fs::read_to_string(&path)
+        .ok()
+        .and_then(|raw| serde_json::from_str::<SyncMetaV2>(&raw).ok())
+    {
+        Some(m) => m,
+        None => SyncMetaV2::default(),
+    };
+    meta.last_sync.retain(|k, _| valid_keys.contains(k));
+    meta.targets = targets;
+    meta.dirty = meta.targets.iter().any(|t| t.enabled && !matches!(t.mode, TargetMode::Detached | TargetMode::Forked));
+    write_sync_meta_v2(&skill_dir, &meta)
+}
+
+/// An agent-side file that exists on disk but has no corresponding enabled +
+/// tracked target in the skill's sync-meta target list.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrphanFile {
+    pub path: String,
+    pub agent: AgentId,
+    pub scope: SkillScope,
+    /// Originating project path when `scope == Project`. None for global.
+    /// Needed so apply can prune the correct per-target `last_sync` entry.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project: Option<String>,
+}
+
+/// Scan agent directories for orphaned SKILL.md files belonging to this skill.
+/// A file is orphaned when the corresponding target is absent from the target
+/// list, or its mode is Detached / Disabled.
+///
+/// The scope/project pairs scanned are derived from `meta.targets` themselves
+/// (plus the always-checked global) — no caller-supplied `project_path` is
+/// needed. A target's project path (when scope=Project) is what tells us
+/// which project's agent dir to look in.
+#[tauri::command]
+pub fn skill_prune_orphans_scan(skill_name: String) -> Result<Vec<OrphanFile>, String> {
+    let canonical_dir = canonical_skills_dir();
+    let skill_dir = canonical_dir.join(&skill_name);
+    let skill_md = skill_dir.join("SKILL.md");
+    if !skill_md.is_file() {
+        return Err(format!("skill not found: {skill_name}"));
+    }
+    let raw = fs::read_to_string(&skill_md)
+        .map_err(|e| format!("failed to read SKILL.md: {e}"))?;
+    let skill = parse_skill_md(&raw)?;
+
+    let (meta, _) = read_sync_meta_v2(&skill_dir, &skill);
+    let cfg = super::agent_paths::agent_paths_get()?;
+
+    let agents = [AgentId::Anthropic, AgentId::Codex, AgentId::Gemini];
+
+    // Always check global; additionally check every project path referenced
+    // by any of the skill's targets (regardless of agent / enabled / mode —
+    // a once-pushed project still has on-disk files to potentially orphan).
+    let mut scopes_to_check: Vec<(SkillScope, Option<String>)> =
+        vec![(SkillScope::Global, None)];
+    let mut seen_projects: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for t in &meta.targets {
+        if let (SkillScope::Project, Some(pp)) = (t.scope, t.project.as_deref()) {
+            let key = pp.replace('\\', "/").to_lowercase();
+            if seen_projects.insert(key) {
+                scopes_to_check.push((SkillScope::Project, Some(pp.to_string())));
+            }
+        }
+    }
+
+    let mut orphans = Vec::new();
+
+    for &agent in &agents {
+        let pair = match agent {
+            AgentId::Anthropic => &cfg.anthropic,
+            AgentId::Codex => &cfg.codex,
+            AgentId::Gemini => &cfg.gemini,
+        };
+        for (check_scope, check_project) in &scopes_to_check {
+            let target_dir = match super::fan_out::resolve_pair(
+                *check_scope,
+                check_project.as_deref(),
+                pair,
+            ) {
+                Ok(d) => d,
+                Err(_) => continue,
+            };
+            let agent_skill_md = target_dir.join(&skill_name).join("SKILL.md");
+            if !agent_skill_md.is_file() {
+                continue;
+            }
+            let is_active = meta.targets.iter().any(|t| {
+                t.agent == agent
+                    && t.scope == *check_scope
+                    && t.enabled
+                    && matches!(t.mode, TargetMode::Tracked)
+                    && match check_scope {
+                        SkillScope::Global => true,
+                        SkillScope::Project => {
+                            let tp = t.project.as_deref().unwrap_or("");
+                            let cp = check_project.as_deref().unwrap_or("");
+                            tp.replace('\\', "/").to_lowercase()
+                                == cp.replace('\\', "/").to_lowercase()
+                        }
+                    }
+            });
+            if !is_active {
+                orphans.push(OrphanFile {
+                    path: target_dir
+                        .join(&skill_name)
+                        .to_string_lossy()
+                        .to_string(),
+                    agent,
+                    scope: *check_scope,
+                    project: check_project.clone(),
+                });
+            }
+        }
+    }
+
+    Ok(orphans)
+}
+
+/// Delete confirmed orphan skill directories. Each path is expected to be a
+/// skill sub-directory inside an agent-native skill root (e.g.
+/// `.claude/skills/<skill-name>`). Errors on individual paths are isolated —
+/// a failure to delete one entry does not abort the rest.
+#[tauri::command]
+pub fn skill_prune_orphans_apply(
+    skill_name: String,
+    orphans: Vec<OrphanFile>,
+) -> Result<(), String> {
+    let canonical_dir = canonical_skills_dir();
+    let skill_dir = canonical_dir.join(&skill_name);
+    if !skill_dir.is_dir() {
+        return Err(format!("skill not found: {skill_name}"));
+    }
+
+    let mut errors = Vec::new();
+    let mut pruned_keys = Vec::new();
+    for orphan in &orphans {
+        let target = Path::new(&orphan.path);
+        if target.exists() {
+            if let Err(e) = fs::remove_dir_all(target) {
+                errors.push(format!("{}: {e}", orphan.path));
+                continue;
+            }
+        }
+        let key = target_key(&SkillTarget {
+            agent: orphan.agent,
+            scope: orphan.scope,
+            project: orphan.project.clone(),
+            enabled: false,
+            mode: TargetMode::Tracked,
+        });
+        pruned_keys.push(key);
+    }
+
+    if !pruned_keys.is_empty() {
+        let meta_path = skill_dir.join(SYNC_META_FILENAME);
+        if let Ok(raw) = fs::read_to_string(&meta_path) {
+            if let Ok(mut meta) = serde_json::from_str::<SyncMetaV2>(&raw) {
+                meta.last_sync.retain(|k, _| !pruned_keys.contains(k));
+                let _ = write_sync_meta_v2(&skill_dir, &meta);
+            }
+        }
+    }
+
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(format!("some orphans could not be deleted: {}", errors.join("; ")))
+    }
 }
 
 /// Delete a canonical skill directory and everything inside it.
 #[tauri::command]
-pub fn canonical_skills_delete(
-    scope: SkillScope,
-    project_path: Option<String>,
-    name: String,
-) -> Result<(), String> {
+pub fn canonical_skills_delete(name: String) -> Result<(), String> {
     validate_skill_name(&name)?;
-    let dir = canonical_skills_dir_for_scope(scope, project_path.as_deref())?;
+    let dir = canonical_skills_dir();
     let skill_dir = dir.join(&name);
     if skill_dir.exists() {
         fs::remove_dir_all(&skill_dir)
@@ -831,17 +1022,33 @@ Hello.\n";
         fs::write(d.join("SKILL.md"), body).unwrap();
     }
 
+    /// RAII guard: redirects `felina_home()` to `<tmp>/.felina` for the
+    /// current test thread, restoring the real `dirs::home_dir()` path on
+    /// drop. Use at the top of every test that exercises the canonical
+    /// storage layer so the on-disk side-effects land in the tempdir.
+    struct FelinaHomeGuard;
+    impl Drop for FelinaHomeGuard {
+        fn drop(&mut self) {
+            crate::paths::set_felina_home_override_for_test(None);
+        }
+    }
+    fn override_felina_home(tmp: &Path) -> FelinaHomeGuard {
+        crate::paths::set_felina_home_override_for_test(Some(tmp.join(".felina")));
+        FelinaHomeGuard
+    }
+
     #[test]
     fn list_returns_empty_for_missing_dir() {
         let tmp = tempdir();
-        let project = tmp.to_string_lossy().to_string();
-        let entries = canonical_skills_list(SkillScope::Project, Some(project)).unwrap();
+        let _g = override_felina_home(&tmp);
+        let entries = canonical_skills_list().unwrap();
         assert!(entries.is_empty());
     }
 
     #[test]
     fn list_distinguishes_ok_and_broken() {
         let tmp = tempdir();
+        let _g = override_felina_home(&tmp);
         let skills_root = tmp.join(".felina").join("skills");
         fs::create_dir_all(&skills_root).unwrap();
 
@@ -862,21 +1069,29 @@ Hello.\n";
             "---\nname: broken\n# missing description + agents\n---\nbody\n",
         );
 
-        let project = tmp.to_string_lossy().to_string();
-        let entries = canonical_skills_list(SkillScope::Project, Some(project)).unwrap();
+        let entries = canonical_skills_list().unwrap();
         assert_eq!(entries.len(), 3, "expected 3 entries, got {entries:#?}");
 
         // Sorted alphabetically by name. alpha + beta = Ok, broken = Broken.
         match &entries[0] {
-            SkillListEntry::Ok { skill } => assert_eq!(skill.name, "alpha"),
+            SkillListEntry::Ok { canonical_id, skill } => {
+                assert_eq!(canonical_id, "alpha");
+                assert_eq!(skill.canonical_id, "alpha");
+                assert_eq!(skill.name, "alpha");
+            }
             other => panic!("expected Ok(alpha), got {other:?}"),
         }
         match &entries[1] {
-            SkillListEntry::Ok { skill } => assert_eq!(skill.name, "beta"),
+            SkillListEntry::Ok { canonical_id, skill } => {
+                assert_eq!(canonical_id, "beta");
+                assert_eq!(skill.canonical_id, "beta");
+                assert_eq!(skill.name, "beta");
+            }
             other => panic!("expected Ok(beta), got {other:?}"),
         }
         match &entries[2] {
-            SkillListEntry::Broken { name, error, .. } => {
+            SkillListEntry::Broken { canonical_id, name, error, .. } => {
+                assert_eq!(canonical_id, "broken");
                 assert_eq!(name, "broken");
                 assert!(!error.is_empty());
             }
@@ -887,6 +1102,7 @@ Hello.\n";
     #[test]
     fn read_returns_err_for_broken_frontmatter() {
         let tmp = tempdir();
+        let _g = override_felina_home(&tmp);
         let skills_root = tmp.join(".felina").join("skills");
         fs::create_dir_all(&skills_root).unwrap();
         write_skill(
@@ -895,16 +1111,14 @@ Hello.\n";
             "---\nname: bad\nagents: [anthropic]\n---\nbody\n", // missing description
         );
 
-        let project = tmp.to_string_lossy().to_string();
-        let err =
-            canonical_skills_read(SkillScope::Project, Some(project), "bad".into()).unwrap_err();
+        let err = canonical_skills_read("bad".into()).unwrap_err();
         assert!(err.contains("description"), "err was: {err}");
     }
 
     #[test]
     fn write_creates_dir_and_round_trips_through_read() {
         let tmp = tempdir();
-        let project = tmp.to_string_lossy().to_string();
+        let _g = override_felina_home(&tmp);
 
         let mut fm = serde_yaml::Mapping::new();
         fm.insert(
@@ -925,8 +1139,6 @@ Hello.\n";
         );
 
         canonical_skills_write(
-            SkillScope::Project,
-            Some(project.clone()),
             "foo".into(),
             serde_yaml::Value::Mapping(fm),
             "Foo body".into(),
@@ -941,8 +1153,8 @@ Hello.\n";
             .join("SKILL.md")
             .is_file());
 
-        let skill = canonical_skills_read(SkillScope::Project, Some(project), "foo".into())
-            .expect("read back");
+        let skill = canonical_skills_read("foo".into()).expect("read back");
+        assert_eq!(skill.canonical_id, "foo");
         assert_eq!(skill.name, "foo");
         assert_eq!(skill.description, "Foo helper");
         assert_eq!(skill.agents, vec![AgentId::Anthropic]);
@@ -958,7 +1170,7 @@ Hello.\n";
     #[test]
     fn write_rejects_path_traversal_names() {
         let tmp = tempdir();
-        let project = tmp.to_string_lossy().to_string();
+        let _g = override_felina_home(&tmp);
         let empty_fm = serde_yaml::Value::Mapping(serde_yaml::Mapping::new());
 
         for bad in [
@@ -972,8 +1184,6 @@ Hello.\n";
             "with;semi",
         ] {
             let err = canonical_skills_write(
-                SkillScope::Project,
-                Some(project.clone()),
                 bad.into(),
                 empty_fm.clone(),
                 String::new(),
@@ -989,6 +1199,7 @@ Hello.\n";
     #[test]
     fn delete_removes_skill_dir() {
         let tmp = tempdir();
+        let _g = override_felina_home(&tmp);
         let skills_root = tmp.join(".felina").join("skills");
         fs::create_dir_all(&skills_root).unwrap();
         write_skill(
@@ -998,19 +1209,74 @@ Hello.\n";
         );
         assert!(skills_root.join("doomed").is_dir());
 
-        let project = tmp.to_string_lossy().to_string();
-        canonical_skills_delete(SkillScope::Project, Some(project), "doomed".into())
-            .expect("delete");
+        canonical_skills_delete("doomed".into()).expect("delete");
         assert!(!skills_root.join("doomed").exists());
+    }
+
+    #[test]
+    fn delete_uses_canonical_directory_identity_even_when_name_mismatches() {
+        let tmp = tempdir();
+        let _g = override_felina_home(&tmp);
+        let skills_root = tmp.join(".felina").join("skills");
+        fs::create_dir_all(&skills_root).unwrap();
+        write_skill(
+            &skills_root,
+            "folder-name",
+            "---\nname: different-name\ndescription: x\nagents: [anthropic]\n---\nbody\n",
+        );
+        assert!(skills_root.join("folder-name").is_dir());
+
+        let listed = canonical_skills_list().expect("list");
+        match &listed[0] {
+            SkillListEntry::Ok { canonical_id, skill } => {
+                assert_eq!(canonical_id, "folder-name");
+                assert_eq!(skill.name, "different-name");
+            }
+            other => panic!("expected mismatched Ok entry, got {other:?}"),
+        }
+
+        canonical_skills_delete("folder-name".into()).expect("delete by canonical id");
+        assert!(!skills_root.join("folder-name").exists());
     }
 
     #[test]
     fn read_returns_err_for_missing_skill() {
         let tmp = tempdir();
-        let project = tmp.to_string_lossy().to_string();
-        let err =
-            canonical_skills_read(SkillScope::Project, Some(project), "nope".into()).unwrap_err();
+        let _g = override_felina_home(&tmp);
+        let err = canonical_skills_read("nope".into()).unwrap_err();
         assert!(err.contains("not found"), "err was: {err}");
+    }
+
+    /// Task 5.1: raw read/write round trip for editor repair. A broken skill's
+    /// raw text is readable (where `canonical_skills_read` errors), a corrected
+    /// raw write makes it parse, and an unchanged broken round-trip stays broken.
+    #[test]
+    fn raw_read_write_round_trip_repairs_broken_skill() {
+        let tmp = tempdir();
+        let _g = override_felina_home(&tmp);
+        let skills_root = tmp.join(".felina").join("skills");
+        fs::create_dir_all(&skills_root).unwrap();
+
+        // Plant a broken skill (non-mapping frontmatter root).
+        let broken = "---\n- not\n- a mapping\n---\n# Body\n";
+        write_skill(&skills_root, "fixme", broken);
+
+        // Structured read errors; raw read succeeds and returns the bytes.
+        assert!(canonical_skills_read("fixme".into()).is_err());
+        let raw = canonical_skills_read_raw("fixme".into()).expect("raw read");
+        assert_eq!(raw, broken);
+        assert!(parse_skill_md(&raw).is_err(), "still broken before repair");
+
+        // Unchanged round-trip stays broken.
+        canonical_skills_write_raw("fixme".into(), raw.clone()).expect("raw write unchanged");
+        assert!(parse_skill_md(&canonical_skills_read_raw("fixme".into()).unwrap()).is_err());
+
+        // Corrected raw write makes it parse and become a normal skill.
+        let fixed = "---\nname: fixme\ndescription: repaired\nagents:\n  - anthropic\n---\n# Body\n";
+        canonical_skills_write_raw("fixme".into(), fixed.into()).expect("raw write fixed");
+        let after = canonical_skills_read("fixme".into()).expect("structured read after repair");
+        assert_eq!(after.description, "repaired");
+        assert_eq!(after.agents, vec![AgentId::Anthropic]);
     }
 
     // ---------------------------------------------------------------------
@@ -1019,6 +1285,7 @@ Hello.\n";
 
     fn skill_with_agents(name: &str, agents: Vec<AgentId>) -> CanonicalSkill {
         CanonicalSkill {
+            canonical_id: name.to_string(),
             name: name.to_string(),
             description: "x".into(),
             agents,
@@ -1085,8 +1352,7 @@ Hello.\n";
 
         // Read back via the v2 reader (no v1 sidecar → not a backfill).
         let skill = skill_with_agents("foo", vec![AgentId::Anthropic, AgentId::Codex]);
-        let (round, legacy) =
-            read_sync_meta_v2(&skill_dir, &skill, SkillScope::Project, Some("C:/proj"));
+        let (round, legacy) = read_sync_meta_v2(&skill_dir, &skill);
         assert_eq!(round.version, 2);
         assert_eq!(round.targets.len(), 2);
         assert_eq!(round.last_sync.len(), 2);
@@ -1119,12 +1385,7 @@ Hello.\n";
         .unwrap();
 
         let skill = skill_with_agents("legacy", vec![AgentId::Anthropic, AgentId::Codex]);
-        let (meta, legacy) = read_sync_meta_v2(
-            &skill_dir,
-            &skill,
-            SkillScope::Project,
-            Some("C:/proj-root"),
-        );
+        let (meta, legacy) = read_sync_meta_v2(&skill_dir, &skill);
 
         assert_eq!(meta.version, 2);
         assert_eq!(meta.dirty, false, "v1 dirty preserved");
@@ -1134,14 +1395,16 @@ Hello.\n";
             "v1 last_synced surfaced for caller (CanonicalSkill.last_synced display)",
         );
 
-        // Backfilled targets: one per agent × scope/project, tracked + enabled.
+        // Backfilled targets: one per agent. Canonical is always global after
+        // scope-model-simplification, so backfill defaults to scope=Global +
+        // project=None; users add project targets through the editor.
         assert_eq!(meta.targets.len(), 2, "two backfilled targets");
         let agents: Vec<AgentId> = meta.targets.iter().map(|t| t.agent).collect();
         assert!(agents.contains(&AgentId::Anthropic));
         assert!(agents.contains(&AgentId::Codex));
         for t in &meta.targets {
-            assert_eq!(t.scope, SkillScope::Project);
-            assert_eq!(t.project.as_deref(), Some("C:/proj-root"));
+            assert_eq!(t.scope, SkillScope::Global);
+            assert!(t.project.is_none());
             assert!(t.enabled);
             assert!(matches!(t.mode, TargetMode::Tracked));
         }
@@ -1188,7 +1451,7 @@ Hello.\n";
 
         // Read back: dirty=true, but targets and last_sync survive.
         let skill = skill_with_agents("preserve", vec![AgentId::Gemini]);
-        let (meta, _legacy) = read_sync_meta_v2(&skill_dir, &skill, SkillScope::Global, None);
+        let (meta, _legacy) = read_sync_meta_v2(&skill_dir, &skill);
         assert!(meta.dirty, "mark_sync_meta_dirty must flip dirty=true");
         assert_eq!(meta.targets.len(), 1, "targets must survive mark_dirty");
         assert_eq!(meta.targets[0].agent, AgentId::Gemini);
@@ -1201,16 +1464,14 @@ Hello.\n";
         );
     }
 
-    /// Regression for the agents/targets drift bug: when a user adds an
-    /// agent in SkillEditor and saves, the sidecar's `targets` must
-    /// regenerate to match the new `agents` list (preserving any existing
-    /// `last_sync` entries for unchanged targets). Without this, fan-out
-    /// continues pushing only the old target set and the newly-checked
-    /// agent silently never gets a SKILL.md.
+    /// After agents-derived alignment was retired (known-projects-and-multi-target),
+    /// editing `agents` in SkillEditor MUST NOT regenerate targets. The target
+    /// list is now user-driven via the target editor; `canonical_skills_write`
+    /// only flips dirty=true.
     #[test]
-    fn write_aligns_v2_targets_when_agents_change() {
+    fn write_does_not_regenerate_targets_from_agents() {
         let tmp = tempdir();
-        let project = tmp.to_string_lossy().to_string();
+        let _g = override_felina_home(&tmp);
 
         // First write with agents=[anthropic].
         let mut fm = serde_yaml::Mapping::new();
@@ -1221,19 +1482,17 @@ Hello.\n";
             serde_yaml::Value::Sequence(vec!["anthropic".into()]),
         );
         canonical_skills_write(
-            SkillScope::Project,
-            Some(project.clone()),
             "aligned".into(),
             serde_yaml::Value::Mapping(fm),
             "body".into(),
         )
         .unwrap();
 
-        // Simulate a successful push: rewrite sidecar with v2 + lastSync.
+        // Simulate a successful push: rewrite sidecar with v2 + one target + lastSync.
         let skill_dir = tmp.join(".felina").join("skills").join("aligned");
         let mut last_sync = BTreeMap::new();
         last_sync.insert(
-            format!("anthropic:project:{project}"),
+            "anthropic:global".to_string(),
             LastSyncEntry {
                 pushed_hash: "hash-anthropic".into(),
                 base_snapshot: None,
@@ -1246,8 +1505,8 @@ Hello.\n";
                 version: 2,
                 targets: vec![SkillTarget {
                     agent: AgentId::Anthropic,
-                    scope: SkillScope::Project,
-                    project: Some(project.clone()),
+                    scope: SkillScope::Global,
+                    project: None,
                     enabled: true,
                     mode: TargetMode::Tracked,
                 }],
@@ -1257,7 +1516,7 @@ Hello.\n";
         )
         .unwrap();
 
-        // Second write: user ticks codex in SkillEditor.
+        // Second write: user changes agents to [anthropic, codex].
         let mut fm2 = serde_yaml::Mapping::new();
         fm2.insert("name".into(), "aligned".into());
         fm2.insert("description".into(), "x".into());
@@ -1266,8 +1525,6 @@ Hello.\n";
             serde_yaml::Value::Sequence(vec!["anthropic".into(), "codex".into()]),
         );
         canonical_skills_write(
-            SkillScope::Project,
-            Some(project.clone()),
             "aligned".into(),
             serde_yaml::Value::Mapping(fm2),
             "edited".into(),
@@ -1277,23 +1534,387 @@ Hello.\n";
         let raw = fs::read_to_string(skill_dir.join(SYNC_META_FILENAME)).unwrap();
         let meta: SyncMetaV2 = serde_json::from_str(&raw).unwrap();
         assert_eq!(meta.version, 2);
+        // Targets must NOT change — still only the original anthropic target.
         assert_eq!(
             meta.targets.len(),
-            2,
-            "targets must regenerate to match new agents list, got: {:?}",
+            1,
+            "targets must NOT regenerate from agents; got: {:?}",
             meta.targets,
         );
-        let in_targets: Vec<AgentId> = meta.targets.iter().map(|t| t.agent).collect();
-        assert!(in_targets.contains(&AgentId::Anthropic));
-        assert!(in_targets.contains(&AgentId::Codex));
+        assert_eq!(meta.targets[0].agent, AgentId::Anthropic);
+        // lastSync for anthropic preserved.
+        assert!(meta.last_sync.contains_key("anthropic:global"));
+        // Dirty flipped because canonical was edited.
+        assert!(meta.dirty);
+    }
 
-        let anthropic_key = format!("anthropic:project:{project}");
-        assert!(
-            meta.last_sync.contains_key(&anthropic_key),
-            "lastSync entry for the unchanged anthropic target must be preserved",
+    #[test]
+    fn v2_empty_targets_not_backfilled_from_agents() {
+        let tmp = tempdir();
+        let skill_dir = tmp.join("empty-v2");
+        fs::create_dir_all(&skill_dir).unwrap();
+
+        // v2 sidecar with empty targets (user has not added any target yet).
+        write_sync_meta_v2(
+            &skill_dir,
+            &SyncMetaV2 {
+                version: 2,
+                targets: vec![],
+                last_sync: BTreeMap::new(),
+                dirty: false,
+            },
+        )
+        .unwrap();
+
+        // Skill has agents=[anthropic, codex] in frontmatter.
+        let skill = skill_with_agents("empty-v2", vec![AgentId::Anthropic, AgentId::Codex]);
+        let (meta, legacy) = read_sync_meta_v2(&skill_dir, &skill);
+
+        assert_eq!(meta.version, 2);
+        assert!(meta.targets.is_empty(), "v2 + empty targets must NOT backfill from agents");
+        assert!(legacy.is_none());
+    }
+
+    #[test]
+    fn new_skill_gets_empty_targets() {
+        let tmp = tempdir();
+        let _g = override_felina_home(&tmp);
+
+        let mut fm = serde_yaml::Mapping::new();
+        fm.insert("name".into(), "brand-new".into());
+        fm.insert("description".into(), "a new skill".into());
+        fm.insert(
+            "agents".into(),
+            serde_yaml::Value::Sequence(vec!["anthropic".into(), "codex".into()]),
         );
 
-        assert!(meta.dirty, "edited canonical must be dirty=true");
+        canonical_skills_write(
+            "brand-new".into(),
+            serde_yaml::Value::Mapping(fm),
+            "body".into(),
+        )
+        .unwrap();
+
+        let skill_dir = tmp.join(".felina").join("skills").join("brand-new");
+        let raw = fs::read_to_string(skill_dir.join(SYNC_META_FILENAME)).unwrap();
+        let meta: SyncMetaV2 = serde_json::from_str(&raw).unwrap();
+        assert_eq!(meta.version, 2);
+        assert!(meta.targets.is_empty(), "new skill must have empty targets");
+        assert!(!meta.dirty, "no targets → nothing to push → not dirty");
+    }
+
+    #[test]
+    fn targets_set_overwrites_and_prunes_last_sync() {
+        let tmp = tempdir();
+        let _g = override_felina_home(&tmp);
+        let skill_dir = tmp.join(".felina").join("skills").join("tgt-test");
+        fs::create_dir_all(&skill_dir).unwrap();
+        write_skill(
+            &tmp.join(".felina").join("skills"),
+            "tgt-test",
+            "---\nname: tgt-test\ndescription: x\nagents: [anthropic]\n---\nbody\n",
+        );
+
+        let t_anth = SkillTarget {
+            agent: AgentId::Anthropic, scope: SkillScope::Global, project: None,
+            enabled: true, mode: TargetMode::Tracked,
+        };
+        let t_codex = SkillTarget {
+            agent: AgentId::Codex, scope: SkillScope::Global, project: None,
+            enabled: true, mode: TargetMode::Tracked,
+        };
+
+        let mut ls = BTreeMap::new();
+        ls.insert(target_key(&t_anth), LastSyncEntry {
+            pushed_hash: "h1".into(), base_snapshot: None, at: "2026-01-01T00:00:00Z".into(),
+        });
+        ls.insert(target_key(&t_codex), LastSyncEntry {
+            pushed_hash: "h2".into(), base_snapshot: None, at: "2026-01-01T00:00:00Z".into(),
+        });
+        write_sync_meta_v2(&skill_dir, &SyncMetaV2 {
+            version: 2, targets: vec![t_anth.clone(), t_codex.clone()],
+            last_sync: ls, dirty: false,
+        }).unwrap();
+
+        skill_targets_set(
+            "tgt-test".into(),
+            vec![t_anth.clone()],
+        ).unwrap();
+
+        let raw = fs::read_to_string(skill_dir.join(SYNC_META_FILENAME)).unwrap();
+        let meta: SyncMetaV2 = serde_json::from_str(&raw).unwrap();
+        assert_eq!(meta.targets.len(), 1);
+        assert_eq!(meta.targets[0].agent, AgentId::Anthropic);
+        assert!(meta.last_sync.contains_key(&target_key(&t_anth)));
+        assert!(!meta.last_sync.contains_key(&target_key(&t_codex)));
+        assert!(meta.dirty);
+    }
+
+    // -----------------------------------------------------------------
+    // Orphan prune scan tests (known-projects-and-multi-target task 5.1)
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn orphan_scan_detects_removed_target() {
+        let tmp = tempdir();
+        let _g = override_felina_home(&tmp);
+        let project = tmp.to_string_lossy().to_string();
+
+        // Create a canonical skill with agents=[anthropic, gemini].
+        let mut fm = serde_yaml::Mapping::new();
+        fm.insert("name".into(), "prune-me".into());
+        fm.insert("description".into(), "test".into());
+        fm.insert(
+            "agents".into(),
+            serde_yaml::Value::Sequence(vec!["anthropic".into(), "gemini".into()]),
+        );
+        canonical_skills_write(
+            "prune-me".into(),
+            serde_yaml::Value::Mapping(fm),
+            "body".into(),
+        )
+        .unwrap();
+
+        // Plant agent-side SKILL.md files for both anthropic and gemini.
+        let anthropic_dir = tmp.join(".claude").join("skills").join("prune-me");
+        let gemini_dir = tmp.join(".gemini").join("skills").join("prune-me");
+        fs::create_dir_all(&anthropic_dir).unwrap();
+        fs::create_dir_all(&gemini_dir).unwrap();
+        fs::write(anthropic_dir.join("SKILL.md"), "rendered").unwrap();
+        fs::write(gemini_dir.join("SKILL.md"), "rendered").unwrap();
+
+        // Set targets to only anthropic (tracked enabled, pointing at this
+        // project); gemini target is removed so its planted file is an orphan.
+        let skill_dir = tmp.join(".felina").join("skills").join("prune-me");
+        write_sync_meta_v2(
+            &skill_dir,
+            &SyncMetaV2 {
+                version: 2,
+                targets: vec![SkillTarget {
+                    agent: AgentId::Anthropic,
+                    scope: SkillScope::Project,
+                    project: Some(project.clone()),
+                    enabled: true,
+                    mode: TargetMode::Tracked,
+                }],
+                last_sync: BTreeMap::new(),
+                dirty: false,
+            },
+        )
+        .unwrap();
+
+        let orphans = skill_prune_orphans_scan("prune-me".into()).unwrap();
+
+        // Gemini file is an orphan; anthropic file is not.
+        let gemini_orphans: Vec<_> = orphans
+            .iter()
+            .filter(|o| o.agent == AgentId::Gemini)
+            .collect();
+        assert_eq!(gemini_orphans.len(), 1, "gemini should be orphaned: {orphans:?}");
+        assert!(
+            gemini_orphans[0].path.contains("prune-me"),
+            "orphan path should contain skill name: {}",
+            gemini_orphans[0].path,
+        );
+
+        let anthropic_orphans: Vec<_> = orphans
+            .iter()
+            .filter(|o| o.agent == AgentId::Anthropic)
+            .collect();
+        assert!(
+            anthropic_orphans.is_empty(),
+            "anthropic (tracked enabled) should NOT be orphaned: {orphans:?}",
+        );
+    }
+
+    #[test]
+    fn orphan_scan_flags_disabled_and_detached() {
+        let tmp = tempdir();
+        let _g = override_felina_home(&tmp);
+        let project = tmp.to_string_lossy().to_string();
+
+        let mut fm = serde_yaml::Mapping::new();
+        fm.insert("name".into(), "flag-test".into());
+        fm.insert("description".into(), "test".into());
+        fm.insert(
+            "agents".into(),
+            serde_yaml::Value::Sequence(vec!["anthropic".into(), "codex".into()]),
+        );
+        canonical_skills_write(
+            "flag-test".into(),
+            serde_yaml::Value::Mapping(fm),
+            "body".into(),
+        )
+        .unwrap();
+
+        // Plant agent-side files for anthropic and codex.
+        let anthropic_dir = tmp.join(".claude").join("skills").join("flag-test");
+        let codex_dir = tmp.join(".agents").join("skills").join("flag-test");
+        fs::create_dir_all(&anthropic_dir).unwrap();
+        fs::create_dir_all(&codex_dir).unwrap();
+        fs::write(anthropic_dir.join("SKILL.md"), "rendered").unwrap();
+        fs::write(codex_dir.join("SKILL.md"), "rendered").unwrap();
+
+        // anthropic = disabled, codex = detached — both should be orphans.
+        let skill_dir = tmp.join(".felina").join("skills").join("flag-test");
+        write_sync_meta_v2(
+            &skill_dir,
+            &SyncMetaV2 {
+                version: 2,
+                targets: vec![
+                    SkillTarget {
+                        agent: AgentId::Anthropic,
+                        scope: SkillScope::Project,
+                        project: Some(project.clone()),
+                        enabled: false,
+                        mode: TargetMode::Tracked,
+                    },
+                    SkillTarget {
+                        agent: AgentId::Codex,
+                        scope: SkillScope::Project,
+                        project: Some(project.clone()),
+                        enabled: true,
+                        mode: TargetMode::Detached,
+                    },
+                ],
+                last_sync: BTreeMap::new(),
+                dirty: false,
+            },
+        )
+        .unwrap();
+
+        let orphans = skill_prune_orphans_scan("flag-test".into()).unwrap();
+        let _ = project;
+
+        assert_eq!(orphans.len(), 2, "both disabled and detached are orphans: {orphans:?}");
+        let agents: Vec<AgentId> = orphans.iter().map(|o| o.agent).collect();
+        assert!(agents.contains(&AgentId::Anthropic), "disabled anthropic");
+        assert!(agents.contains(&AgentId::Codex), "detached codex");
+    }
+
+    #[test]
+    fn orphan_apply_deletes_confirmed_and_preserves_others() {
+        let tmp = tempdir();
+        let _g = override_felina_home(&tmp);
+        let project = tmp.to_string_lossy().to_string();
+
+        let mut fm = serde_yaml::Mapping::new();
+        fm.insert("name".into(), "apply-test".into());
+        fm.insert("description".into(), "test".into());
+        fm.insert(
+            "agents".into(),
+            serde_yaml::Value::Sequence(vec!["anthropic".into(), "codex".into(), "gemini".into()]),
+        );
+        canonical_skills_write(
+            "apply-test".into(),
+            serde_yaml::Value::Mapping(fm),
+            "body".into(),
+        )
+        .unwrap();
+
+        // Plant agent-side files for all three.
+        let anth_dir = tmp.join(".claude").join("skills").join("apply-test");
+        let codex_dir = tmp.join(".agents").join("skills").join("apply-test");
+        let gemini_dir = tmp.join(".gemini").join("skills").join("apply-test");
+        for d in [&anth_dir, &codex_dir, &gemini_dir] {
+            fs::create_dir_all(d).unwrap();
+            fs::write(d.join("SKILL.md"), "rendered").unwrap();
+        }
+
+        // Confirm deletion of codex and gemini dirs only.
+        skill_prune_orphans_apply(
+            "apply-test".into(),
+            vec![
+                OrphanFile {
+                    path: codex_dir.to_string_lossy().to_string(),
+                    agent: AgentId::Codex,
+                    scope: SkillScope::Project,
+                    project: Some(project.clone()),
+                },
+                OrphanFile {
+                    path: gemini_dir.to_string_lossy().to_string(),
+                    agent: AgentId::Gemini,
+                    scope: SkillScope::Project,
+                    project: Some(project),
+                },
+            ],
+        )
+        .unwrap();
+
+        assert!(!codex_dir.exists(), "codex dir should be deleted");
+        assert!(!gemini_dir.exists(), "gemini dir should be deleted");
+        assert!(
+            anth_dir.join("SKILL.md").is_file(),
+            "anthropic dir (not in confirmed list) must survive",
+        );
+    }
+
+    #[test]
+    fn targets_set_detached_does_not_auto_delete_agent_file() {
+        let tmp = tempdir();
+        let _g = override_felina_home(&tmp);
+
+        let mut fm = serde_yaml::Mapping::new();
+        fm.insert("name".into(), "no-auto-del".into());
+        fm.insert("description".into(), "test".into());
+        fm.insert(
+            "agents".into(),
+            serde_yaml::Value::Sequence(vec!["anthropic".into()]),
+        );
+        canonical_skills_write(
+            "no-auto-del".into(),
+            serde_yaml::Value::Mapping(fm),
+            "body".into(),
+        )
+        .unwrap();
+
+        // Plant the agent-side file.
+        let anth_dir = tmp.join(".claude").join("skills").join("no-auto-del");
+        fs::create_dir_all(&anth_dir).unwrap();
+        fs::write(anth_dir.join("SKILL.md"), "rendered").unwrap();
+
+        // Toggle the target to detached via skill_targets_set.
+        skill_targets_set(
+            "no-auto-del".into(),
+            vec![SkillTarget {
+                agent: AgentId::Anthropic,
+                scope: SkillScope::Project,
+                project: Some(tmp.to_string_lossy().to_string()),
+                enabled: true,
+                mode: TargetMode::Detached,
+            }],
+        )
+        .unwrap();
+
+        // Agent file must still exist — only explicit prune apply deletes.
+        assert!(
+            anth_dir.join("SKILL.md").is_file(),
+            "detached toggle must NOT auto-delete agent file",
+        );
+    }
+
+    #[test]
+    fn orphan_scan_returns_empty_for_no_agent_files() {
+        let tmp = tempdir();
+        let _g = override_felina_home(&tmp);
+
+        let mut fm = serde_yaml::Mapping::new();
+        fm.insert("name".into(), "clean".into());
+        fm.insert("description".into(), "test".into());
+        fm.insert(
+            "agents".into(),
+            serde_yaml::Value::Sequence(vec!["anthropic".into()]),
+        );
+        canonical_skills_write(
+            "clean".into(),
+            serde_yaml::Value::Mapping(fm),
+            "body".into(),
+        )
+        .unwrap();
+
+        let orphans = skill_prune_orphans_scan("clean".into()).unwrap();
+
+        assert!(orphans.is_empty(), "no agent files on disk → no orphans");
     }
 
     /// Smoke regression (task 8.4 / handoff UI #3a): a freshly-written
@@ -1304,7 +1925,7 @@ Hello.\n";
     #[test]
     fn write_marks_canonical_dirty_in_sync_meta() {
         let tmp = tempdir();
-        let project = tmp.to_string_lossy().to_string();
+        let _g = override_felina_home(&tmp);
 
         let mut fm = serde_yaml::Mapping::new();
         fm.insert(
@@ -1322,26 +1943,29 @@ Hello.\n";
 
         // First write: new skill, no prior sync-meta.
         canonical_skills_write(
-            SkillScope::Project,
-            Some(project.clone()),
             "fresh".into(),
             serde_yaml::Value::Mapping(fm.clone()),
             "body v1".into(),
         )
         .expect("first write");
 
-        let skill =
-            canonical_skills_read(SkillScope::Project, Some(project.clone()), "fresh".into())
-                .expect("read v1");
+        let skill = canonical_skills_read("fresh".into()).expect("read v1");
         assert!(skill.dirty, "fresh canonical must be dirty=true");
-        assert!(
-            skill.last_synced.is_none(),
-            "fresh canonical has no last_synced"
-        );
+        assert!(skill.last_synced.is_none(), "fresh canonical has no last_synced");
+
+        // Add a target so subsequent edits become pushable.
+        let skill_dir = tmp.join(".felina").join("skills").join("fresh");
+        let target = SkillTarget {
+            agent: AgentId::Anthropic,
+            scope: SkillScope::Global,
+            project: None,
+            enabled: true,
+            mode: TargetMode::Tracked,
+        };
+        skill_targets_set("fresh".into(), vec![target]).expect("add target");
 
         // Simulate a prior successful push by overwriting sync-meta with
         // dirty=false + a recorded timestamp.
-        let skill_dir = tmp.join(".felina").join("skills").join("fresh");
         let prior_timestamp = "2026-05-22T01:23:45Z";
         fs::write(
             skill_dir.join(".felina-sync-meta.json"),
@@ -1349,24 +1973,185 @@ Hello.\n";
         )
         .unwrap();
 
-        // Second write: simulate editing canonical. dirty flips back to true;
-        // last_synced is preserved (so the UI can still say "last pushed at …").
+        // Second write: simulate editing canonical. dirty flips back to true
+        // because there is now a pushable target; last_synced is preserved.
         canonical_skills_write(
-            SkillScope::Project,
-            Some(project.clone()),
             "fresh".into(),
             serde_yaml::Value::Mapping(fm),
             "body v2 edited".into(),
         )
         .expect("second write");
 
-        let after = canonical_skills_read(SkillScope::Project, Some(project), "fresh".into())
-            .expect("read v2");
+        let after = canonical_skills_read("fresh".into()).expect("read v2");
         assert!(after.dirty, "edited canonical must be dirty=true");
         assert_eq!(
             after.last_synced.as_deref(),
             Some(prior_timestamp),
             "last_synced must survive the rewrite"
         );
+    }
+
+    /// Task 8.1: structured save normalizes frontmatter `name` to the canonical
+    /// directory identity. If the caller passes frontmatter with `name: wrong`,
+    /// the written SKILL.md must contain `name: dir-name`.
+    #[test]
+    fn write_normalizes_frontmatter_name_to_directory_identity() {
+        let tmp = tempdir();
+        let _g = override_felina_home(&tmp);
+
+        let mut fm = serde_yaml::Mapping::new();
+        fm.insert("name".into(), "wrong-name".into());
+        fm.insert("description".into(), "test".into());
+        fm.insert(
+            "agents".into(),
+            serde_yaml::Value::Sequence(vec!["anthropic".into()]),
+        );
+
+        canonical_skills_write(
+            "dir-name".into(),
+            serde_yaml::Value::Mapping(fm),
+            "body".into(),
+        )
+        .expect("write");
+
+        let skill = canonical_skills_read("dir-name".into()).expect("read back");
+        assert_eq!(skill.canonical_id, "dir-name");
+        assert_eq!(
+            skill.name, "dir-name",
+            "frontmatter name must be normalized to the directory identity"
+        );
+        let raw = canonical_skills_read_raw("dir-name".into()).unwrap();
+        assert!(
+            raw.contains("name: dir-name"),
+            "on-disk YAML must contain the normalized name: {raw}"
+        );
+        assert!(
+            !raw.contains("wrong-name"),
+            "on-disk YAML must NOT contain the original mismatched name: {raw}"
+        );
+    }
+
+    /// Task 8.2: raw repair normalizes YAML `name` to the canonical directory
+    /// identity when the content parses, and returns the original name.
+    #[test]
+    fn write_raw_normalizes_name_on_successful_parse() {
+        let tmp = tempdir();
+        let _g = override_felina_home(&tmp);
+        let skills_root = tmp.join(".felina").join("skills");
+        fs::create_dir_all(&skills_root).unwrap();
+
+        let broken = "---\n- not a mapping\n---\nbody\n";
+        write_skill(&skills_root, "smoke-nested", broken);
+
+        let fixed_with_wrong_name =
+            "---\nname: real\ndescription: repaired\nagents:\n  - anthropic\n---\n# Body\n";
+        let result = canonical_skills_write_raw(
+            "smoke-nested".into(),
+            fixed_with_wrong_name.into(),
+        )
+        .expect("raw write");
+
+        assert_eq!(
+            result.normalized_from.as_deref(),
+            Some("real"),
+            "must report the original name that was normalized"
+        );
+
+        let skill = canonical_skills_read("smoke-nested".into()).expect("read after repair");
+        assert_eq!(skill.canonical_id, "smoke-nested");
+        assert_eq!(
+            skill.name, "smoke-nested",
+            "repaired YAML name must be normalized to directory identity"
+        );
+
+        let on_disk = canonical_skills_read_raw("smoke-nested".into()).unwrap();
+        assert!(
+            on_disk.contains("name: smoke-nested"),
+            "on-disk must contain normalized name: {on_disk}"
+        );
+        assert!(
+            !on_disk.contains("name: real"),
+            "on-disk must NOT contain original mismatched name: {on_disk}"
+        );
+    }
+
+    /// Task 8.2: raw write that does NOT need normalization returns None.
+    #[test]
+    fn write_raw_returns_none_when_name_matches() {
+        let tmp = tempdir();
+        let _g = override_felina_home(&tmp);
+        let skills_root = tmp.join(".felina").join("skills");
+        fs::create_dir_all(&skills_root).unwrap();
+
+        let correct = "---\nname: my-skill\ndescription: ok\nagents:\n  - codex\n---\nbody\n";
+        write_skill(&skills_root, "my-skill", "placeholder");
+
+        let result = canonical_skills_write_raw("my-skill".into(), correct.into())
+            .expect("raw write");
+        assert!(
+            result.normalized_from.is_none(),
+            "no normalization needed: {result:?}"
+        );
+    }
+
+    /// Task 9.1: target list mutation is keyed on the canonical directory
+    /// identity, so `skill_targets_set` succeeds against a skill whose parsed
+    /// `frontmatter.name` differs from its directory name — and the parsed name
+    /// is NOT a valid lookup key.
+    #[test]
+    fn targets_set_succeeds_for_name_directory_mismatch() {
+        let tmp = tempdir();
+        let _g = override_felina_home(&tmp);
+        let skills_root = tmp.join(".felina").join("skills");
+        fs::create_dir_all(&skills_root).unwrap();
+        write_skill(
+            &skills_root,
+            "folder-id",
+            "---\nname: parsed-different\ndescription: x\nagents: [anthropic]\n---\nbody\n",
+        );
+
+        let target = SkillTarget {
+            agent: AgentId::Anthropic,
+            scope: SkillScope::Global,
+            project: None,
+            enabled: true,
+            mode: TargetMode::Tracked,
+        };
+
+        // Lookup by canonical directory identity succeeds despite the mismatch.
+        skill_targets_set("folder-id".into(), vec![target.clone()])
+            .expect("targets_set must succeed keyed on the canonical directory identity");
+
+        let raw = fs::read_to_string(skills_root.join("folder-id").join(SYNC_META_FILENAME)).unwrap();
+        let meta: SyncMetaV2 = serde_json::from_str(&raw).unwrap();
+        assert_eq!(meta.targets.len(), 1);
+        assert_eq!(meta.targets[0].agent, AgentId::Anthropic);
+
+        // The parsed frontmatter name is NOT a valid lookup key.
+        assert!(
+            skill_targets_set("parsed-different".into(), vec![target]).is_err(),
+            "parsed frontmatter name must not resolve a skill directory",
+        );
+    }
+
+    /// Task 8.2: raw write of content that doesn't parse (still broken) does
+    /// not crash and returns no normalization info.
+    #[test]
+    fn write_raw_still_broken_returns_none() {
+        let tmp = tempdir();
+        let _g = override_felina_home(&tmp);
+        let skills_root = tmp.join(".felina").join("skills");
+        fs::create_dir_all(&skills_root).unwrap();
+
+        let broken = "---\n- still broken\n---\nbody\n";
+        write_skill(&skills_root, "broken-skill", "placeholder");
+
+        let result = canonical_skills_write_raw("broken-skill".into(), broken.into())
+            .expect("raw write");
+        assert!(
+            result.normalized_from.is_none(),
+            "broken content has no name to normalize: {result:?}"
+        );
+        assert!(parse_skill_md(&canonical_skills_read_raw("broken-skill".into()).unwrap()).is_err());
     }
 }

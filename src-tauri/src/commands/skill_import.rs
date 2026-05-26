@@ -5,7 +5,8 @@
 
 use crate::commands::agent_paths::{agent_paths_get, AgentPathPair};
 use crate::commands::canonical_skills::{
-    canonical_skills_dir_for_scope, parse_skill_md, AgentId, SkillScope,
+    canonical_skills_dir, parse_skill_md, read_sync_meta_v2_no_backfill, split_frontmatter,
+    write_sync_meta_v2, AgentId, SkillScope, SkillTarget, TargetMode,
 };
 use crate::commands::fan_out::{expand_user_path, resolve_pair};
 use serde::{Deserialize, Serialize};
@@ -40,6 +41,10 @@ pub struct ImportCandidate {
     /// upcoming target-control change. The wizard greys these out. `None`
     /// means a clean single-source skill that imports normally.
     pub deferred: Option<DeferredMultiSource>,
+    /// Set when the source file has malformed frontmatter (bad YAML, non-mapping
+    /// root, nested frontmatter). Blocked candidates cannot be imported.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub validation_error: Option<String>,
 }
 
 /// Why a candidate is deferred: it appears in multiple agent source folders.
@@ -88,13 +93,21 @@ const BODY_PREVIEW_BYTES: usize = 240;
 /// For Gemini, we probe BOTH the spec-default path and the Antigravity CLI
 /// path (`~/.gemini/antigravity/skills/`) and sum them — gemini-cli's
 /// June 18 2026 consumer sunset means users may have skills in either tree.
+/// Derive the scan scope from an optional project path: `None` means scan
+/// global agent dirs; `Some(path)` means scan that project's agent dirs.
+/// Canonical destination is always global; scope-of-write is determined
+/// later from the same `project_path` when adding the `SkillTarget`.
+fn scan_scope(project_path: Option<&str>) -> SkillScope {
+    if project_path.is_some() { SkillScope::Project } else { SkillScope::Global }
+}
+
 #[tauri::command]
 pub fn skill_import_scan_quick(
-    scope: SkillScope,
     project_path: Option<String>,
 ) -> Result<ImportScanQuick, String> {
     let cfg = agent_paths_get()?;
     let mut out = ImportScanQuick::default();
+    let scope = scan_scope(project_path.as_deref());
 
     let anthropic = skill_names_at_pair(scope, project_path.as_deref(), &cfg.anthropic)?;
     let codex = skill_names_at_pair(scope, project_path.as_deref(), &cfg.codex)?;
@@ -166,11 +179,11 @@ fn count_skill_subdirs_at(dir: &Path) -> u32 {
 /// the wizard payload small.
 #[tauri::command]
 pub fn skill_import_scan(
-    scope: SkillScope,
     project_path: Option<String>,
 ) -> Result<Vec<ImportCandidate>, String> {
     let cfg = agent_paths_get()?;
-    let canonical_dir = canonical_skills_dir_for_scope(scope, project_path.as_deref())?;
+    let canonical_dir = canonical_skills_dir();
+    let scope = scan_scope(project_path.as_deref());
 
     let mut out = Vec::new();
     for (agent, pair) in [
@@ -190,6 +203,40 @@ pub fn skill_import_scan(
     // Collapse to one row per skill name; mark multi-source names deferred.
     // group_by_name returns names in sorted (BTreeMap) order already.
     Ok(group_by_name(out))
+}
+
+/// Check whether the body immediately begins with another `---` frontmatter
+/// block — the signature of a corrupted double-frontmatter file.
+fn body_has_nested_frontmatter(body: &str) -> bool {
+    let trimmed = body.trim_start_matches(['\n', '\r']);
+    let Some(rest) = trimmed.strip_prefix("---") else {
+        return false;
+    };
+    // The `---` must be followed by a line ending (not just trailing content).
+    let rest = match rest.strip_prefix("\r\n").or_else(|| rest.strip_prefix('\n')) {
+        Some(r) => r,
+        None => return false,
+    };
+    rest.contains("\n---")
+}
+
+/// Validate a source `SKILL.md` without writing anything. Returns `Ok(())`
+/// when the file is importable (possibly after field repair), `Err(reason)`
+/// when it must be blocked.
+fn validate_source_frontmatter(raw: &str) -> Result<(), String> {
+    let (fm_text, body) = split_frontmatter(raw);
+    if fm_text.is_empty() {
+        return Err("missing or unterminated YAML frontmatter".into());
+    }
+    let value: serde_yaml::Value = serde_yaml::from_str(&fm_text)
+        .map_err(|e| format!("malformed YAML: {e}"))?;
+    if !value.is_mapping() {
+        return Err("frontmatter root must be a YAML mapping".into());
+    }
+    if body_has_nested_frontmatter(&body) {
+        return Err("nested or repeated frontmatter detected".into());
+    }
+    Ok(())
 }
 
 fn collect_candidates_in(
@@ -242,6 +289,8 @@ fn collect_candidates_in(
             None
         };
 
+        let validation_error = validate_source_frontmatter(&raw).err();
+
         out.push(ImportCandidate {
             source_path: skill_md.to_string_lossy().to_string(),
             source_agent: agent,
@@ -249,6 +298,7 @@ fn collect_candidates_in(
             body_preview,
             conflict,
             deferred: None,
+            validation_error,
         });
     }
 }
@@ -349,13 +399,18 @@ fn summarise_diff(source_raw: &str, canonical_path: &Path) -> String {
 // ---------------------------------------------------------------------------
 
 /// Apply each selection. Original agent-native files are never deleted.
+///
+/// Canonical destination is always `~/.felina/skills/`. When `project_path`
+/// is `Some(path)`, each imported skill's sync-meta records a `SkillTarget`
+/// with `scope=Project, project=path` so a subsequent push fans out back to
+/// that originating project's agent dir. When `project_path` is `None`,
+/// the target defaults to `scope=Global`.
 #[tauri::command]
 pub fn skill_import_apply(
-    scope: SkillScope,
     project_path: Option<String>,
     selections: Vec<ImportSelection>,
 ) -> Result<(), String> {
-    let canonical_dir = canonical_skills_dir_for_scope(scope, project_path.as_deref())?;
+    let canonical_dir = canonical_skills_dir();
 
     for sel in selections {
         // Defence in depth: multi-source skills are never importable in this
@@ -364,17 +419,26 @@ pub fn skill_import_apply(
         if sel.candidate.deferred.is_some() {
             continue;
         }
+        // Note: a `validation_error` candidate is NOT skipped — it imports as a
+        // verbatim broken canonical file (import-as-broken), surfacing as a
+        // Broken list entry the user repairs in the editor's raw mode.
         match &sel.resolution {
             ImportResolution::Skip => continue,
             ImportResolution::KeepCanonical => continue, // canonical untouched
             ImportResolution::OverwriteCanonical => {
-                write_canonical_from_source(&sel.candidate, &canonical_dir, None)?;
+                write_canonical_from_source(
+                    &sel.candidate,
+                    &canonical_dir,
+                    None,
+                    project_path.as_deref(),
+                )?;
             }
             ImportResolution::Rename { new_name } => {
                 write_canonical_from_source(
                     &sel.candidate,
                     &canonical_dir,
                     Some(new_name.as_str()),
+                    project_path.as_deref(),
                 )?;
             }
         }
@@ -386,6 +450,7 @@ fn write_canonical_from_source(
     candidate: &ImportCandidate,
     canonical_dir: &Path,
     rename_to: Option<&str>,
+    project_path: Option<&str>,
 ) -> Result<(), String> {
     // Normalise the source path: refuse traversal segments. The path came
     // from `skill_import_scan`, but a malicious client could call apply
@@ -406,16 +471,23 @@ fn write_canonical_from_source(
     let raw =
         fs::read_to_string(&source).map_err(|e| format!("failed to read import source: {e}"))?;
 
-    // We parse to validate before writing — refuse to canonicalise content
-    // that already has unrecoverable frontmatter problems. Anthropic's
-    // `name`-optional schema means many real-world Anthropic skills lack
-    // a `name` field; fill from the directory name in that case.
+    // Normalize the source frontmatter when possible (fill missing
+    // name/description/agents). When the source cannot be normalized
+    // (malformed YAML, non-mapping root, nested/repeated frontmatter), import
+    // it verbatim so it surfaces as a Broken canonical skill (import-as-broken)
+    // — preserving the user's content and routing it to the editor's raw
+    // repair path — instead of discarding it. Anthropic's `name`-optional
+    // schema means many real-world Anthropic skills lack a `name` field; the
+    // normalize path fills it from the directory name in that case.
     let name = rename_to.unwrap_or(&candidate.skill_name).to_string();
-    let body_and_fm = ensure_required_fields(&raw, &name, candidate.source_agent)?;
+    let content = match ensure_required_fields(&raw, &name, candidate.source_agent) {
+        Ok(normalized) => normalized,
+        Err(_) => raw.clone(),
+    };
     let target_dir = canonical_dir.join(&name);
     fs::create_dir_all(&target_dir)
         .map_err(|e| format!("failed to create canonical skill dir: {e}"))?;
-    fs::write(target_dir.join("SKILL.md"), body_and_fm)
+    fs::write(target_dir.join("SKILL.md"), &content)
         .map_err(|e| format!("failed to write canonical SKILL.md: {e}"))?;
 
     // Copy bundled siblings (scripts/, references/, assets/, examples/, agents/, etc.)
@@ -425,6 +497,46 @@ fn write_canonical_from_source(
     if let Some(source_skill_dir) = source.parent() {
         copy_bundled_siblings(source_skill_dir, &target_dir)?;
     }
+
+    // Record a SkillTarget for the source location so a subsequent push can
+    // fan back out to it. The scope of the target mirrors where the import
+    // came from: `Some(project_path)` → scope=Project (`project=path`),
+    // `None` → scope=Global. Read the existing sidecar WITHOUT backfill so a
+    // fresh import gets EXACTLY the source target (not a synthetic global
+    // target per `agents` + the source target); an overwrite preserves the
+    // existing target list and just adds/keeps the source target.
+    let mut meta = read_sync_meta_v2_no_backfill(&target_dir);
+    let new_target = match project_path {
+        Some(pp) => SkillTarget {
+            agent: candidate.source_agent,
+            scope: SkillScope::Project,
+            project: Some(pp.to_string()),
+            enabled: true,
+            mode: TargetMode::Tracked,
+        },
+        None => SkillTarget {
+            agent: candidate.source_agent,
+            scope: SkillScope::Global,
+            project: None,
+            enabled: true,
+            mode: TargetMode::Tracked,
+        },
+    };
+    let already = meta.targets.iter().any(|t| {
+        t.agent == new_target.agent
+            && t.scope == new_target.scope
+            && t.project == new_target.project
+    });
+    if !already {
+        meta.targets.push(new_target);
+    }
+    meta.dirty = meta
+        .targets
+        .iter()
+        .any(|t| t.enabled && !matches!(t.mode, TargetMode::Detached | TargetMode::Forked));
+    // Bring forward to v2 explicitly when we touch it.
+    meta.version = 2;
+    write_sync_meta_v2(&target_dir, &meta)?;
     Ok(())
 }
 
@@ -492,35 +604,36 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<(), String> {
 /// - `description`: best effort — left blank if absent (user can edit).
 /// - `agents`: defaults to `[source_agent]`.
 ///
+/// Rejects malformed YAML, non-mapping roots, and nested/repeated frontmatter.
 /// Extra frontmatter is preserved verbatim.
 fn ensure_required_fields(raw: &str, name: &str, source_agent: AgentId) -> Result<String, String> {
     // Try to parse as-is first; if it succeeds, we already have everything
     // we need and just re-serialize.
-    if let Ok(parsed) = parse_skill_md(raw) {
+    if let Ok(mut parsed) = parse_skill_md(raw) {
+        parsed.name = name.to_string();
         return Ok(reserialize(parsed));
     }
 
-    // Otherwise, split, inject required fields, and re-serialize.
-    let (fm_text, body) = match raw.split_once("\n---\n") {
-        Some((before, after)) => {
-            let before = before.trim_start_matches('\u{feff}').trim_start();
-            let fm = before.strip_prefix("---\n").unwrap_or(before);
-            (fm.to_string(), after.to_string())
-        }
-        None => (String::new(), raw.to_string()),
+    // Use the shared BOM/LF/CRLF-aware splitter.
+    let (fm_text, body) = split_frontmatter(raw);
+    if fm_text.is_empty() {
+        return Err("missing or unterminated YAML frontmatter".into());
+    }
+
+    let value: serde_yaml::Value = serde_yaml::from_str(&fm_text)
+        .map_err(|e| format!("malformed YAML: {e}"))?;
+
+    let mut map = match value {
+        serde_yaml::Value::Mapping(m) => m,
+        _ => return Err("frontmatter root must be a YAML mapping".into()),
     };
 
-    let mut map: serde_yaml::Mapping = if fm_text.trim().is_empty() {
-        serde_yaml::Mapping::new()
-    } else {
-        match serde_yaml::from_str::<serde_yaml::Value>(&fm_text) {
-            Ok(serde_yaml::Value::Mapping(m)) => m,
-            Ok(_) | Err(_) => serde_yaml::Mapping::new(),
-        }
-    };
+    if body_has_nested_frontmatter(&body) {
+        return Err("nested or repeated frontmatter detected".into());
+    }
 
-    map.entry(serde_yaml::Value::String("name".into()))
-        .or_insert_with(|| serde_yaml::Value::String(name.to_string()));
+    let name_key = serde_yaml::Value::String("name".into());
+    map.insert(name_key, serde_yaml::Value::String(name.to_string()));
     map.entry(serde_yaml::Value::String("description".into()))
         .or_insert_with(|| serde_yaml::Value::String(String::new()));
     let agent_str = match source_agent {
@@ -652,6 +765,7 @@ mod tests {
             body_preview: String::new(),
             conflict: None,
             deferred: None,
+            validation_error: None,
         }
     }
 
@@ -706,6 +820,15 @@ mod tests {
     #[test]
     fn apply_skips_deferred_candidate() {
         let tmp = unique_tmp("apply-deferred");
+        crate::paths::set_felina_home_override_for_test(Some(tmp.join(".felina")));
+        struct G;
+        impl Drop for G {
+            fn drop(&mut self) {
+                crate::paths::set_felina_home_override_for_test(None);
+            }
+        }
+        let _g = G;
+
         let mut c = candidate("shared", AgentId::Anthropic);
         c.deferred = Some(DeferredMultiSource {
             agents: vec![AgentId::Anthropic, AgentId::Codex],
@@ -715,9 +838,10 @@ mod tests {
             candidate: c,
             resolution: ImportResolution::OverwriteCanonical,
         };
-        // Project scope, canonical under tmp; deferred selection must be a no-op.
+        // Canonical is now always global; the override redirects ~/.felina
+        // to <tmp>/.felina so this writes inside the tempdir. Deferred
+        // selections must be a no-op regardless.
         skill_import_apply(
-            SkillScope::Project,
             Some(tmp.to_string_lossy().to_string()),
             vec![sel],
         )
@@ -726,5 +850,178 @@ mod tests {
             !tmp.join(".felina").join("skills").join("shared").exists(),
             "deferred candidate must not be written to canonical"
         );
+    }
+
+    /// Task 2.1: BOM + CRLF source with missing `agents` preserves description
+    /// and produces no nested frontmatter in the canonical body.
+    #[test]
+    fn ensure_required_fields_handles_bom_crlf_source() {
+        let raw = "\u{feff}---\r\nname: session-start\r\ndescription: Start session context\r\n---\r\n# Body\r\n";
+        let out = ensure_required_fields(raw, "session-start", AgentId::Anthropic).unwrap();
+        assert!(out.contains("description: Start session context"), "description preserved, got:\n{out}");
+        assert!(out.contains("agents:"), "agents injected, got:\n{out}");
+        assert!(out.contains("- anthropic"), "anthropic agent, got:\n{out}");
+        // Body must not contain a second frontmatter block.
+        let parts: Vec<&str> = out.match_indices("---\n").map(|(i, _)| &out[i..]).collect();
+        assert!(parts.len() <= 3, "at most open + close + body content; got {} fences:\n{out}", parts.len());
+    }
+
+    #[test]
+    fn ensure_required_fields_rewrites_mismatched_name_to_directory_identity() {
+        let raw = "---\nname: different-name\ndescription: Start session context\nagents:\n  - anthropic\n---\n# Body\n";
+        let out = ensure_required_fields(raw, "folder-name", AgentId::Anthropic).unwrap();
+        assert!(out.contains("name: folder-name"), "canonical name should rewrite to directory identity, got:\n{out}");
+        assert!(!out.contains("name: different-name"), "mismatched source name should not survive, got:\n{out}");
+    }
+
+    /// Task 2.2: malformed YAML is rejected.
+    #[test]
+    fn ensure_required_fields_rejects_malformed_yaml() {
+        let raw = "---\n: invalid: yaml: [broken\n---\nbody\n";
+        let err = ensure_required_fields(raw, "bad", AgentId::Anthropic).unwrap_err();
+        assert!(
+            err.to_lowercase().contains("yaml") || err.contains("parse"),
+            "should mention YAML error, got: {err}"
+        );
+    }
+
+    /// Task 2.2: non-mapping frontmatter root is rejected.
+    #[test]
+    fn ensure_required_fields_rejects_non_mapping_root() {
+        let raw = "---\n- list\n- items\n---\nbody\n";
+        let err = ensure_required_fields(raw, "bad", AgentId::Anthropic).unwrap_err();
+        assert!(err.contains("mapping"), "should mention mapping, got: {err}");
+    }
+
+    /// Task 2.3: nested / repeated frontmatter is rejected — no canonical
+    /// file should be written from a corrupted double-frontmatter source.
+    #[test]
+    fn ensure_required_fields_rejects_nested_frontmatter() {
+        // Simulate the corruption pattern: outer frontmatter with empty
+        // description, body starts with the original frontmatter.
+        let raw = "---\ndescription: ''\n---\n---\nname: real\ndescription: real desc\nagents:\n  - anthropic\n---\n# Body\n";
+        let err = ensure_required_fields(raw, "bad", AgentId::Anthropic).unwrap_err();
+        assert!(
+            err.contains("nested") || err.contains("repeated"),
+            "should mention nested/repeated, got: {err}"
+        );
+    }
+
+    /// Task 2.3: validate_source_frontmatter also catches nested frontmatter.
+    #[test]
+    fn validate_source_rejects_nested_frontmatter() {
+        let raw = "---\ndescription: ''\n---\n---\nname: x\n---\nbody\n";
+        let err = validate_source_frontmatter(raw).unwrap_err();
+        assert!(err.contains("nested") || err.contains("repeated"), "got: {err}");
+    }
+
+    /// Task 2.3: validate_source_frontmatter accepts valid frontmatter.
+    #[test]
+    fn validate_source_accepts_valid_frontmatter() {
+        let raw = "---\nname: ok\ndescription: fine\n---\n# Body\n";
+        validate_source_frontmatter(raw).expect("valid source should pass");
+    }
+
+    /// Tasks 3.1/3.2: a source whose frontmatter cannot be normalized
+    /// (here: non-mapping YAML root) imports as a verbatim broken canonical
+    /// file rather than being skipped/blocked. The on-disk bytes equal the
+    /// source and `parse_skill_md` rejects it (reads back as Broken). A
+    /// pre-set `validation_error` must NOT block the write.
+    #[test]
+    fn import_malformed_source_writes_verbatim_broken() {
+        use crate::commands::canonical_skills::parse_skill_md;
+        let home = unique_tmp("broken-home");
+        let project = unique_tmp("broken-proj");
+        crate::paths::set_felina_home_override_for_test(Some(home.join(".felina")));
+        struct G;
+        impl Drop for G {
+            fn drop(&mut self) {
+                crate::paths::set_felina_home_override_for_test(None);
+            }
+        }
+        let _g = G;
+
+        // Non-mapping frontmatter root (a YAML list) — cannot be normalized.
+        let source_content = "---\n- not\n- a mapping\n---\n# Body\n";
+        let src_dir = project.join(".claude").join("skills").join("bad-skill");
+        fs::create_dir_all(&src_dir).unwrap();
+        fs::write(src_dir.join("SKILL.md"), source_content).unwrap();
+
+        let mut c = candidate("bad-skill", AgentId::Anthropic);
+        c.source_path = src_dir.join("SKILL.md").to_string_lossy().to_string();
+        // Simulate scan having flagged it — apply must still import as broken.
+        c.validation_error = Some("non-mapping root".into());
+
+        skill_import_apply(
+            Some(project.to_string_lossy().to_string()),
+            vec![ImportSelection {
+                candidate: c,
+                resolution: ImportResolution::OverwriteCanonical,
+            }],
+        )
+        .expect("apply should not error for a non-normalizable source");
+
+        let written = home
+            .join(".felina")
+            .join("skills")
+            .join("bad-skill")
+            .join("SKILL.md");
+        let on_disk = fs::read_to_string(&written).expect("verbatim broken file written");
+        assert_eq!(on_disk, source_content, "broken source must be written verbatim");
+        assert!(
+            parse_skill_md(&on_disk).is_err(),
+            "written canonical must read back as Broken (unparseable)"
+        );
+    }
+
+    /// Regression: importing a skill from a project must produce EXACTLY one
+    /// target (the project source) in the global sidecar — not a synthetic
+    /// global target (from the skill's `agents` backfill) plus the project
+    /// target. Reproduces the "target shows global + projectA" bug.
+    #[test]
+    fn import_from_project_writes_single_project_target() {
+        let home = unique_tmp("import-home");
+        let project = unique_tmp("import-proj");
+        crate::paths::set_felina_home_override_for_test(Some(home.join(".felina")));
+        struct G;
+        impl Drop for G {
+            fn drop(&mut self) {
+                crate::paths::set_felina_home_override_for_test(None);
+            }
+        }
+        let _g = G;
+
+        // Source skill on disk in the project's .claude/skills dir.
+        let src_dir = project.join(".claude").join("skills").join("skill-a");
+        fs::create_dir_all(&src_dir).unwrap();
+        fs::write(
+            src_dir.join("SKILL.md"),
+            "---\nname: skill-a\ndescription: a\nagents: [anthropic]\n---\nbody-a\n",
+        )
+        .unwrap();
+
+        let mut c = candidate("skill-a", AgentId::Anthropic);
+        c.source_path = src_dir.join("SKILL.md").to_string_lossy().to_string();
+        let project_str = project.to_string_lossy().to_string();
+        skill_import_apply(
+            Some(project_str.clone()),
+            vec![ImportSelection {
+                candidate: c,
+                resolution: ImportResolution::OverwriteCanonical,
+            }],
+        )
+        .expect("apply");
+
+        // Global master exists with EXACTLY one project target.
+        let meta_raw = fs::read_to_string(
+            home.join(".felina").join("skills").join("skill-a").join(".felina-sync-meta.json"),
+        )
+        .expect("sidecar");
+        let meta: serde_json::Value = serde_json::from_str(&meta_raw).unwrap();
+        let targets = meta["targets"].as_array().expect("targets array");
+        assert_eq!(targets.len(), 1, "import must write a single target, got: {targets:?}");
+        assert_eq!(targets[0]["scope"], "project");
+        assert_eq!(targets[0]["project"], project_str);
+        assert_eq!(targets[0]["agent"], "anthropic");
     }
 }
