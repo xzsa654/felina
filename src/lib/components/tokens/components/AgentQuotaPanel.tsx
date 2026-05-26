@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { RefreshCw } from "lucide-react";
 import type { QuotaSnapshot, AnthropicRateLimits, CodexRateLimits, GeminiRateLimits } from "$lib/types";
 import type { Locale } from "$lib/i18n";
-import { api } from "$lib/tauri/commands";
+import { api, type BudgetSettings } from "$lib/tauri/commands";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -161,6 +161,7 @@ function CardSkeleton() {
 let _quotaCache: QuotaSnapshot | null = null;
 let _quotaLastUpdated: Date | null = null;
 let _quotaNextAllowed: Date | null = null;
+let _quotaTtlSeconds: number | null = null;
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 
@@ -169,6 +170,7 @@ export default function AgentQuotaPanel({ locale: _locale }: { locale: Locale })
   const [loading, setLoading] = useState(_quotaCache === null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(_quotaLastUpdated);
   const [nextAllowed, setNextAllowed] = useState<Date | null>(_quotaNextAllowed);
+  const [quotaTtlSeconds, setQuotaTtlSeconds] = useState<number>(_quotaTtlSeconds ?? 180);
   const [, tick] = useState(0);
 
   const doFetch = useCallback(async () => {
@@ -208,11 +210,44 @@ export default function AgentQuotaPanel({ locale: _locale }: { locale: Locale })
   }, []);
 
   useEffect(() => {
-    doFetch();
-    const r = setInterval(doFetch, 15 * 60_000); // 15 minutes — oauth/usage has strict rate limits
-    const t = setInterval(() => tick((n) => n + 1), 30_000);
-    return () => { clearInterval(r); clearInterval(t); };
+    let cancelled = false;
+    api.budget.get()
+      .then((settings) => {
+        if (cancelled) return;
+        _quotaTtlSeconds = settings.quota_ttl_seconds;
+        setQuotaTtlSeconds(settings.quota_ttl_seconds);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+
+  const saveQuotaTtl = useCallback(async (seconds: number) => {
+    const next = Math.min(60 * 60, Math.max(30, seconds));
+    _quotaTtlSeconds = next;
+    setQuotaTtlSeconds(next);
+    const current: BudgetSettings = await api.budget.get();
+    await api.budget.set(
+      current.daily_limit,
+      current.monthly_limit,
+      current.plan_type,
+      next,
+    );
+    await doFetch();
   }, [doFetch]);
+
+  useEffect(() => {
+    doFetch();
+    const t = setInterval(() => tick((n) => n + 1), 30_000);
+    return () => { clearInterval(t); };
+  }, [doFetch]);
+
+  useEffect(() => {
+    if (!nextAllowed) return;
+    const delay = nextAllowed.getTime() - Date.now();
+    if (delay <= 0) return;
+    const timer = setTimeout(doFetch, delay);
+    return () => clearTimeout(timer);
+  }, [doFetch, nextAllowed]);
 
   if (loading) {
     return (
@@ -232,6 +267,20 @@ export default function AgentQuotaPanel({ locale: _locale }: { locale: Locale })
       <div className="flex items-center justify-between mb-5">
         <h3 className="text-sm font-semibold text-text-primary">Token 用量</h3>
         <div className="flex items-center gap-2">
+          <label className="flex items-center gap-1 text-[10px] text-text-muted">
+            TTL
+            <select
+              className="h-6 px-1.5 text-[10px] bg-bg-tertiary border border-border rounded text-text-secondary focus:outline-none focus:border-accent"
+              value={quotaTtlSeconds}
+              onChange={(e) => { void saveQuotaTtl(Number(e.target.value)); }}
+              title="Quota refresh TTL. Lower values may hit provider rate limits."
+            >
+              <option value={60}>1m</option>
+              <option value={180}>3m</option>
+              <option value={300}>5m</option>
+              <option value={900}>15m</option>
+            </select>
+          </label>
           {lastUpdated && (
             <span className="text-[10px] text-text-muted">
               {snapshot?.stale ? "Cached" : "Last updated"}: {timeAgoShort(lastUpdated)}

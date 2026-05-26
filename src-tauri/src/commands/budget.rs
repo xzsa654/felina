@@ -9,10 +9,16 @@ pub struct BudgetSettings {
     pub monthly_limit: Option<f64>,
     #[serde(default = "default_plan")]
     pub plan_type: String,
+    #[serde(default = "default_quota_ttl_seconds")]
+    pub quota_ttl_seconds: u64,
 }
 
 fn default_plan() -> String {
     "max".to_string()
+}
+
+pub fn default_quota_ttl_seconds() -> u64 {
+    3 * 60
 }
 
 impl Default for BudgetSettings {
@@ -21,6 +27,7 @@ impl Default for BudgetSettings {
             daily_limit: None,
             monthly_limit: None,
             plan_type: default_plan(),
+            quota_ttl_seconds: default_quota_ttl_seconds(),
         }
     }
 }
@@ -106,12 +113,14 @@ pub fn set_budget(
     daily_limit: Option<f64>,
     monthly_limit: Option<f64>,
     plan_type: Option<String>,
+    quota_ttl_seconds: Option<u64>,
 ) -> Result<(), String> {
     let existing = get_budget().unwrap_or_default();
     let settings = BudgetSettings {
         daily_limit,
         monthly_limit,
         plan_type: plan_type.unwrap_or(existing.plan_type),
+        quota_ttl_seconds: quota_ttl_seconds.unwrap_or(existing.quota_ttl_seconds),
     };
     let content =
         serde_json::to_string_pretty(&settings).map_err(|e| format!("failed to serialize: {e}"))?;
