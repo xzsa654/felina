@@ -98,13 +98,15 @@ const BODY_PREVIEW_BYTES: usize = 240;
 /// Canonical destination is always global; scope-of-write is determined
 /// later from the same `project_path` when adding the `SkillTarget`.
 fn scan_scope(project_path: Option<&str>) -> SkillScope {
-    if project_path.is_some() { SkillScope::Project } else { SkillScope::Global }
+    if project_path.is_some() {
+        SkillScope::Project
+    } else {
+        SkillScope::Global
+    }
 }
 
 #[tauri::command]
-pub fn skill_import_scan_quick(
-    project_path: Option<String>,
-) -> Result<ImportScanQuick, String> {
+pub fn skill_import_scan_quick(project_path: Option<String>) -> Result<ImportScanQuick, String> {
     let cfg = agent_paths_get()?;
     let mut out = ImportScanQuick::default();
     let scope = scan_scope(project_path.as_deref());
@@ -178,9 +180,7 @@ fn count_skill_subdirs_at(dir: &Path) -> u32 {
 /// `ImportCandidate` per skill found. Body previews are clipped to keep
 /// the wizard payload small.
 #[tauri::command]
-pub fn skill_import_scan(
-    project_path: Option<String>,
-) -> Result<Vec<ImportCandidate>, String> {
+pub fn skill_import_scan(project_path: Option<String>) -> Result<Vec<ImportCandidate>, String> {
     let cfg = agent_paths_get()?;
     let canonical_dir = canonical_skills_dir();
     let scope = scan_scope(project_path.as_deref());
@@ -213,7 +213,10 @@ fn body_has_nested_frontmatter(body: &str) -> bool {
         return false;
     };
     // The `---` must be followed by a line ending (not just trailing content).
-    let rest = match rest.strip_prefix("\r\n").or_else(|| rest.strip_prefix('\n')) {
+    let rest = match rest
+        .strip_prefix("\r\n")
+        .or_else(|| rest.strip_prefix('\n'))
+    {
         Some(r) => r,
         None => return false,
     };
@@ -228,8 +231,8 @@ fn validate_source_frontmatter(raw: &str) -> Result<(), String> {
     if fm_text.is_empty() {
         return Err("missing or unterminated YAML frontmatter".into());
     }
-    let value: serde_yaml::Value = serde_yaml::from_str(&fm_text)
-        .map_err(|e| format!("malformed YAML: {e}"))?;
+    let value: serde_yaml::Value =
+        serde_yaml::from_str(&fm_text).map_err(|e| format!("malformed YAML: {e}"))?;
     if !value.is_mapping() {
         return Err("frontmatter root must be a YAML mapping".into());
     }
@@ -620,8 +623,8 @@ fn ensure_required_fields(raw: &str, name: &str, source_agent: AgentId) -> Resul
         return Err("missing or unterminated YAML frontmatter".into());
     }
 
-    let value: serde_yaml::Value = serde_yaml::from_str(&fm_text)
-        .map_err(|e| format!("malformed YAML: {e}"))?;
+    let value: serde_yaml::Value =
+        serde_yaml::from_str(&fm_text).map_err(|e| format!("malformed YAML: {e}"))?;
 
     let mut map = match value {
         serde_yaml::Value::Mapping(m) => m,
@@ -841,11 +844,7 @@ mod tests {
         // Canonical is now always global; the override redirects ~/.felina
         // to <tmp>/.felina so this writes inside the tempdir. Deferred
         // selections must be a no-op regardless.
-        skill_import_apply(
-            Some(tmp.to_string_lossy().to_string()),
-            vec![sel],
-        )
-        .expect("apply");
+        skill_import_apply(Some(tmp.to_string_lossy().to_string()), vec![sel]).expect("apply");
         assert!(
             !tmp.join(".felina").join("skills").join("shared").exists(),
             "deferred candidate must not be written to canonical"
@@ -858,20 +857,33 @@ mod tests {
     fn ensure_required_fields_handles_bom_crlf_source() {
         let raw = "\u{feff}---\r\nname: session-start\r\ndescription: Start session context\r\n---\r\n# Body\r\n";
         let out = ensure_required_fields(raw, "session-start", AgentId::Anthropic).unwrap();
-        assert!(out.contains("description: Start session context"), "description preserved, got:\n{out}");
+        assert!(
+            out.contains("description: Start session context"),
+            "description preserved, got:\n{out}"
+        );
         assert!(out.contains("agents:"), "agents injected, got:\n{out}");
         assert!(out.contains("- anthropic"), "anthropic agent, got:\n{out}");
         // Body must not contain a second frontmatter block.
         let parts: Vec<&str> = out.match_indices("---\n").map(|(i, _)| &out[i..]).collect();
-        assert!(parts.len() <= 3, "at most open + close + body content; got {} fences:\n{out}", parts.len());
+        assert!(
+            parts.len() <= 3,
+            "at most open + close + body content; got {} fences:\n{out}",
+            parts.len()
+        );
     }
 
     #[test]
     fn ensure_required_fields_rewrites_mismatched_name_to_directory_identity() {
         let raw = "---\nname: different-name\ndescription: Start session context\nagents:\n  - anthropic\n---\n# Body\n";
         let out = ensure_required_fields(raw, "folder-name", AgentId::Anthropic).unwrap();
-        assert!(out.contains("name: folder-name"), "canonical name should rewrite to directory identity, got:\n{out}");
-        assert!(!out.contains("name: different-name"), "mismatched source name should not survive, got:\n{out}");
+        assert!(
+            out.contains("name: folder-name"),
+            "canonical name should rewrite to directory identity, got:\n{out}"
+        );
+        assert!(
+            !out.contains("name: different-name"),
+            "mismatched source name should not survive, got:\n{out}"
+        );
     }
 
     /// Task 2.2: malformed YAML is rejected.
@@ -890,7 +902,10 @@ mod tests {
     fn ensure_required_fields_rejects_non_mapping_root() {
         let raw = "---\n- list\n- items\n---\nbody\n";
         let err = ensure_required_fields(raw, "bad", AgentId::Anthropic).unwrap_err();
-        assert!(err.contains("mapping"), "should mention mapping, got: {err}");
+        assert!(
+            err.contains("mapping"),
+            "should mention mapping, got: {err}"
+        );
     }
 
     /// Task 2.3: nested / repeated frontmatter is rejected — no canonical
@@ -912,7 +927,10 @@ mod tests {
     fn validate_source_rejects_nested_frontmatter() {
         let raw = "---\ndescription: ''\n---\n---\nname: x\n---\nbody\n";
         let err = validate_source_frontmatter(raw).unwrap_err();
-        assert!(err.contains("nested") || err.contains("repeated"), "got: {err}");
+        assert!(
+            err.contains("nested") || err.contains("repeated"),
+            "got: {err}"
+        );
     }
 
     /// Task 2.3: validate_source_frontmatter accepts valid frontmatter.
@@ -967,7 +985,10 @@ mod tests {
             .join("bad-skill")
             .join("SKILL.md");
         let on_disk = fs::read_to_string(&written).expect("verbatim broken file written");
-        assert_eq!(on_disk, source_content, "broken source must be written verbatim");
+        assert_eq!(
+            on_disk, source_content,
+            "broken source must be written verbatim"
+        );
         assert!(
             parse_skill_md(&on_disk).is_err(),
             "written canonical must read back as Broken (unparseable)"
@@ -1014,12 +1035,19 @@ mod tests {
 
         // Global master exists with EXACTLY one project target.
         let meta_raw = fs::read_to_string(
-            home.join(".felina").join("skills").join("skill-a").join(".felina-sync-meta.json"),
+            home.join(".felina")
+                .join("skills")
+                .join("skill-a")
+                .join(".felina-sync-meta.json"),
         )
         .expect("sidecar");
         let meta: serde_json::Value = serde_json::from_str(&meta_raw).unwrap();
         let targets = meta["targets"].as_array().expect("targets array");
-        assert_eq!(targets.len(), 1, "import must write a single target, got: {targets:?}");
+        assert_eq!(
+            targets.len(),
+            1,
+            "import must write a single target, got: {targets:?}"
+        );
         assert_eq!(targets[0]["scope"], "project");
         assert_eq!(targets[0]["project"], project_str);
         assert_eq!(targets[0]["agent"], "anthropic");

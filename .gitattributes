@@ -1,1 +1,15 @@
 Cargo.toml text eol=lf
+* text=auto
+
+*.yaml text eol=lf
+*.yml text eol=lf
+*.md text eol=lf
+*.toml text eol=lf
+*.json text eol=lf
+*.ts text eol=lf
+*.tsx text eol=lf
+*.rs text eol=lf
+
+openspec/**/*.yaml text eol=lf
+openspec/**/*.yml text eol=lf
+openspec/**/*.md text eol=lf

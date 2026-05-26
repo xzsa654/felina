@@ -48,7 +48,12 @@ fn read_claude_oauth_token() -> Result<String, String> {
     // Try macOS Keychain first
     if cfg!(target_os = "macos") {
         let out = Command::new("security")
-            .args(["find-generic-password", "-s", "Claude Code-credentials", "-w"])
+            .args([
+                "find-generic-password",
+                "-s",
+                "Claude Code-credentials",
+                "-w",
+            ])
             .output();
         if let Ok(out) = out {
             if out.status.success() {
