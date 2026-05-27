@@ -8,6 +8,7 @@ pub const SOURCE_FELINA_PARSER: &str = "felina_parser";
 pub const SOURCE_TOKSCALE_EXPORT: &str = "tokscale_export";
 pub const SOURCE_PARSER_FALLBACK: &str = "parser_fallback";
 const ACTIVE_SOURCE_KEY: &str = "active_source";
+const CODEX_INPUT_CACHE_NORMALIZED_KEY: &str = "codex_input_cache_normalized_v1";
 
 /// SQLite-backed cache for token events at `~/.felina/tokens.db`.
 pub struct TokenStorage {
@@ -145,6 +146,39 @@ impl TokenStorage {
         )
         .map_err(|e| format!("Cannot create token ingestion metadata: {}", e))?;
         Self::migrate_source_aware_unique_key(conn)?;
+        Self::normalize_codex_input_cache_once(conn)?;
+        Ok(())
+    }
+
+    fn normalize_codex_input_cache_once(conn: &Connection) -> Result<(), String> {
+        let already_normalized = conn
+            .query_row(
+                "SELECT value FROM token_ingestion_state WHERE key = ?1",
+                params![CODEX_INPUT_CACHE_NORMALIZED_KEY],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .map_err(|e| format!("Cannot read Codex input normalization state: {}", e))?
+            .is_some();
+        if already_normalized {
+            return Ok(());
+        }
+
+        conn.execute(
+            "UPDATE token_events
+             SET input_tokens = input_tokens - cache_read_tokens
+             WHERE source = ?1
+               AND agent = 'codex-cli'
+               AND cache_read_tokens > 0
+               AND input_tokens >= cache_read_tokens",
+            params![SOURCE_FELINA_PARSER],
+        )
+        .map_err(|e| format!("Cannot normalize Codex input/cache tokens: {}", e))?;
+        conn.execute(
+            "INSERT OR REPLACE INTO token_ingestion_state (key, value) VALUES (?1, '1')",
+            params![CODEX_INPUT_CACHE_NORMALIZED_KEY],
+        )
+        .map_err(|e| format!("Cannot mark Codex input normalization: {}", e))?;
         Ok(())
     }
 
@@ -450,6 +484,22 @@ mod tests {
         }
     }
 
+    fn make_cached_codex_event(input: u64, cache_read: u64, session: &str) -> TokenEvent {
+        TokenEvent {
+            agent: AgentId::CodexCli,
+            provider: "openai".into(),
+            model: "gpt-5.5".into(),
+            timestamp: 1000,
+            input_tokens: input,
+            output_tokens: 50,
+            cache_read_tokens: cache_read,
+            cache_write_tokens: 0,
+            reasoning_tokens: 0,
+            project: None,
+            session_id: Some(session.into()),
+        }
+    }
+
     #[test]
     fn test_duplicate_events_not_inserted_parsed_vs_inserted_separate() {
         let db = temp_db("duplicate_events");
@@ -528,6 +578,55 @@ mod tests {
                 .expect("tokscale count"),
             1
         );
+
+        remove_test_db(&db);
+    }
+
+    #[test]
+    fn storage_migration_normalizes_existing_codex_parser_input_once() {
+        let db = temp_db("codex_input_cache_migration");
+        remove_test_db(&db);
+        {
+            let storage = TokenStorage::with_path(db.clone()).expect("create storage");
+            let event = make_cached_codex_event(228_220, 227_200, "codex-cached");
+            assert_eq!(storage.upsert_events(&[event]).expect("insert"), 1);
+            storage
+                .db
+                .lock()
+                .unwrap()
+                .execute(
+                    "DELETE FROM token_ingestion_state WHERE key = ?1",
+                    params![CODEX_INPUT_CACHE_NORMALIZED_KEY],
+                )
+                .unwrap();
+        }
+
+        {
+            let storage = TokenStorage::with_path(db.clone()).expect("reopen migration");
+            let conn = storage.db.lock().unwrap();
+            let (input, cache): (i64, i64) = conn
+                .query_row(
+                    "SELECT input_tokens, cache_read_tokens FROM token_events WHERE agent = 'codex-cli'",
+                    [],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .unwrap();
+            assert_eq!(input, 1_020);
+            assert_eq!(cache, 227_200);
+        }
+
+        {
+            let storage = TokenStorage::with_path(db.clone()).expect("reopen no-op");
+            let conn = storage.db.lock().unwrap();
+            let input: i64 = conn
+                .query_row(
+                    "SELECT input_tokens FROM token_events WHERE agent = 'codex-cli'",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(input, 1_020);
+        }
 
         remove_test_db(&db);
     }

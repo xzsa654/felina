@@ -7,7 +7,6 @@ import type {
 import { useLocaleStore } from "$lib/stores/locale";
 import { t } from "$lib/i18n";
 import { PageBody } from "$lib/components/shared/PageScaffold";
-import LanguageSwitcher from "$lib/components/shared/LanguageSwitcher";
 import TokenStatCards from "./components/TokenStatCards";
 import TokenTimeSeries from "./components/TokenTimeSeries";
 import TokenCostTimeSeries from "./components/TokenCostTimeSeries";
@@ -21,6 +20,7 @@ import TimeBucketTable from "./components/TimeBucketTable";
 import DailySummaryCards from "./components/DailySummaryCards";
 import ContributionGraph from "./components/ContributionGraph";
 import TokensPageSkeleton from "./components/TokensPageSkeleton";
+import { RefreshCw } from "lucide-react";
 import {
   cacheReadRatio,
   classifyDataResolution,
@@ -38,6 +38,7 @@ interface PageCache {
   analyticsDaily: TokenAnalytics;
   cacheEfficiency: CacheEfficiency;
   datePreset: DatePreset;
+  dailyPreset: DatePreset;
 }
 let _cache: PageCache | null = null;
 
@@ -73,6 +74,68 @@ export default function TokensPage() {
     return { dateStart: dateEnd - days * 86400, dateEnd };
   }
 
+  function cacheEfficiencyFromDaily(ad: TokenAnalytics): CacheEfficiency {
+    const totalInput = ad.total_input_tokens + ad.total_cache_read_tokens;
+    return {
+      total_input_tokens: ad.total_input_tokens,
+      cache_read_tokens: ad.total_cache_read_tokens,
+      cache_write_tokens: ad.total_cache_write_tokens,
+      cache_hit_ratio: totalInput > 0 ? ad.total_cache_read_tokens / totalInput : 0,
+      cache_cost_saved: ad.total_cache_read_tokens / 1_000_000 * (3.0 - 0.3),
+    };
+  }
+
+  async function fetchAnalyticsSnapshot(
+    nextDatePreset: DatePreset,
+    nextDailyPreset: DatePreset,
+    refreshFirst: boolean,
+  ): Promise<PageCache> {
+    if (refreshFirst) {
+      await api.tokenAnalytics.refresh();
+    }
+
+    const bounds = getDateBounds(DATE_PRESETS.find((p) => p.key === nextDatePreset)!.days);
+    const dailyBounds = getDateBounds(DATE_PRESETS.find((p) => p.key === nextDailyPreset)!.days);
+    const [monthly, ad] = await Promise.all([
+      api.tokenAnalytics.get({ granularity: "monthly", ...bounds,
+        sourceOverride: nextDatePreset !== "days90" ? "auto_dated" : undefined }),
+      api.tokenAnalytics.get({ granularity: "daily", ...dailyBounds,
+        sourceOverride: "auto_dated" }),
+    ]);
+
+    return {
+      analytics: monthly,
+      analyticsDaily: ad,
+      cacheEfficiency: cacheEfficiencyFromDaily(ad),
+      datePreset: nextDatePreset,
+      dailyPreset: nextDailyPreset,
+    };
+  }
+
+  async function handleRefresh() {
+    if (isFetchingRef.current) return;
+    isFetchingRef.current = true;
+    _cache = null;
+    setAnalytics(null);
+    setAnalyticsDaily(null);
+    setCacheEfficiency(null);
+    setLoading(true);
+    setError(null);
+
+    try {
+      const snapshot = await fetchAnalyticsSnapshot(datePreset, dailyPreset, true);
+      setAnalytics(snapshot.analytics);
+      setAnalyticsDaily(snapshot.analyticsDaily);
+      setCacheEfficiency(snapshot.cacheEfficiency);
+      _cache = snapshot;
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setLoading(false);
+      isFetchingRef.current = false;
+    }
+  }
+
   // Main data fetch — runs when datePreset changes.
   useEffect(() => {
     // StrictMode mounts twice; skip the second if first is already running.
@@ -82,10 +145,10 @@ export default function TokensPage() {
     let cancelled = false;
 
     // Clear stale cache when preset changes.
-    if (_cache && _cache.datePreset !== datePreset) _cache = null;
+    if (_cache && (_cache.datePreset !== datePreset || _cache.dailyPreset !== dailyPreset)) _cache = null;
 
     // If cache hit → show skeleton for one paint then swap in cached data.
-    const cached = _cache?.datePreset === datePreset ? _cache : null;
+    const cached = _cache?.datePreset === datePreset && _cache.dailyPreset === dailyPreset ? _cache : null;
     if (cached) {
       // rAF schedules BEFORE next paint; setTimeout(0) inside ensures
       // the skeleton is actually visible for at least one frame.
@@ -110,38 +173,25 @@ export default function TokensPage() {
     let timerId: ReturnType<typeof setTimeout>;
 
     rafId = requestAnimationFrame(() => {
-      timerId = setTimeout(() => {
+      timerId = setTimeout(async () => {
         if (cancelled) return;
 
         setLoading(true);
         setError(null);
 
-        const bounds = getDateBounds(DATE_PRESETS.find((p) => p.key === datePreset)!.days);
-        const dailyBounds = getDateBounds(DATE_PRESETS.find((p) => p.key === dailyPreset)!.days);
-
-        Promise.all([
-          api.tokenAnalytics.get({ granularity: "monthly", ...bounds,
-            sourceOverride: datePreset !== "days90" ? "auto_dated" : undefined }),
-          api.tokenAnalytics.get({ granularity: "daily", ...dailyBounds,
-            sourceOverride: "auto_dated" }),
-        ])
-          .then(([monthly, ad]) => {
-            if (cancelled) return;
-            const totalInput = ad.total_input_tokens + ad.total_cache_read_tokens;
-            const ce: import("$lib/types").CacheEfficiency = {
-              total_input_tokens: ad.total_input_tokens,
-              cache_read_tokens: ad.total_cache_read_tokens,
-              cache_write_tokens: ad.total_cache_write_tokens,
-              cache_hit_ratio: totalInput > 0 ? ad.total_cache_read_tokens / totalInput : 0,
-              cache_cost_saved: ad.total_cache_read_tokens / 1_000_000 * (3.0 - 0.3),
-            };
-            setAnalytics(monthly);
-            setAnalyticsDaily(ad);
-            setCacheEfficiency(ce);
-            _cache = { analytics: monthly, analyticsDaily: ad, cacheEfficiency: ce, datePreset };
-          })
-          .catch((e) => { if (!cancelled) setError(String(e)); })
-          .finally(() => { if (!cancelled) setLoading(false); isFetchingRef.current = false; });
+        try {
+          const snapshot = await fetchAnalyticsSnapshot(datePreset, dailyPreset, false);
+          if (cancelled) return;
+          setAnalytics(snapshot.analytics);
+          setAnalyticsDaily(snapshot.analyticsDaily);
+          setCacheEfficiency(snapshot.cacheEfficiency);
+          _cache = snapshot;
+        } catch (e) {
+          if (!cancelled) setError(String(e));
+        } finally {
+          if (!cancelled) setLoading(false);
+          isFetchingRef.current = false;
+        }
       }, 0);
     });
 
@@ -166,7 +216,6 @@ export default function TokensPage() {
       <div className="px-6 pt-5 flex-shrink-0">
         <div className="flex items-center justify-between mb-3">
           <h1 className="text-xl font-semibold text-text-primary">{t(locale, "tokens.title")}</h1>
-          <LanguageSwitcher />
         </div>
       </div>
 
@@ -193,17 +242,30 @@ export default function TokensPage() {
             const active = isDaily ? dailyPreset : datePreset;
             const setter = isDaily ? setDailyPreset : setDatePreset;
             return (
-              <button
-                key={preset.key}
-                onClick={() => setter(preset.key)}
-                className={`px-2.5 py-1 text-xs font-medium rounded transition-colors ${
-                  active === preset.key
-                    ? "bg-bg-secondary text-text-primary border border-border shadow-sm"
-                    : "text-text-muted hover:text-text-secondary"
-                }`}
-              >
-                {t(locale, `tokens.dateRange.${preset.key}` as never)}
-              </button>
+              <div key={preset.key} className="flex items-center gap-1">
+                {preset.key === "today" && (
+                  <button
+                    type="button"
+                    onClick={handleRefresh}
+                    disabled={loading}
+                    title={t(locale, "tokens.refresh")}
+                    aria-label={t(locale, "tokens.refresh")}
+                    className="inline-flex h-7 w-7 items-center justify-center rounded border border-border bg-bg-secondary text-text-muted shadow-sm transition-colors hover:bg-bg-hover hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    <RefreshCw size={13} className={loading ? "animate-spin" : ""} />
+                  </button>
+                )}
+                <button
+                  onClick={() => setter(preset.key)}
+                  className={`px-2.5 py-1 text-xs font-medium rounded transition-colors ${
+                    active === preset.key
+                      ? "bg-bg-secondary text-text-primary border border-border shadow-sm"
+                      : "text-text-muted hover:text-text-secondary"
+                  }`}
+                >
+                  {t(locale, `tokens.dateRange.${preset.key}` as never)}
+                </button>
+              </div>
             );
           })}
         </div>
@@ -219,7 +281,7 @@ export default function TokensPage() {
               </div>
             )}
 
-            {loading && !analytics ? (
+            {loading ? (
               <TokensPageSkeleton />
             ) : analytics ? (
               <>

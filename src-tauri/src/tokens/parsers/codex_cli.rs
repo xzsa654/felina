@@ -127,6 +127,10 @@ struct LegacyCodexMessage {
 
 pub struct CodexCliParser;
 
+fn split_codex_input_cache(raw_input: u64, cached_input: u64) -> (u64, u64) {
+    (raw_input.saturating_sub(cached_input), cached_input)
+}
+
 impl AgentParser for CodexCliParser {
     fn agent_id(&self) -> AgentId {
         AgentId::CodexCli
@@ -227,13 +231,17 @@ impl CodexCliParser {
                                     let output = u.output_tokens.unwrap_or(0);
                                     let total = u.total_tokens.unwrap_or(0);
 
+                                    let cache_read_tokens = u.cached_input_tokens.unwrap_or(0);
                                     let (input_tokens, output_tokens) = if input == 0
                                         && output == 0
                                         && total > 0
                                     {
                                         ((total as f64 * 0.7) as u64, (total as f64 * 0.3) as u64)
                                     } else {
-                                        (input, output)
+                                        (
+                                            split_codex_input_cache(input, cache_read_tokens).0,
+                                            output,
+                                        )
                                     };
 
                                     let model = current_model
@@ -253,7 +261,7 @@ impl CodexCliParser {
                                         timestamp,
                                         input_tokens,
                                         output_tokens,
-                                        cache_read_tokens: u.cached_input_tokens.unwrap_or(0),
+                                        cache_read_tokens,
                                         cache_write_tokens: 0,
                                         reasoning_tokens: u.reasoning_output_tokens.unwrap_or(0),
                                         project: None,
@@ -376,12 +384,15 @@ impl CodexCliParser {
                                 let output = u.output_tokens.unwrap_or(0);
                                 let total = u.total_tokens.unwrap_or(0);
 
-                                let (input_tokens, output_tokens) =
-                                    if input == 0 && output == 0 && total > 0 {
-                                        ((total as f64 * 0.7) as u64, (total as f64 * 0.3) as u64)
-                                    } else {
-                                        (input, output)
-                                    };
+                                let cache_read_tokens = u.cached_input_tokens.unwrap_or(0);
+                                let (input_tokens, output_tokens) = if input == 0
+                                    && output == 0
+                                    && total > 0
+                                {
+                                    ((total as f64 * 0.7) as u64, (total as f64 * 0.3) as u64)
+                                } else {
+                                    (split_codex_input_cache(input, cache_read_tokens).0, output)
+                                };
 
                                 let model = current_model
                                     .clone()
@@ -400,7 +411,7 @@ impl CodexCliParser {
                                     timestamp,
                                     input_tokens,
                                     output_tokens,
-                                    cache_read_tokens: u.cached_input_tokens.unwrap_or(0),
+                                    cache_read_tokens,
                                     cache_write_tokens: 0,
                                     reasoning_tokens: u.reasoning_output_tokens.unwrap_or(0),
                                     project: None,
@@ -444,10 +455,11 @@ impl CodexCliParser {
         let output = usage.completion_tokens.or(usage.output_tokens).unwrap_or(0);
         let total = usage.total_tokens.unwrap_or(0);
 
+        let cache_read_tokens = usage.cache_read_tokens.unwrap_or(0);
         let (input_tokens, output_tokens) = if input == 0 && output == 0 && total > 0 {
             ((total as f64 * 0.7) as u64, (total as f64 * 0.3) as u64)
         } else {
-            (input, output)
+            (split_codex_input_cache(input, cache_read_tokens).0, output)
         };
 
         let timestamp = entry
@@ -463,7 +475,7 @@ impl CodexCliParser {
             timestamp,
             input_tokens,
             output_tokens,
-            cache_read_tokens: usage.cache_read_tokens.unwrap_or(0),
+            cache_read_tokens,
             cache_write_tokens: usage.cache_write_tokens.unwrap_or(0),
             reasoning_tokens: 0,
             project: None,
@@ -509,17 +521,17 @@ impl CodexCliParser {
                 .and_then(|v| v.as_u64())
                 .unwrap_or(0);
 
-            let (input_tokens, output_tokens) = if input == 0 && output == 0 && total > 0 {
-                ((total as f64 * 0.7) as u64, (total as f64 * 0.3) as u64)
-            } else {
-                (input, output)
-            };
-
             let cr = usage
                 .get("cache_read_tokens")
                 .or_else(|| usage.get("cache_read_input_tokens"))
                 .and_then(|v| v.as_u64())
                 .unwrap_or(0);
+            let (input_tokens, output_tokens) = if input == 0 && output == 0 && total > 0 {
+                ((total as f64 * 0.7) as u64, (total as f64 * 0.3) as u64)
+            } else {
+                (split_codex_input_cache(input, cr).0, output)
+            };
+
             let cw = usage
                 .get("cache_write_tokens")
                 .or_else(|| usage.get("cache_creation_input_tokens"))
@@ -548,5 +560,59 @@ impl CodexCliParser {
         } else {
             Vec::new()
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tokens::parsers::AgentParser;
+    use std::fs;
+    use std::path::PathBuf;
+
+    fn temp_file(name: &str, ext: &str, content: &str) -> PathBuf {
+        let path = std::env::temp_dir().join(format!(
+            "felina_codex_parser_{}_{}.{}",
+            name,
+            std::process::id(),
+            ext
+        ));
+        let _ = fs::remove_file(&path);
+        fs::write(&path, content).expect("write fixture");
+        path
+    }
+
+    #[test]
+    fn new_format_subtracts_cached_input_from_raw_codex_input() {
+        let path = temp_file(
+            "cached_input",
+            "jsonl",
+            r#"{"timestamp":"2026-05-26T02:10:45.870Z","type":"turn_context","payload":{"model":"gpt-5.5"}}"#
+                .to_string()
+                .as_str(),
+        );
+        fs::write(
+            &path,
+            concat!(
+                r#"{"timestamp":"2026-05-26T02:10:45.870Z","type":"turn_context","payload":{"model":"gpt-5.5"}}"#,
+                "\n",
+                r#"{"timestamp":"2026-05-26T02:10:45.870Z","type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":228220,"cached_input_tokens":227200,"output_tokens":48,"reasoning_output_tokens":0,"total_tokens":228268}}}}"#,
+                "\n"
+            ),
+        )
+        .expect("write fixture");
+
+        let events = CodexCliParser.parse_file(&path).expect("parse");
+
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].input_tokens, 1_020);
+        assert_eq!(events[0].cache_read_tokens, 227_200);
+        assert_eq!(events[0].output_tokens, 48);
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn cached_input_normalization_saturates_when_cache_exceeds_input() {
+        assert_eq!(split_codex_input_cache(100, 150), (0, 150));
     }
 }
