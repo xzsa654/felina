@@ -40,8 +40,8 @@ const STATE_ICON: Record<SyncState, string> = {
 };
 
 const STATE_CLASS: Record<SyncState, string> = {
-  synced: "text-emerald-400",
-  dirty: "text-amber-400",
+  synced: "text-success",
+  dirty: "text-warning",
   "not-synced": "text-text-secondary",
   disabled: "text-text-secondary opacity-50",
   "no-target": "",
@@ -158,7 +158,7 @@ export default function CoverageMatrix({ entries, knownProjects }: Props) {
                   key={`${skill.name}-${col.key}`}
                   className={`px-2 py-1 text-center border-b border-border/50 ${
                     isProjectNotFound
-                      ? "text-red-400"
+                      ? "text-danger"
                       : STATE_CLASS[state]
                   }`}
                   title={

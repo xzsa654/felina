@@ -341,18 +341,18 @@ export default function SkillsPage() {
         <PendingPushBar />
 
         {error && (
-          <div className="text-xs text-red-400 bg-red-500/10 border border-red-500/30 rounded px-3 py-2 mb-4">
+          <div className="text-xs text-danger bg-danger-dim border border-danger/30 rounded px-3 py-2 mb-4">
             {error}
           </div>
         )}
 
         {nameAdvisory && (
-          <div className="text-xs text-amber-400 bg-amber-500/10 border border-amber-500/30 rounded px-3 py-2 mb-4 flex items-center justify-between">
+          <div className="text-xs text-warning bg-warning-dim border border-warning/30 rounded px-3 py-2 mb-4 flex items-center justify-between">
             <span>{nameAdvisory}</span>
             <button
               type="button"
               onClick={() => setNameAdvisory(null)}
-              className="ml-2 text-amber-400 hover:text-amber-300"
+              className="ml-2 text-warning hover:text-warning/80"
             >
               ×
             </button>
@@ -385,9 +385,9 @@ export default function SkillsPage() {
                     <span
                       className={
                         projectNotFound
-                          ? "text-red-400"
+                          ? "text-danger"
                           : entry
-                            ? "text-emerald-400"
+                            ? "text-success"
                             : "text-text-secondary"
                       }
                     >
@@ -397,7 +397,7 @@ export default function SkillsPage() {
                     <span className="text-text-secondary">{tgt.scope === "project" ? t(locale, "skills.addTargetDialog.scopeProject") : t(locale, "skills.addTargetDialog.scopeGlobal")}</span>
                     <span
                       className={
-                        projectNotFound ? "text-red-400" : "text-text-secondary"
+                        projectNotFound ? "text-danger" : "text-text-secondary"
                       }
                     >
                       {projectNotFound

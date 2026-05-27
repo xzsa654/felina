@@ -39,10 +39,10 @@ export default function PendingPushBar() {
   return (
     <div
       role="status"
-      className="mb-4 px-4 py-2.5 rounded border border-amber-500/30 bg-amber-500/10 flex items-center justify-between gap-3"
+      className="mb-4 px-4 py-2.5 rounded border border-warning/30 bg-warning-dim flex items-center justify-between gap-3"
     >
-      <div className="flex items-center gap-2 text-sm text-amber-200">
-        <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+      <div className="flex items-center gap-2 text-sm text-warning">
+        <span className="w-2 h-2 rounded-full bg-warning animate-pulse" />
         {label}
       </div>
       <button

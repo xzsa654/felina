@@ -91,7 +91,7 @@ export default function SyncPreviewDialog({
 
         <div className="p-5 overflow-y-auto max-h-[24rem] space-y-3">
           {needsDecision.length > 0 && (
-            <div className="rounded border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-200 flex gap-2">
+            <div className="rounded border border-warning/30 bg-warning-dim px-3 py-2 text-sm text-warning flex gap-2">
               <AlertTriangle size={16} className="shrink-0 mt-0.5" />
               {t(locale, "skills.syncPreview.decisionRequired")}
             </div>
@@ -190,7 +190,7 @@ function impactSummaryKey(summary: ReturnType<typeof summarize>) {
 
 function operationClass(operation: SkillSyncPreviewItem["operation"]): string {
   if (operation === "blockedDrift" || operation === "overwriteUnknown") {
-    return "text-amber-300";
+    return "text-warning";
   }
   if (operation === "create" || operation === "overwrite") {
     return "text-accent";
@@ -198,5 +198,5 @@ function operationClass(operation: SkillSyncPreviewItem["operation"]): string {
   if (operation === "skipped") {
     return "text-text-secondary";
   }
-  return "text-emerald-400";
+  return "text-success";
 }

@@ -146,7 +146,7 @@ export default function SkillImportWizard({ projectPath, onClose }: Props) {
         <div className="flex-1 overflow-y-auto px-5 py-3 flex flex-col gap-3">
           {loading && <div className="text-sm text-text-secondary">{t(locale, "skills.importWizard.scanning")}</div>}
           {error && (
-            <div className="text-xs text-red-400 bg-red-500/10 border border-red-500/30 rounded px-3 py-2">
+            <div className="text-xs text-danger bg-danger-dim border border-danger/30 rounded px-3 py-2">
               {error}
             </div>
           )}
@@ -234,9 +234,9 @@ export default function SkillImportWizard({ projectPath, onClose }: Props) {
                     </div>
                   )}
                   {conflictWarning && (
-                    <div className="text-xs bg-amber-500/10 border border-amber-500/30 rounded p-2 text-amber-200">
+                    <div className="text-xs bg-warning-dim border border-warning/30 rounded p-2 text-warning">
                       <div className="font-medium mb-1">{t(locale, "skills.importWizard.conflictTitle")}</div>
-                      <div className="font-mono text-[10px] text-amber-100/80">
+                      <div className="font-mono text-[10px] text-warning/80">
                         {conflictWarning.canonicalPath}
                       </div>
                       <div className="mt-1">
@@ -321,12 +321,12 @@ export default function SkillImportWizard({ projectPath, onClose }: Props) {
                   </div>
                   <div className="shrink-0 flex items-center gap-2">
                     {c.validationError && (
-                      <div className="inline-flex items-center gap-1 text-xs text-red-400">
+                      <div className="inline-flex items-center gap-1 text-xs text-danger">
                         <AlertTriangle size={12} /> {t(locale, "skills.importWizard.validationError")}
                       </div>
                     )}
                     {c.conflict && (
-                      <div className="inline-flex items-center gap-1 text-xs text-amber-400">
+                      <div className="inline-flex items-center gap-1 text-xs text-warning">
                         <AlertTriangle size={12} /> {t(locale, "skills.importWizard.conflict")}
                       </div>
                     )}
@@ -334,16 +334,16 @@ export default function SkillImportWizard({ projectPath, onClose }: Props) {
                 </div>
 
                 {c.validationError && (
-                  <div className="text-xs bg-red-500/10 border border-red-500/30 rounded p-2 text-red-300">
+                  <div className="text-xs bg-danger-dim border border-danger/30 rounded p-2 text-danger">
                     <div className="font-medium mb-1">{t(locale, "skills.importWizard.importsAsBroken")}</div>
-                    <div className="font-mono text-[10px] text-red-200/80">{c.validationError}</div>
+                    <div className="font-mono text-[10px] text-danger/80">{c.validationError}</div>
                   </div>
                 )}
 
                 {c.conflict && (
-                  <div className="text-xs bg-amber-500/10 border border-amber-500/30 rounded p-2 text-amber-200">
+                  <div className="text-xs bg-warning-dim border border-warning/30 rounded p-2 text-warning">
                     <div className="font-medium mb-1">{t(locale, "skills.importWizard.conflictTitle")}</div>
-                    <div className="font-mono text-[10px] text-amber-100/80">
+                    <div className="font-mono text-[10px] text-warning/80">
                       {c.conflict.canonicalPath}
                     </div>
                     <div className="mt-1">{c.conflict.diffSummary}</div>

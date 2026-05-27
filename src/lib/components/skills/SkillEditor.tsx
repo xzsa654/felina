@@ -173,7 +173,7 @@ export default function SkillEditor({ skill, brokenRaw, onSaved, onCancel, onDel
     return (
       <div className="flex flex-col gap-4 p-4">
         <div className="flex items-center justify-between gap-2 border-b border-border pb-3">
-          <div className="text-xs text-red-400 truncate">
+          <div className="text-xs text-danger truncate">
             {t(locale, "skills.editor.rawTitle", { name: brokenRaw.name })}
           </div>
           <div className="flex items-center gap-2 shrink-0">
@@ -181,7 +181,7 @@ export default function SkillEditor({ skill, brokenRaw, onSaved, onCancel, onDel
               <button
                 type="button"
                 onClick={onDelete}
-                className="inline-flex items-center gap-1 text-xs px-2 py-1.5 rounded text-red-400 hover:bg-red-500/10"
+                className="inline-flex items-center gap-1 text-xs px-2 py-1.5 rounded text-danger hover:bg-danger-dim"
                 title={t(locale, "skills.editor.deleteTitle")}
               >
                 <Trash2 size={12} /> {t(locale, "skills.editor.delete")}
@@ -220,7 +220,7 @@ export default function SkillEditor({ skill, brokenRaw, onSaved, onCancel, onDel
         <p className="text-xs text-text-secondary">{t(locale, "skills.editor.rawHint")}</p>
 
         {error && (
-          <div className="text-xs text-red-400 bg-red-500/10 border border-red-500/30 rounded px-3 py-2 whitespace-pre-wrap">
+          <div className="text-xs text-danger bg-danger-dim border border-danger/30 rounded px-3 py-2 whitespace-pre-wrap">
             {error}
           </div>
         )}
@@ -264,7 +264,7 @@ export default function SkillEditor({ skill, brokenRaw, onSaved, onCancel, onDel
             <button
               type="button"
               onClick={onDelete}
-              className="inline-flex items-center gap-1 text-xs px-2 py-1.5 rounded text-red-400 hover:bg-red-500/10"
+              className="inline-flex items-center gap-1 text-xs px-2 py-1.5 rounded text-danger hover:bg-danger-dim"
               title={t(locale, "skills.editor.deleteTitle")}
             >
               <Trash2 size={12} /> {t(locale, "skills.editor.delete")}
@@ -283,7 +283,7 @@ export default function SkillEditor({ skill, brokenRaw, onSaved, onCancel, onDel
       </div>
 
       {error && (
-        <div className="text-xs text-red-400 bg-red-500/10 border border-red-500/30 rounded px-3 py-2">
+        <div className="text-xs text-danger bg-danger-dim border border-danger/30 rounded px-3 py-2">
           {error}
         </div>
       )}
@@ -304,7 +304,7 @@ export default function SkillEditor({ skill, brokenRaw, onSaved, onCancel, onDel
             className="w-full px-2 py-1.5 rounded bg-bg-primary border border-border text-sm focus:outline-none focus:border-accent disabled:opacity-60"
             placeholder={t(locale, "skills.editor.namePlaceholder")}
           />
-          {isNew && nameError && <span className="text-xs text-red-400">{nameError}</span>}
+          {isNew && nameError && <span className="text-xs text-danger">{nameError}</span>}
           {!isNew && (
             <span className="text-xs text-text-secondary">
               {t(locale, "skills.editor.renameHint")}
@@ -369,7 +369,7 @@ export default function SkillEditor({ skill, brokenRaw, onSaved, onCancel, onDel
                   onClick={() =>
                     setExtras((prev) => prev.filter((_, i) => i !== idx))
                   }
-                  className="p-1 text-text-secondary hover:text-red-400"
+                  className="p-1 text-text-secondary hover:text-danger"
                   title={t(locale, "skills.editor.removeRow")}
                 >
                   <Trash2 size={14} />

@@ -214,7 +214,7 @@ export default function TokensPage() {
         <PageBody>
           <div className="px-6 py-4 space-y-4">
             {error && (
-              <div className="px-4 py-2 bg-red-500/10 border border-red-500/30 rounded-md text-sm text-red-400">
+              <div className="px-4 py-2 bg-danger-dim border border-danger/30 rounded-md text-sm text-danger">
                 {error}
               </div>
             )}

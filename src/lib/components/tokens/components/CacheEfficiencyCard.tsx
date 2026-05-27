@@ -71,7 +71,7 @@ export default function CacheEfficiencyCard({
             <span className="text-text-muted">
               {t(locale, "tokens.cacheEfficiency.estimatedSavings")}
             </span>
-            <p className="text-green-500 font-medium">
+            <p className="text-success font-medium">
               {formatCostFull(data.cache_cost_saved, locale)}
             </p>
           </div>

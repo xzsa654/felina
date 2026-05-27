@@ -145,7 +145,7 @@ export default function AgentPathsSection() {
       {open && (
         <div className="border-t border-border p-4 flex flex-col gap-4">
           {info && (
-            <div className="text-xs text-emerald-300 bg-emerald-500/10 border border-emerald-500/30 rounded px-3 py-2">
+            <div className="text-xs text-success bg-success-dim border border-success/30 rounded px-3 py-2">
               {info}
             </div>
           )}
@@ -205,8 +205,8 @@ export default function AgentPathsSection() {
           <div className="absolute inset-0 bg-black/50" aria-hidden="true" />
           <div className="relative bg-bg-secondary border border-border rounded-xl shadow-2xl max-w-lg w-[90vw] p-6 z-10 flex flex-col gap-4">
             <div className="flex items-start gap-3">
-              <div className="w-10 h-10 rounded-full bg-red-500/10 flex items-center justify-center shrink-0">
-                <AlertTriangle size={20} className="text-red-400" />
+              <div className="w-10 h-10 rounded-full bg-danger-dim flex items-center justify-center shrink-0">
+                <AlertTriangle size={20} className="text-danger" />
               </div>
               <div className="min-w-0 flex-1">
                 <h3

@@ -59,7 +59,7 @@ export default function CostBudgetCard({
             <p className="text-xs text-text-muted">
               {t(locale, "tokens.costBudget.allScopeAggregate")}
             </p>
-            <p className="text-xs text-amber-400">
+            <p className="text-xs text-warning">
               {t(locale, "tokens.costBudget.estimatedNotice")}
             </p>
           </div>

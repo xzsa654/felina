@@ -167,7 +167,7 @@ function TopSessions({ data, locale }: { data: DaySessionBreakdown[]; locale: Lo
                 <td className="py-1">
                   <div className="flex items-center justify-end gap-1.5">
                     {rowStatus && (
-                      <span className="text-[9px] text-amber-400 whitespace-nowrap">
+                      <span className="text-[9px] text-warning whitespace-nowrap">
                         {t(locale, "tokens.dayDetail.sessionNotFound" as never)}
                       </span>
                     )}
@@ -445,7 +445,7 @@ export default function DayDetailPanel({ date, locale }: { date: string; locale:
   }, [date]);
 
   if (error) {
-    return <div className="py-4 text-xs text-red-400">{t(locale, "common.error")}</div>;
+    return <div className="py-4 text-xs text-danger">{t(locale, "common.error")}</div>;
   }
   if (phase === "mini") return <MiniSkeleton />;
   if (phase === "skeleton" || !panelData) return <FullSkeleton />;

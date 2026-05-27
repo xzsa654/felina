@@ -28,11 +28,11 @@ export default function DataResolutionPanel({
         <div className="flex items-center gap-3 min-w-0">
           <div className="w-9 h-9 rounded-md bg-bg-tertiary border border-border flex items-center justify-center shrink-0">
             {isAggregate ? (
-              <Database size={16} className="text-amber-400" />
+              <Database size={16} className="text-warning" />
             ) : resolution.hasHourlyBuckets ? (
-              <Clock size={16} className="text-green-400" />
+              <Clock size={16} className="text-success" />
             ) : (
-              <BarChart3 size={16} className="text-blue-400" />
+              <BarChart3 size={16} className="text-info" />
             )}
           </div>
           <div className="min-w-0">

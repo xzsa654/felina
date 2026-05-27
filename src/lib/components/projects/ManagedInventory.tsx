@@ -113,7 +113,7 @@ export default function ManagedInventory({ project, onChanged }: Props) {
 
   if (!projectExists) {
     return (
-      <div className="p-6 text-sm text-red-400">
+      <div className="p-6 text-sm text-danger">
         {t(locale, "projects.notFoundMessage", { path: project.path })}
       </div>
     );
@@ -122,7 +122,7 @@ export default function ManagedInventory({ project, onChanged }: Props) {
   return (
     <div className="flex flex-col">
       {error && (
-        <div className="m-3 text-xs text-red-400 bg-red-500/10 border border-red-500/30 rounded px-3 py-2">
+        <div className="m-3 text-xs text-danger bg-danger-dim border border-danger/30 rounded px-3 py-2">
           {error}
         </div>
       )}
@@ -158,7 +158,7 @@ export default function ManagedInventory({ project, onChanged }: Props) {
                 <td className="px-3 py-2 font-mono text-text-primary">{row.skillName}</td>
                 <td className="px-3 py-2">
                   {row.managed ? (
-                    <span className="text-emerald-400">{t(locale, "projects.inventory.managed")}</span>
+                    <span className="text-success">{t(locale, "projects.inventory.managed")}</span>
                   ) : (
                     <span className="text-text-muted">{t(locale, "projects.inventory.unmanaged")}</span>
                   )}
