@@ -407,6 +407,13 @@ fn transcript_entries_from_value(value: &serde_json::Value) -> Vec<TranscriptEnt
     let item = value
         .get("payload")
         .and_then(|p| p.get("item"))
+        .or_else(|| {
+            if value.get("type").and_then(|v| v.as_str()) == Some("response_item") {
+                value.get("payload")
+            } else {
+                None
+            }
+        })
         .or_else(|| value.get("item"))
         .or_else(|| value.get("message"));
 
@@ -990,6 +997,38 @@ mod tests {
         assert_eq!(transcript.entries[2].role, "usage");
         assert_eq!(transcript.entries[2].input_tokens, Some(10));
         assert_eq!(transcript.entries[2].cache_read_tokens, Some(3));
+        cleanup_path(&root);
+    }
+
+    #[test]
+    fn read_session_transcript_parses_codex_response_item_message_payloads() {
+        let root = temp_dir("read_codex_message_payload");
+        fs::write(
+            root.join("codexpayload.jsonl"),
+            concat!(
+                r#"{"timestamp":"2026-05-23T16:00:00Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"look at history"}]}}"#,
+                "\n",
+                r#"{"timestamp":"2026-05-23T16:00:01Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"history is visible"}]}}"#,
+                "\n",
+                r#"{"timestamp":"2026-05-23T16:00:02Z","type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":10,"output_tokens":5}}}}"#,
+                "\n",
+            ),
+        )
+        .expect("write transcript");
+
+        let transcript = read_session_transcript_from_roots(
+            AgentId::CodexCli,
+            "codexpayload".into(),
+            &[(AgentId::CodexCli, vec![root.clone()])],
+        )
+        .expect("read transcript");
+
+        assert_eq!(transcript.entries.len(), 3);
+        assert_eq!(transcript.entries[0].role, "user");
+        assert_eq!(transcript.entries[0].content, "look at history");
+        assert_eq!(transcript.entries[1].role, "assistant");
+        assert_eq!(transcript.entries[1].content, "history is visible");
+        assert_eq!(transcript.entries[2].role, "usage");
         cleanup_path(&root);
     }
 

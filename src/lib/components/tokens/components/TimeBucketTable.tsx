@@ -1,4 +1,4 @@
-import { useState, startTransition, useMemo } from "react";
+import { useEffect, useState, startTransition, useMemo } from "react";
 import type { TokenBucket } from "$lib/types";
 import type { Locale } from "$lib/i18n";
 import { t } from "$lib/i18n";
@@ -26,9 +26,13 @@ const COMPOSITION_PARTS = [
 export default function TimeBucketTable({
   data,
   locale,
+  selectedDate,
+  onSelectDate,
 }: {
   data: TokenBucket[];
   locale: Locale;
+  selectedDate?: string | null;
+  onSelectDate?: (date: string) => void;
 }) {
   const [sortField, setSortField] = useState<SortField>("label");
   const [sortAsc, setSortAsc] = useState(false);
@@ -60,6 +64,7 @@ export default function TimeBucketTable({
   }
 
   function toggleExpand(label: string) {
+    onSelectDate?.(label);
     // startTransition marks this as non-urgent so React paints the click
     // feedback first, then renders the expanded content in the background.
     startTransition(() => {
@@ -70,6 +75,30 @@ export default function TimeBucketTable({
       });
     });
   }
+
+  useEffect(() => {
+    if (!selectedDate || !dated.some((bucket) => bucket.label === selectedDate)) return;
+
+    const selectedIndex = sorted.findIndex((bucket) => bucket.label === selectedDate);
+    if (selectedIndex >= 0 && selectedIndex >= visibleCount) {
+      setVisibleCount(Math.ceil((selectedIndex + 1) / PAGE_SIZE) * PAGE_SIZE);
+    }
+
+    setExpanded((prev) => {
+      if (prev.has(selectedDate)) return prev;
+      const next = new Set(prev);
+      next.add(selectedDate);
+      return next;
+    });
+
+    const timer = setTimeout(() => {
+      document
+        .getElementById(`tokens-day-${selectedDate}`)
+        ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 0);
+
+    return () => clearTimeout(timer);
+  }, [dated, selectedDate, sorted, visibleCount]);
 
   const arrow = (f: SortField) => sortField === f ? (sortAsc ? " ↑" : " ↓") : "";
 
@@ -128,6 +157,7 @@ export default function TimeBucketTable({
               return [
                 <tr
                   key={b.label}
+                  id={`tokens-day-${b.label}`}
                   className="border-b border-border/40 hover:bg-bg-tertiary/40 transition-colors cursor-pointer"
                   onClick={() => toggleExpand(b.label)}
                 >

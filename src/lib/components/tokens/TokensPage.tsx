@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { useSearchParams } from "react-router";
 import { api } from "$lib/tauri/commands";
 import type {
   TokenAnalytics,
@@ -19,7 +20,11 @@ import AgentQuotaPanel from "./components/AgentQuotaPanel";
 import TimeBucketTable from "./components/TimeBucketTable";
 import DailySummaryCards from "./components/DailySummaryCards";
 import ContributionGraph from "./components/ContributionGraph";
-import TokensPageSkeleton from "./components/TokensPageSkeleton";
+import {
+  DailyTokensPageSkeleton,
+  ModelsTokensPageSkeleton,
+  OverviewTokensPageSkeleton,
+} from "./components/TokensPageSkeleton";
 import { RefreshCw } from "lucide-react";
 import {
   cacheReadRatio,
@@ -55,9 +60,34 @@ const TABS: { key: Tab; i18nKey: string }[] = [
   { key: "models", i18nKey: "tokens.tabs.models" },
 ];
 
+const DATE_LABEL_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+function parseTab(value: string | null): Tab | null {
+  return value === "overview" || value === "daily" || value === "models" ? value : null;
+}
+
+function parseDate(value: string | null): string | null {
+  return value && DATE_LABEL_RE.test(value) ? value : null;
+}
+
+function TokensPageSkeletonForTab({ tab }: { tab: Tab }) {
+  switch (tab) {
+    case "daily":
+      return <DailyTokensPageSkeleton />;
+    case "models":
+      return <ModelsTokensPageSkeleton />;
+    default:
+      return <OverviewTokensPageSkeleton />;
+  }
+}
+
 export default function TokensPage() {
   const locale = useLocaleStore((s) => s.locale);
-  const [activeTab, setActiveTab] = useState<Tab>("overview");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [activeTab, setActiveTab] = useState<Tab>(
+    () => parseTab(searchParams.get("tab")) ?? (parseDate(searchParams.get("date")) ? "daily" : "overview"),
+  );
+  const [selectedDailyDate, setSelectedDailyDate] = useState<string | null>(() => parseDate(searchParams.get("date")));
   const [datePreset, setDatePreset] = useState<DatePreset>("today");
   const [dailyPreset, setDailyPreset] = useState<DatePreset>("days90");
 
@@ -83,6 +113,36 @@ export default function TokensPage() {
       cache_hit_ratio: totalInput > 0 ? ad.total_cache_read_tokens / totalInput : 0,
       cache_cost_saved: ad.total_cache_read_tokens / 1_000_000 * (3.0 - 0.3),
     };
+  }
+
+  function updateTokenSearchParams(next: { tab?: Tab; date?: string | null }) {
+    setSearchParams((current) => {
+      const params = new URLSearchParams(current);
+      if (next.tab) params.set("tab", next.tab);
+      if (next.date === null) params.delete("date");
+      else if (next.date) params.set("date", next.date);
+      return params;
+    });
+  }
+
+  function handleTabChange(tab: Tab) {
+    setActiveTab(tab);
+    if (tab === "daily") {
+      updateTokenSearchParams({ tab });
+    } else {
+      setSelectedDailyDate(null);
+      updateTokenSearchParams({ tab, date: null });
+    }
+  }
+
+  function handleDailyDateSelect(date: string) {
+    setActiveTab("daily");
+    setSelectedDailyDate(date);
+    updateTokenSearchParams({ tab: "daily", date });
+  }
+
+  function dayDetailHref(date: string): string {
+    return `/tokens?tab=daily&date=${encodeURIComponent(date)}`;
   }
 
   async function fetchAnalyticsSnapshot(
@@ -203,6 +263,16 @@ export default function TokensPage() {
     };
   }, [datePreset, dailyPreset]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  useEffect(() => {
+    const nextTab = parseTab(searchParams.get("tab"));
+    const nextDate = parseDate(searchParams.get("date"));
+    const resolvedTab = nextTab ?? (nextDate ? "daily" : null);
+    if (resolvedTab) {
+      setActiveTab((current) => (current === resolvedTab ? current : resolvedTab));
+    }
+    setSelectedDailyDate(nextDate);
+  }, [searchParams]);
+
   const dataResolution = classifyDataResolution(
     analyticsDaily?.time_series ?? [],
     analyticsDaily?.hourly_heatmap ?? [],
@@ -224,7 +294,7 @@ export default function TokensPage() {
           {TABS.map((tab) => (
             <button
               key={tab.key}
-              onClick={() => setActiveTab(tab.key)}
+              onClick={() => handleTabChange(tab.key)}
               className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px ${
                 activeTab === tab.key
                   ? "border-text-primary text-text-primary"
@@ -282,7 +352,7 @@ export default function TokensPage() {
             )}
 
             {loading ? (
-              <TokensPageSkeleton />
+              <TokensPageSkeletonForTab tab={activeTab} />
             ) : analytics ? (
               <>
                 {/* ── Overview ── */}
@@ -317,8 +387,19 @@ export default function TokensPage() {
                       </div>
                     )}
                     <DailySummaryCards data={analyticsDaily?.time_series ?? []} locale={locale} />
-                    <ContributionGraph data={analyticsDaily?.time_series ?? []} locale={locale} />
-                    <TimeBucketTable data={analyticsDaily?.time_series ?? []} locale={locale} />
+                    <ContributionGraph
+                      data={analyticsDaily?.time_series ?? []}
+                      locale={locale}
+                      selectedDate={selectedDailyDate}
+                      getDayHref={dayDetailHref}
+                      onSelectDate={handleDailyDateSelect}
+                    />
+                    <TimeBucketTable
+                      data={analyticsDaily?.time_series ?? []}
+                      locale={locale}
+                      selectedDate={selectedDailyDate}
+                      onSelectDate={handleDailyDateSelect}
+                    />
                   </div>
                 )}
 
