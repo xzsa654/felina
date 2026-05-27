@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { AlertTriangle, Eye, FolderOpen, Plus, Search, Trash2, X } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
 import type { KnownProject, OrphanFile, SkillTarget } from "$lib/types";
@@ -106,13 +106,34 @@ export default function TargetEditor({ skillName, projectPath, targets, onTarget
     };
   }, [skillName, targets, buffered]);
 
-  async function save(next: SkillTarget[]) {
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingRef = useRef<SkillTarget[] | null>(null);
+
+  const flushSave = useCallback(async (targets: SkillTarget[]) => {
+    await api.skillTargets.set(skillName, targets);
+    await loadEntries();
+  }, [skillName, loadEntries]);
+
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      if (pendingRef.current) void flushSave(pendingRef.current);
+    };
+  }, [flushSave]);
+
+  function save(next: SkillTarget[]) {
     if (buffered) {
       onTargetsChange!(next);
       return;
     }
-    await api.skillTargets.set(skillName, next);
-    await loadEntries();
+    pendingRef.current = next;
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      debounceRef.current = null;
+      const payload = pendingRef.current;
+      pendingRef.current = null;
+      if (payload) void flushSave(payload);
+    }, 300);
   }
 
   function handleStateChange(idx: number, state: UIState) {
@@ -265,7 +286,7 @@ export default function TargetEditor({ skillName, projectPath, targets, onTarget
                 )}
                 {projectNotFound && (
                   <span
-                    className="inline-flex items-center gap-1 text-red-400 shrink-0"
+                    className="inline-flex items-center gap-1 text-danger shrink-0"
                     title={t(locale, "skills.targets.projectNotFoundTooltip")}
                   >
                     <AlertTriangle size={12} /> {t(locale, "skills.projectNotFound")}
@@ -311,7 +332,7 @@ export default function TargetEditor({ skillName, projectPath, targets, onTarget
                       <button
                         type="button"
                         onClick={() => void handleRepoint(tgt)}
-                        className="px-2 py-1 text-[11px] rounded border border-amber-500/30 text-amber-300 hover:bg-amber-500/10"
+                        className="px-2 py-1 text-[11px] rounded border border-warning/30 text-warning hover:bg-warning-dim"
                         title={t(locale, "skills.targets.repointTitle")}
                       >
                         {t(locale, "skills.targets.repoint")}
@@ -350,7 +371,7 @@ export default function TargetEditor({ skillName, projectPath, targets, onTarget
                   <button
                     type="button"
                     onClick={() => handleRemove(i)}
-                    className="p-1 text-text-secondary hover:text-red-400"
+                    className="p-1 text-text-secondary hover:text-danger"
                     title={t(locale, "skills.targets.removeTarget")}
                   >
                     <Trash2 size={12} />
@@ -450,7 +471,7 @@ function TargetContentModal({
             </div>
           )}
           {state.error && (
-            <div className="rounded border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-300">
+            <div className="rounded border border-danger/30 bg-danger-dim p-3 text-xs text-danger">
               {t(locale, "skills.targets.contentFailed", { error: state.error })}
             </div>
           )}

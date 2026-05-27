@@ -109,6 +109,16 @@ Conclusion (2026-05-25):
 - 版本差異長期由 Phase 2 forked overlay 處理。
 - Rationale: project namespace 會動到整個 identity model（sync-meta、fan-out、import、UI），成本與現階段需求不匹配。
 
+### skill-content-markdown-preview
+
+| Field | Value |
+|---|---|
+| type | suggestion |
+| status | not-committed |
+| flagged | 2026-05-27 |
+| last-seen | 2026-05-27 |
+| description | Skill review body 與 sync target Eye button 提供 Markdown 預覽模式，將 MD 語法渲染為閱覽 UI。Memory page 已有 md preview 實作可復用。 |
+
 ---
 
 ## Phase 2 — Skill Sync Advanced
@@ -120,8 +130,15 @@ Conclusion (2026-05-25):
 | type | suggestion |
 | status | not-committed |
 | flagged | 2026-05-20 |
-| last-seen | 2026-05-20 |
+| last-seen | 2026-05-27 |
 | description | App 開啟時掃描 agent skill 目錄與 canonical 的差異，提供三向 diff + 覆蓋/拉回/解綁三種解決動作。 |
+
+Scope (2026-05-27 討論補充):
+- **批次 drift scan API**：一次 IPC 呼叫遍歷所有 enabled tracked target，讀 agent 端 SKILL.md 算 hash 比對 `lastSync.pushed_hash`，回傳 `Map<targetKey, DriftStatus>`。純讀取，不 render、不 write。
+- **觸發時機**：app 啟動、window refocus、手動 reload。不做 file watcher。
+- **前端消費**：矩陣（CoverageMatrix）和 sync info 面板增加 `drifted` 狀態顯示。
+- **與 preview 的關係**：`build_preview_for_skill` 裡的 hash 比對邏輯抽成共用 `check_drift` 函式，preview 和 drift scan 都呼叫。Preview 額外做 render + operation 分類，drift scan 只回傳 hash 是否一致。
+- Push 時的 preview API 不變，仍走完整 render + operation 流程。
 
 ### cross-agent-field-normalize
 
@@ -169,6 +186,21 @@ Design route (2026-05-22 discuss 定案 Route 2 overlay):
 | last-seen | 2026-05-22 |
 | description | Sync info 面板在 agent 數量擴增時的 UI 縮放：摺疊/摘要視圖或 chip 化，失敗 target 展開、成功摺起。 |
 
+### skill-export-validation-pipeline
+
+| Field | Value |
+|---|---|
+| type | suggestion |
+| status | not-committed |
+| flagged | 2026-05-27 |
+| last-seen | 2026-05-27 |
+| description | Fan-out 匯出時搭配各 agent 官方 skill 驗證工具做品質檢查，補強現有 YAML schema 驗證。 |
+
+Notes:
+- Codex 有官方 skill 驗證腳本：`C:/Users/A11410004/.codex/skills/.system/skill-creator/scripts/quick_validate.py`
+- Gemini 有 skill-creator 內建規範：`C:/Users/A11410004/AppData/Roaming/npm/node_modules/@google/gemini-cli/bundle/builtin/skill-creator/SKILL.md`
+- Schema 驗結構，官方腳本驗內容規範，兩者互補。
+
 ---
 
 ## Phase 3 — Skill Community
@@ -182,4 +214,18 @@ Design route (2026-05-22 discuss 定案 Route 2 overlay):
 | flagged | 2026-05-20 |
 | last-seen | 2026-05-20 |
 | description | 公司內部 skill 分享 marketplace。使用者可發佈/訂閱他人 skill。Server stack 初步討論 Vercel + Supabase。會影響 skill schema（需加唯一識別、版本、作者欄位）。 |
+
+---
+
+## UX / General
+
+### contextual-help-button
+
+| Field | Value |
+|---|---|
+| type | suggestion |
+| status | not-committed |
+| flagged | 2026-05-27 |
+| last-seen | 2026-05-27 |
+| description | 右上角增加說明按鈕，解釋比較無法馬上理解的按鈕含義與操作概念。全站性 UX 改善，不限特定 Phase。 |
 
