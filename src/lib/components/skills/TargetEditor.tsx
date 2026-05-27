@@ -9,6 +9,7 @@ import { useLocaleStore } from "$lib/stores/locale";
 import { t } from "$lib/i18n";
 import { isProjectMissing, normalizeProjectPath } from "$lib/utils/path";
 import ConfirmDialog from "$lib/components/shared/ConfirmDialog";
+import MarkdownPreview from "$lib/components/shared/MarkdownPreview";
 import AddTargetDialog from "./AddTargetDialog";
 import type { TargetRemovalPolicy } from "$lib/types";
 
@@ -435,6 +436,10 @@ function TargetContentModal({
   onclose: () => void;
 }) {
   const locale = useLocaleStore((s) => s.locale);
+  const [contentMode, setContentMode] = useState<"preview" | "raw">("preview");
+  useEffect(() => {
+    setContentMode("preview");
+  }, [state?.target.agent, state?.target.scope, state?.target.project, state?.content]);
   if (!state) return null;
   const label =
     state.target.scope === "project"
@@ -455,14 +460,42 @@ function TargetContentModal({
               {t(locale, "skills.targets.contentTitle", { target: label })}
             </h3>
           </div>
-          <button
-            type="button"
-            onClick={onclose}
-            className="p-1 text-text-secondary hover:text-text-primary"
-            title={t(locale, "skills.targets.contentClose")}
-          >
-            <X size={14} />
-          </button>
+          <div className="flex items-center gap-2">
+            {state.content !== null && (
+              <div className="flex gap-1 bg-bg-tertiary rounded-lg p-1">
+                <button
+                  type="button"
+                  onClick={() => setContentMode("preview")}
+                  className={`px-3 py-1 text-xs rounded-md transition-colors ${
+                    contentMode === "preview"
+                      ? "bg-bg-secondary text-text-primary"
+                      : "text-text-muted hover:text-text-secondary"
+                  }`}
+                >
+                  {t(locale, "skills.targets.contentPreview")}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setContentMode("raw")}
+                  className={`px-3 py-1 text-xs rounded-md transition-colors ${
+                    contentMode === "raw"
+                      ? "bg-bg-secondary text-text-primary"
+                      : "text-text-muted hover:text-text-secondary"
+                  }`}
+                >
+                  {t(locale, "skills.targets.contentRaw")}
+                </button>
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={onclose}
+              className="p-1 text-text-secondary hover:text-text-primary"
+              title={t(locale, "skills.targets.contentClose")}
+            >
+              <X size={14} />
+            </button>
+          </div>
         </div>
         <div className="min-h-0 flex-1 overflow-auto p-4">
           {state.loading && (
@@ -475,7 +508,13 @@ function TargetContentModal({
               {t(locale, "skills.targets.contentFailed", { error: state.error })}
             </div>
           )}
-          {state.content !== null && (
+          {state.content !== null && contentMode === "preview" && (
+            <MarkdownPreview
+              markdown={state.content}
+              className="rounded border border-border bg-bg-primary p-3 text-sm"
+            />
+          )}
+          {state.content !== null && contentMode === "raw" && (
             <pre className="whitespace-pre-wrap rounded border border-border bg-bg-primary p-3 font-mono text-xs text-text-primary">
               {state.content}
             </pre>

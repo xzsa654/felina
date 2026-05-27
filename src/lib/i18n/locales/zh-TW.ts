@@ -242,6 +242,8 @@ const zhTW: TranslationDict = {
       removeRow: "移除列",
       addField: "新增欄位",
       bodyLabel: "內容（Markdown）",
+      bodyEdit: "編輯",
+      bodyPreview: "預覽",
       bodyPlaceholder: "# 何時使用此 skill\n\n描述工作流程。",
       rawTitle: "修復損壞的 skill：{name}",
       rawHint: "Frontmatter 無法解析，因此無法推送。請編輯下方的原始 SKILL.md 並儲存以重新驗證。",
@@ -282,6 +284,8 @@ const zhTW: TranslationDict = {
       contentTitle: "Agent 端內容 — {target}",
       contentLoading: "正在載入內容…",
       contentFailed: "無法讀取內容：{error}",
+      contentPreview: "預覽",
+      contentRaw: "原始碼",
       contentClose: "關閉",
     },
     addTargetDialog: {

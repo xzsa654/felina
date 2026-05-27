@@ -240,6 +240,8 @@ const en = {
       removeRow: "Remove row",
       addField: "Add field",
       bodyLabel: "Body (Markdown)",
+      bodyEdit: "Edit",
+      bodyPreview: "Preview",
       bodyPlaceholder: "# When to use this skill\n\nDescribe the workflow.",
       rawTitle: "Repair broken skill: {name}",
       rawHint: "This skill's frontmatter could not be parsed, so it cannot be pushed. Edit the raw SKILL.md below and save to re-validate.",
@@ -280,6 +282,8 @@ const en = {
       contentTitle: "Agent-side content — {target}",
       contentLoading: "Loading content…",
       contentFailed: "Could not read content: {error}",
+      contentPreview: "Preview",
+      contentRaw: "Raw",
       contentClose: "Close",
     },
     addTargetDialog: {

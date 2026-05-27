@@ -6,6 +6,7 @@ import { openPath } from "$lib/tauri/shell";
 import { useSkillsStore } from "$lib/stores/skills-store";
 import { useLocaleStore } from "$lib/stores/locale";
 import { t } from "$lib/i18n";
+import MarkdownPreview from "$lib/components/shared/MarkdownPreview";
 
 interface Props {
   /** `null` when creating a new skill; otherwise the skill being edited. */
@@ -68,6 +69,7 @@ export default function SkillEditor({ skill, brokenRaw, onSaved, onCancel, onDel
   const [name, setName] = useState(isNew ? "" : (skill?.name ?? ""));
   const [description, setDescription] = useState(skill?.description ?? "");
   const [body, setBody] = useState(skill?.body ?? "");
+  const [bodyMode, setBodyMode] = useState<"edit" | "preview">("edit");
   const [extras, setExtras] = useState<ExtraRow[]>(() => initExtras(skill));
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -79,6 +81,7 @@ export default function SkillEditor({ skill, brokenRaw, onSaved, onCancel, onDel
     setName(isNew ? "" : (skill?.name ?? ""));
     setDescription(skill?.description ?? "");
     setBody(skill?.body ?? "");
+    setBodyMode("edit");
     setExtras(initExtras(skill));
     setAdvancedOpen(false);
     setError(null);
@@ -391,16 +394,45 @@ export default function SkillEditor({ skill, brokenRaw, onSaved, onCancel, onDel
 
       {/* ------- Body ------- */}
       <section className="flex flex-col gap-2">
-        <h3 className="text-xs font-semibold uppercase tracking-wide text-text-secondary">
-          {t(locale, "skills.editor.bodyLabel")}
-        </h3>
-        <textarea
-          value={body}
-          onChange={(e) => setBody(e.target.value)}
-          rows={16}
-          className="w-full block resize-y px-3 py-2 rounded bg-bg-primary border border-border text-sm font-mono focus:outline-none focus:border-accent"
-          placeholder={t(locale, "skills.editor.bodyPlaceholder")}
-        />
+        <div className="flex items-center justify-between gap-3">
+          <h3 className="text-xs font-semibold uppercase tracking-wide text-text-secondary">
+            {t(locale, "skills.editor.bodyLabel")}
+          </h3>
+          <div className="flex gap-1 bg-bg-tertiary rounded-lg p-1">
+            <button
+              type="button"
+              onClick={() => setBodyMode("edit")}
+              className={`px-3 py-1 text-xs rounded-md transition-colors ${
+                bodyMode === "edit" ? "bg-bg-secondary text-text-primary" : "text-text-muted hover:text-text-secondary"
+              }`}
+            >
+              {t(locale, "skills.editor.bodyEdit")}
+            </button>
+            <button
+              type="button"
+              onClick={() => setBodyMode("preview")}
+              className={`px-3 py-1 text-xs rounded-md transition-colors ${
+                bodyMode === "preview" ? "bg-bg-secondary text-text-primary" : "text-text-muted hover:text-text-secondary"
+              }`}
+            >
+              {t(locale, "skills.editor.bodyPreview")}
+            </button>
+          </div>
+        </div>
+        {bodyMode === "preview" ? (
+          <MarkdownPreview
+            markdown={body}
+            className="min-h-[22rem] w-full rounded border border-border bg-bg-primary px-3 py-2 text-sm"
+          />
+        ) : (
+          <textarea
+            value={body}
+            onChange={(e) => setBody(e.target.value)}
+            rows={16}
+            className="w-full block resize-y px-3 py-2 rounded bg-bg-primary border border-border text-sm font-mono focus:outline-none focus:border-accent"
+            placeholder={t(locale, "skills.editor.bodyPlaceholder")}
+          />
+        )}
       </section>
 
     </div>
