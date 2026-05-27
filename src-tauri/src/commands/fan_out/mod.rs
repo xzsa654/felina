@@ -441,6 +441,16 @@ pub fn skill_sync_commit(request: SkillSyncCommitRequest) -> Result<Vec<SyncResu
                 }
             }
             SkillSyncPreviewOperation::NoOp => {
+                if let Some(hash) = item.rendered_hash.as_deref().or(item.current_hash.as_deref()) {
+                    meta.last_sync.insert(
+                        item.target_key.clone(),
+                        LastSyncEntry {
+                            pushed_hash: hash.to_string(),
+                            base_snapshot: None,
+                            at: attempted_at.clone(),
+                        },
+                    );
+                }
                 results.push(commit_result_from_item(&item, true, None, &attempted_at));
             }
         }
