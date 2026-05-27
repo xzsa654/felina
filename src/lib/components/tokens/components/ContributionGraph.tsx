@@ -79,9 +79,15 @@ interface TooltipInfo {
 export default function ContributionGraph({
   data,
   locale,
+  selectedDate,
+  getDayHref,
+  onSelectDate,
 }: {
   data: TokenBucket[];
   locale: Locale;
+  selectedDate?: string | null;
+  getDayHref?: (date: string) => string;
+  onSelectDate?: (date: string) => void;
 }) {
   const [tooltip, setTooltip] = useState<TooltipInfo | null>(null);
 
@@ -239,15 +245,24 @@ export default function ContributionGraph({
                     }
                     const level  = cellLevel(cell.tokens, maxTokens);
                     const isToday = cell.key === TODAY_KEY;
+                    const isSelected = cell.key === selectedDate;
                     return (
-                      <div
+                      <a
                         key={cell.key}
+                        href={getDayHref?.(cell.key) ?? `?tab=daily&date=${cell.key}`}
                         className={[
-                          "w-4 h-4 rounded cursor-default transition-all duration-75",
+                          "block w-4 h-4 rounded cursor-pointer transition-all duration-75",
                           LEVEL_BG[level],
-                          "hover:opacity-90 hover:scale-110",
+                          "hover:opacity-90 hover:scale-110 focus:outline-none focus:ring-1 focus:ring-accent",
                           isToday ? "ring-1 ring-white/50 ring-offset-1 ring-offset-bg-secondary" : "",
+                          isSelected ? "ring-2 ring-accent ring-offset-1 ring-offset-bg-secondary" : "",
                         ].join(" ")}
+                        aria-label={`${cell.key}: ${formatNumber(cell.tokens, locale)} tokens`}
+                        onClick={(event) => {
+                          if (!onSelectDate) return;
+                          event.preventDefault();
+                          onSelectDate(cell.key);
+                        }}
                         onMouseEnter={(e) => {
                           const rect = e.currentTarget.getBoundingClientRect();
                           setTooltip({

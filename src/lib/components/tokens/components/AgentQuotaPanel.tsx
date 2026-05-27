@@ -3,6 +3,7 @@ import { RefreshCw } from "lucide-react";
 import type { QuotaSnapshot, AnthropicRateLimits, CodexRateLimits, GeminiRateLimits } from "$lib/types";
 import type { Locale } from "$lib/i18n";
 import { api, type BudgetSettings } from "$lib/tauri/commands";
+import { TokenUsageSkeleton } from "./TokensPageSkeleton";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -133,30 +134,6 @@ function GeminiCard({ limits }: { limits: GeminiRateLimits }) {
   );
 }
 
-// ── Skeleton ──────────────────────────────────────────────────────────────────
-
-function Sk({ w, h = "h-2.5" }: { w: string; h?: string }) {
-  return <div className={`${h} ${w} bg-bg-tertiary rounded animate-pulse`} />;
-}
-
-function CardSkeleton() {
-  return (
-    <div className="space-y-4">
-      <Sk w="w-28" h="h-4" />
-      <div className="space-y-1.5">
-        <div className="flex justify-between"><Sk w="w-28" /><Sk w="w-20" /></div>
-        <Sk w="w-24" />
-        <div className="h-2 bg-bg-tertiary rounded-full animate-pulse" />
-      </div>
-      <div className="space-y-1.5">
-        <div className="flex justify-between"><Sk w="w-16" /><Sk w="w-24" /></div>
-        <Sk w="w-24" />
-        <div className="h-2 bg-bg-tertiary rounded-full animate-pulse" />
-      </div>
-    </div>
-  );
-}
-
 // ── Module-level cache — survives route changes ───────────────────────────────
 let _quotaCache: QuotaSnapshot | null = null;
 let _quotaLastUpdated: Date | null = null;
@@ -173,7 +150,8 @@ export default function AgentQuotaPanel({ locale: _locale }: { locale: Locale })
   const [quotaTtlSeconds, setQuotaTtlSeconds] = useState<number>(_quotaTtlSeconds ?? 180);
   const [, tick] = useState(0);
 
-  const doFetch = useCallback(async () => {
+  const doFetch = useCallback(async (showLoading = false) => {
+    if (showLoading) setLoading(true);
     try {
       const data = await api.tokenAnalytics.getAgentQuotaSnapshot();
       // Merge: keep previous non-null values if the new fetch returned empty data
@@ -232,11 +210,11 @@ export default function AgentQuotaPanel({ locale: _locale }: { locale: Locale })
       current.plan_type,
       next,
     );
-    await doFetch();
+    await doFetch(true);
   }, [doFetch]);
 
   useEffect(() => {
-    doFetch();
+    doFetch(_quotaCache === null);
     const t = setInterval(() => tick((n) => n + 1), 30_000);
     return () => { clearInterval(t); };
   }, [doFetch]);
@@ -250,14 +228,7 @@ export default function AgentQuotaPanel({ locale: _locale }: { locale: Locale })
   }, [doFetch, nextAllowed]);
 
   if (loading) {
-    return (
-      <div className="bg-bg-secondary border border-border rounded-lg p-5 space-y-6">
-        <div className="flex justify-between"><Sk w="w-32" h="h-4" /><Sk w="w-20" /></div>
-        <div className="grid sm:grid-cols-3 gap-6 divide-x divide-border">
-          {[1,2,3].map((i) => <CardSkeleton key={i} />)}
-        </div>
-      </div>
-    );
+    return <TokenUsageSkeleton />;
   }
 
   if (!snapshot) return null;
@@ -290,7 +261,7 @@ export default function AgentQuotaPanel({ locale: _locale }: { locale: Locale })
             onClick={() => {
               const now = new Date();
               if (nextAllowed && now < nextAllowed) return;
-              doFetch();
+              doFetch(true);
             }}
             disabled={!!(nextAllowed && new Date() < nextAllowed)}
             className="p-1 rounded hover:bg-bg-tertiary transition-colors text-text-muted hover:text-text-secondary disabled:opacity-30 disabled:cursor-not-allowed"
