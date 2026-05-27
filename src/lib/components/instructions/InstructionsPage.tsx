@@ -3,7 +3,7 @@ import { api } from "$lib/tauri/commands";
 import type { InstructionFile } from "$lib/types";
 import ProjectPicker from "$lib/components/shared/ProjectPicker";
 import { useProjectContextStore } from "$lib/stores/project-context";
-import { marked } from "marked";
+import MarkdownPreview from "$lib/components/shared/MarkdownPreview";
 import { X, FileText, ExternalLink } from "lucide-react";
 
 const SCOPE_LABELS: Record<string, string> = {
@@ -192,9 +192,9 @@ export default function InstructionsPage() {
             )}
 
             {previewMode ? (
-              <div
-                className="flex-1 w-full px-6 py-4 bg-bg-secondary border border-border rounded-lg overflow-y-auto md-preview"
-                dangerouslySetInnerHTML={{ __html: marked(content || "") as string }}
+              <MarkdownPreview
+                markdown={content}
+                className="flex-1 w-full px-6 py-4 bg-bg-secondary border border-border rounded-lg overflow-y-auto"
               />
             ) : (
               <textarea
@@ -237,10 +237,7 @@ export default function InstructionsPage() {
                   <p className="text-sm text-danger">{refError}</p>
                 </div>
               ) : (
-                <div
-                  className="md-preview"
-                  dangerouslySetInnerHTML={{ __html: marked(refContent) as string }}
-                />
+                <MarkdownPreview markdown={refContent} />
               )}
             </div>
           </div>
