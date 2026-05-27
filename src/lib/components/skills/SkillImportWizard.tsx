@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { AlertTriangle, X } from "lucide-react";
+import { AlertTriangle, ChevronDown, ChevronRight, X } from "lucide-react";
 import type {
   ImportCandidate,
   ImportResolution,
@@ -9,6 +9,7 @@ import { api } from "$lib/tauri/commands";
 import { useSkillsStore } from "$lib/stores/skills-store";
 import { useLocaleStore } from "$lib/stores/locale";
 import { t } from "$lib/i18n";
+import { getImportConflictWarning, hasImportConflict } from "./import-conflict-warning";
 
 interface Props {
   /** When set, scan that project's agent dirs and tag imported skills with a
@@ -22,6 +23,8 @@ interface RowState {
   resolution: ImportResolution;
   /** For Rename only — the user-supplied new canonical name. */
   renameTo: string;
+  /** For multi-source candidates — the selected source index. */
+  sourceIndex: number | null;
 }
 
 /**
@@ -30,7 +33,6 @@ interface RowState {
  * for conflicts), then calls `skill_import.apply`.
  *
  * Resolutions per design decision 6:
- *   - keepCanonical:  do nothing (only meaningful when there's a conflict)
  *   - overwriteCanonical:  copy candidate over the existing canonical skill
  *   - skip:  ignore this candidate
  *   - rename:  write the candidate under a different canonical name
@@ -45,6 +47,7 @@ export default function SkillImportWizard({ projectPath, onClose }: Props) {
   const [loading, setLoading] = useState(true);
   const [applying, setApplying] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [expandedRows, setExpandedRows] = useState<Record<number, boolean>>({});
 
   useEffect(() => {
     void (async () => {
@@ -52,14 +55,22 @@ export default function SkillImportWizard({ projectPath, onClose }: Props) {
         const result = await api.skillImport.scan(projectPath ?? undefined);
         setCandidates(result);
         setRows(
-          result.map<RowState>((c) => ({
-            // Default: overwrite for clean cases, keep-canonical when there's a conflict
-            // — the safer choice that requires explicit opt-in to overwrite.
-            resolution: c.conflict
-              ? { kind: "keepCanonical" }
-              : { kind: "overwriteCanonical" },
-            renameTo: c.skillName,
-          })),
+          result.map<RowState>((c) => {
+            const hasConflict = hasImportConflict(c);
+            return {
+              // Default: overwrite for clean cases, skip when there's a conflict
+              // — the safer choice that requires explicit opt-in to overwrite.
+              resolution: c.deferred
+                ? hasConflict
+                  ? { kind: "skip" }
+                  : { kind: "overwriteCanonical" }
+                : hasConflict
+                  ? { kind: "skip" }
+                  : { kind: "overwriteCanonical" },
+              renameTo: c.skillName,
+              sourceIndex: null,
+            };
+          }),
         );
       } catch (e) {
         setError(String(e));
@@ -75,12 +86,25 @@ export default function SkillImportWizard({ projectPath, onClose }: Props) {
     setError(null);
     try {
       const selections: ImportSelection[] = candidates
-        // Multi-source skills are deferred. Validation-error candidates ARE
-        // imported — they land as broken canonical skills (import-as-broken).
-        .filter((c) => !c.deferred)
+        // Validation-error candidates ARE imported — they land as broken canonical
+        // skills (import-as-broken). Multi-source candidates require SelectSource.
         .map((candidate) => {
           const idx = candidates.indexOf(candidate);
           const row = rows[idx];
+          if (candidate.deferred) {
+            if (row.resolution.kind === "skip" || row.sourceIndex === null) {
+              return { candidate, resolution: { kind: "skip" } };
+            }
+            const newName = row.renameTo.trim() || candidate.skillName;
+            return {
+              candidate,
+              resolution: {
+                kind: "selectSource",
+                sourceIndex: row.sourceIndex,
+                ...(row.resolution.kind === "rename" ? { newName } : {}),
+              },
+            };
+          }
           if (row.resolution.kind === "rename") {
             return {
               candidate,
@@ -122,7 +146,7 @@ export default function SkillImportWizard({ projectPath, onClose }: Props) {
         <div className="flex-1 overflow-y-auto px-5 py-3 flex flex-col gap-3">
           {loading && <div className="text-sm text-text-secondary">{t(locale, "skills.importWizard.scanning")}</div>}
           {error && (
-            <div className="text-xs text-red-400 bg-red-500/10 border border-red-500/30 rounded px-3 py-2">
+            <div className="text-xs text-danger bg-danger-dim border border-danger/30 rounded px-3 py-2">
               {error}
             </div>
           )}
@@ -134,25 +158,147 @@ export default function SkillImportWizard({ projectPath, onClose }: Props) {
           {candidates.map((c, idx) => {
             const row = rows[idx];
             if (c.deferred) {
+              const expanded = expandedRows[idx] ?? false;
+              const selectedIndex = row.sourceIndex;
+              const selected = selectedIndex !== null ? c.deferred.candidates[selectedIndex] : null;
+              const conflictWarning = getImportConflictWarning(c, selectedIndex);
+              const hasConflict = hasImportConflict(c);
               return (
                 <div
                   key={`${c.sourcePath}-${idx}`}
-                  className="border border-border rounded p-3 flex flex-col gap-1 opacity-60"
+                  className="border border-border rounded p-3 flex flex-col gap-2"
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <div className="text-sm font-medium text-text-primary">
+                      <button
+                        type="button"
+                        onClick={() => setExpandedRows((prev) => ({ ...prev, [idx]: !expanded }))}
+                        className="inline-flex items-center gap-1 text-sm font-medium text-text-primary hover:text-accent"
+                      >
+                        {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                         {c.skillName}{" "}
                         <span className="text-xs font-normal text-text-secondary">
                           {t(locale, "skills.importWizard.foundIn", { agents: c.deferred.agents.join(", ") })}
                         </span>
-                      </div>
+                      </button>
+                      {selected && (
+                        <div className="text-xs text-text-secondary mt-1">
+                          {t(locale, "skills.importWizard.selectedSource", { agent: selected.sourceAgent })}
+                        </div>
+                      )}
                     </div>
                     <div className="shrink-0 inline-flex items-center gap-1 text-xs text-text-secondary">
-                      <AlertTriangle size={12} /> {t(locale, "skills.importWizard.deferred")}
+                      <AlertTriangle size={12} /> {t(locale, "skills.importWizard.multiSource")}
                     </div>
                   </div>
                   <div className="text-xs text-text-secondary">{c.deferred.reason}</div>
+                  {expanded && (
+                    <div className="grid gap-2 md:grid-cols-2">
+                      {c.deferred.candidates.map((source, sourceIndex) => (
+                        <label
+                          key={`${source.sourcePath}-${sourceIndex}`}
+                          className={`border rounded p-2 cursor-pointer ${
+                            selectedIndex === sourceIndex
+                              ? "border-accent bg-accent/10"
+                              : "border-border bg-bg-primary hover:border-accent/60"
+                          }`}
+                        >
+                          <div className="flex items-center gap-2 text-xs text-text-primary">
+                            <input
+                              type="radio"
+                              name={`source-${idx}`}
+                              checked={selectedIndex === sourceIndex}
+                              onChange={() =>
+                                setRows((prev) =>
+                                  prev.map((r, i) =>
+                                    i === idx
+                                      ? {
+                                          ...r,
+                                          sourceIndex,
+                                        }
+                                      : r,
+                                  ),
+                                )
+                              }
+                            />
+                            {t(locale, "skills.importWizard.chooseSource", { agent: source.sourceAgent })}
+                          </div>
+                          <div className="mt-1 text-[10px] font-mono text-text-secondary truncate">
+                            {source.sourcePath}
+                          </div>
+                          <pre className="mt-2 max-h-24 overflow-auto whitespace-pre-wrap rounded bg-bg-secondary p-2 text-[11px] text-text-secondary">
+                            {source.bodyPreview || t(locale, "skills.importWizard.emptyPreview")}
+                          </pre>
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                  {conflictWarning && (
+                    <div className="text-xs bg-warning-dim border border-warning/30 rounded p-2 text-warning">
+                      <div className="font-medium mb-1">{t(locale, "skills.importWizard.conflictTitle")}</div>
+                      <div className="font-mono text-[10px] text-warning/80">
+                        {conflictWarning.canonicalPath}
+                      </div>
+                      <div className="mt-1">
+                        {conflictWarning.requiresSourceSelection
+                          ? t(locale, "skills.importWizard.selectSourceBeforeConflictDecision")
+                          : conflictWarning.diffSummary}
+                      </div>
+                    </div>
+                  )}
+                  <div className="flex items-center gap-3 flex-wrap text-xs">
+                    {(hasConflict
+                      ? (["skip", "overwriteCanonical", "rename"] as const)
+                      : (["overwriteCanonical", "skip", "rename"] as const)
+                    ).map((kind) => (
+                      <label key={kind} className="inline-flex items-center gap-1 cursor-pointer">
+                        <input
+                          type="radio"
+                          name={`resolution-${idx}`}
+                          checked={row.resolution.kind === kind}
+                          onChange={() =>
+                            setRows((prev) =>
+                              prev.map((r, i) =>
+                                i === idx
+                                  ? {
+                                      ...r,
+                                      resolution:
+                                        kind === "rename"
+                                          ? { kind: "rename", newName: r.renameTo || c.skillName }
+                                          : { kind },
+                                    }
+                                  : r,
+                              ),
+                            )
+                          }
+                        />
+                        {kind === "overwriteCanonical" && (hasConflict ? t(locale, "skills.importWizard.overwriteCanonical") : t(locale, "skills.importWizard.import"))}
+                        {kind === "skip" && t(locale, "skills.importWizard.skip")}
+                        {kind === "rename" && t(locale, "skills.importWizard.rename")}
+                      </label>
+                    ))}
+                    {row.resolution.kind === "rename" && (
+                      <input
+                        type="text"
+                        value={row.renameTo}
+                        onChange={(e) =>
+                          setRows((prev) =>
+                            prev.map((r, i) =>
+                              i === idx
+                                ? {
+                                    ...r,
+                                    renameTo: e.target.value,
+                                    resolution: { kind: "rename", newName: e.target.value },
+                                  }
+                                : r,
+                            ),
+                          )
+                        }
+                        placeholder={t(locale, "skills.importWizard.renamePlaceholder")}
+                        className="px-2 py-0.5 rounded bg-bg-primary border border-border text-xs"
+                      />
+                    )}
+                  </div>
                 </div>
               );
             }
@@ -175,12 +321,12 @@ export default function SkillImportWizard({ projectPath, onClose }: Props) {
                   </div>
                   <div className="shrink-0 flex items-center gap-2">
                     {c.validationError && (
-                      <div className="inline-flex items-center gap-1 text-xs text-red-400">
+                      <div className="inline-flex items-center gap-1 text-xs text-danger">
                         <AlertTriangle size={12} /> {t(locale, "skills.importWizard.validationError")}
                       </div>
                     )}
                     {c.conflict && (
-                      <div className="inline-flex items-center gap-1 text-xs text-amber-400">
+                      <div className="inline-flex items-center gap-1 text-xs text-warning">
                         <AlertTriangle size={12} /> {t(locale, "skills.importWizard.conflict")}
                       </div>
                     )}
@@ -188,16 +334,16 @@ export default function SkillImportWizard({ projectPath, onClose }: Props) {
                 </div>
 
                 {c.validationError && (
-                  <div className="text-xs bg-red-500/10 border border-red-500/30 rounded p-2 text-red-300">
+                  <div className="text-xs bg-danger-dim border border-danger/30 rounded p-2 text-danger">
                     <div className="font-medium mb-1">{t(locale, "skills.importWizard.importsAsBroken")}</div>
-                    <div className="font-mono text-[10px] text-red-200/80">{c.validationError}</div>
+                    <div className="font-mono text-[10px] text-danger/80">{c.validationError}</div>
                   </div>
                 )}
 
                 {c.conflict && (
-                  <div className="text-xs bg-amber-500/10 border border-amber-500/30 rounded p-2 text-amber-200">
+                  <div className="text-xs bg-warning-dim border border-warning/30 rounded p-2 text-warning">
                     <div className="font-medium mb-1">{t(locale, "skills.importWizard.conflictTitle")}</div>
-                    <div className="font-mono text-[10px] text-amber-100/80">
+                    <div className="font-mono text-[10px] text-warning/80">
                       {c.conflict.canonicalPath}
                     </div>
                     <div className="mt-1">{c.conflict.diffSummary}</div>
@@ -206,7 +352,7 @@ export default function SkillImportWizard({ projectPath, onClose }: Props) {
 
                 <div className="flex items-center gap-3 flex-wrap text-xs">
                   {(c.conflict
-                    ? (["keepCanonical", "overwriteCanonical", "skip", "rename"] as const)
+                    ? (["skip", "overwriteCanonical", "rename"] as const)
                     : (["overwriteCanonical", "skip", "rename"] as const)
                   ).map((kind) => (
                     <label key={kind} className="inline-flex items-center gap-1 cursor-pointer">
@@ -230,7 +376,6 @@ export default function SkillImportWizard({ projectPath, onClose }: Props) {
                           )
                         }
                       />
-                      {kind === "keepCanonical" && t(locale, "skills.importWizard.keepCanonical")}
                       {kind === "overwriteCanonical" && (c.conflict ? t(locale, "skills.importWizard.overwriteCanonical") : t(locale, "skills.importWizard.import"))}
                       {kind === "skip" && t(locale, "skills.importWizard.skip")}
                       {kind === "rename" && t(locale, "skills.importWizard.rename")}
@@ -273,7 +418,15 @@ export default function SkillImportWizard({ projectPath, onClose }: Props) {
           </button>
           <button
             type="button"
-            disabled={applying || loading || candidates.every((c) => c.deferred)}
+            disabled={
+              applying ||
+              loading ||
+              candidates.length === 0 ||
+              candidates.some((c, idx) => {
+                const row = rows[idx];
+                return !!c.deferred && row?.resolution.kind !== "skip" && row?.sourceIndex === null;
+              })
+            }
             onClick={handleApply}
             className="text-xs px-3 py-1.5 rounded bg-accent text-white hover:bg-accent-hover disabled:opacity-50"
           >

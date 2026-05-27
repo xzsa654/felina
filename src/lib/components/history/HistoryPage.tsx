@@ -75,11 +75,11 @@ function entryBubbleClass(role: string): string {
     case "user":
       return "border-accent/40 bg-accent/10";
     case "assistant":
-      return "border-emerald-500/30 bg-emerald-500/5";
+      return "border-success/30 bg-success/5";
     case "usage":
       return "border-purple-500/25 bg-purple-500/5";
     case "tool":
-      return "border-amber-500/25 bg-amber-500/5";
+      return "border-warning/25 bg-warning/5";
     case "system":
       return "border-border bg-bg-secondary";
     default:
@@ -92,7 +92,7 @@ function rolePillClass(role: string): string {
     case "user":
       return "bg-accent/15 text-accent border-accent/30";
     case "assistant":
-      return "bg-emerald-500/10 text-emerald-300 border-emerald-500/30";
+      return "bg-success-dim text-success border-success/30";
     default:
       return "bg-bg-tertiary text-text-muted border-border";
   }
@@ -301,7 +301,7 @@ export default function HistoryPage() {
               Loading history
             </div>
           ) : listError ? (
-            <div className="px-3 py-4 text-xs text-red-400">{listError}</div>
+            <div className="px-3 py-4 text-xs text-danger">{listError}</div>
           ) : sessions.length === 0 ? (
             <div className="px-3 py-8 text-center">
               <FileText size={24} className="mx-auto mb-2 text-text-muted opacity-50" />
@@ -345,7 +345,7 @@ export default function HistoryPage() {
                       </span>
                     </div>
                     {!session.transcript_available && (
-                      <p className="mt-1 text-[10px] text-amber-400">Transcript unavailable</p>
+                      <p className="mt-1 text-[10px] text-warning">Transcript unavailable</p>
                     )}
                   </button>
                 );
@@ -452,7 +452,7 @@ export default function HistoryPage() {
                 Loading transcript
               </div>
             ) : transcriptError ? (
-              <div className="border border-amber-500/30 bg-amber-500/10 text-amber-300 rounded-md p-4 text-sm">
+              <div className="border border-warning/30 bg-warning-dim text-warning rounded-md p-4 text-sm">
                 <p className="font-medium">Transcript unavailable</p>
                 <p className="text-xs mt-1">{transcriptError}</p>
                 <p className="text-xs mt-2 font-mono">

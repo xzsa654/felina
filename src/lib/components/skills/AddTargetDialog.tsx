@@ -161,7 +161,7 @@ export default function AddTargetDialog({
         )}
 
         {isDuplicate && (
-          <div className="text-xs text-amber-400">
+          <div className="text-xs text-warning">
             {t(locale, "skills.addTargetDialog.duplicate")}
           </div>
         )}

@@ -1,14 +1,16 @@
-import { useEffect, useState } from "react";
-import { AlertTriangle, FolderOpen, Plus, Search, Trash2 } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { AlertTriangle, Eye, FolderOpen, Plus, Search, Trash2, X } from "lucide-react";
+import { open } from "@tauri-apps/plugin-dialog";
 import type { KnownProject, OrphanFile, SkillTarget } from "$lib/types";
 import { api } from "$lib/tauri/commands";
 import { openPath } from "$lib/tauri/shell";
 import { useSkillsStore } from "$lib/stores/skills-store";
 import { useLocaleStore } from "$lib/stores/locale";
 import { t } from "$lib/i18n";
-import { isProjectMissing } from "$lib/utils/path";
+import { isProjectMissing, normalizeProjectPath } from "$lib/utils/path";
 import ConfirmDialog from "$lib/components/shared/ConfirmDialog";
 import AddTargetDialog from "./AddTargetDialog";
+import type { TargetRemovalPolicy } from "$lib/types";
 
 type UIState = "tracked" | "disabled";
 
@@ -34,6 +36,11 @@ const STATE_KEYS: Record<UIState, "skills.targets.tracked" | "skills.targets.dis
 
 const STATES: UIState[] = ["tracked", "disabled"];
 
+function targetKey(target: SkillTarget): string {
+  if (target.scope === "global") return `${target.agent}:global`;
+  return `${target.agent}:project:${target.project ?? ""}`;
+}
+
 interface Props {
   skillName: string;
   /** Default project path for new project-scope targets added via the dialog. */
@@ -52,6 +59,14 @@ export default function TargetEditor({ skillName, projectPath, targets, onTarget
   const [dialogOpen, setDialogOpen] = useState(false);
   const [pruneOrphans, setPruneOrphans] = useState<OrphanFile[] | null>(null);
   const [pruneMessage, setPruneMessage] = useState<string | null>(null);
+  const [pendingRemove, setPendingRemove] = useState<SkillTarget | null>(null);
+  const [removing, setRemoving] = useState(false);
+  const [contentModal, setContentModal] = useState<{
+    target: SkillTarget;
+    content: string | null;
+    error: string | null;
+    loading: boolean;
+  } | null>(null);
   // Resolved fan-out destination (`<target>/<canonical-id>/`) + on-disk
   // existence per target row, keyed by agent-scope-project. Drives the per-row
   // "Open target folder" button (disabled until a push creates the folder).
@@ -91,13 +106,34 @@ export default function TargetEditor({ skillName, projectPath, targets, onTarget
     };
   }, [skillName, targets, buffered]);
 
-  async function save(next: SkillTarget[]) {
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingRef = useRef<SkillTarget[] | null>(null);
+
+  const flushSave = useCallback(async (targets: SkillTarget[]) => {
+    await api.skillTargets.set(skillName, targets);
+    await loadEntries();
+  }, [skillName, loadEntries]);
+
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      if (pendingRef.current) void flushSave(pendingRef.current);
+    };
+  }, [flushSave]);
+
+  function save(next: SkillTarget[]) {
     if (buffered) {
       onTargetsChange!(next);
       return;
     }
-    await api.skillTargets.set(skillName, next);
-    await loadEntries();
+    pendingRef.current = next;
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      debounceRef.current = null;
+      const payload = pendingRef.current;
+      pendingRef.current = null;
+      if (payload) void flushSave(payload);
+    }, 300);
   }
 
   function handleStateChange(idx: number, state: UIState) {
@@ -106,8 +142,12 @@ export default function TargetEditor({ skillName, projectPath, targets, onTarget
   }
 
   function handleRemove(idx: number) {
-    const next = targets.filter((_, i) => i !== idx);
-    void save(next);
+    if (buffered) {
+      const next = targets.filter((_, i) => i !== idx);
+      void save(next);
+      return;
+    }
+    setPendingRemove(targets[idx]);
   }
 
   function handleAdd(target: SkillTarget) {
@@ -139,6 +179,52 @@ export default function TargetEditor({ skillName, projectPath, targets, onTarget
     } catch (e) {
       setPruneMessage(t(locale, "skills.targets.pruneFailed", { error: String(e) }));
       setTimeout(() => setPruneMessage(null), 3000);
+    }
+  }
+
+  async function handleRemovePolicy(policy: TargetRemovalPolicy) {
+    const target = pendingRemove;
+    if (!target) return;
+    setRemoving(true);
+    try {
+      const result = await api.skillTargets.remove(skillName, target, policy);
+      if (!result.targetRemoved && result.deleteResult && !result.deleteResult.success) {
+        setPruneMessage(
+          t(locale, "skills.targets.removeFailed", {
+            error: result.deleteResult.error ?? result.deleteResult.path,
+          }),
+        );
+        setTimeout(() => setPruneMessage(null), 5000);
+      }
+      setPendingRemove(null);
+      await loadEntries();
+    } catch (e) {
+      setPruneMessage(t(locale, "skills.targets.removeFailed", { error: String(e) }));
+      setTimeout(() => setPruneMessage(null), 5000);
+    } finally {
+      setRemoving(false);
+    }
+  }
+
+  async function handleRepoint(target: SkillTarget) {
+    const dir = await open({ directory: true });
+    if (!dir) return;
+    try {
+      await api.skillTargets.repoint(skillName, target, normalizeProjectPath(dir));
+      await loadEntries();
+    } catch (e) {
+      setPruneMessage(t(locale, "skills.targets.repointFailed", { error: String(e) }));
+      setTimeout(() => setPruneMessage(null), 5000);
+    }
+  }
+
+  async function handleReadContent(target: SkillTarget) {
+    setContentModal({ target, content: null, error: null, loading: true });
+    try {
+      const content = await api.skillTargets.readContent(skillName, targetKey(target));
+      setContentModal({ target, content, error: null, loading: false });
+    } catch (e) {
+      setContentModal({ target, content: null, error: String(e), loading: false });
     }
   }
 
@@ -192,7 +278,7 @@ export default function TargetEditor({ skillName, projectPath, targets, onTarget
                 className="flex items-center gap-2 text-xs border border-border rounded px-2 py-1.5"
               >
                 <span className="capitalize font-medium w-20">{tgt.agent}</span>
-                <span className="text-text-secondary w-14">{tgt.scope}</span>
+                <span className="text-text-secondary w-14">{tgt.scope === "project" ? t(locale, "skills.addTargetDialog.scopeProject") : t(locale, "skills.addTargetDialog.scopeGlobal")}</span>
                 {tgt.scope === "project" && (
                   <span className="text-text-secondary truncate max-w-[10rem]" title={tgt.project ?? ""}>
                     {tgt.project ?? ""}
@@ -200,7 +286,7 @@ export default function TargetEditor({ skillName, projectPath, targets, onTarget
                 )}
                 {projectNotFound && (
                   <span
-                    className="inline-flex items-center gap-1 text-red-400 shrink-0"
+                    className="inline-flex items-center gap-1 text-danger shrink-0"
                     title={t(locale, "skills.targets.projectNotFoundTooltip")}
                   >
                     <AlertTriangle size={12} /> {t(locale, "skills.projectNotFound")}
@@ -241,6 +327,25 @@ export default function TargetEditor({ skillName, projectPath, targets, onTarget
                     </button>
                   </div>
                   {!buffered && (
+                    <>
+                    {projectNotFound && (
+                      <button
+                        type="button"
+                        onClick={() => void handleRepoint(tgt)}
+                        className="px-2 py-1 text-[11px] rounded border border-warning/30 text-warning hover:bg-warning-dim"
+                        title={t(locale, "skills.targets.repointTitle")}
+                      >
+                        {t(locale, "skills.targets.repoint")}
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => void handleReadContent(tgt)}
+                      className="p-1 text-text-secondary hover:text-text-primary"
+                      title={t(locale, "skills.targets.viewContent")}
+                    >
+                      <Eye size={12} />
+                    </button>
                     <button
                       type="button"
                       disabled={!dest?.exists}
@@ -261,11 +366,12 @@ export default function TargetEditor({ skillName, projectPath, targets, onTarget
                     >
                       <FolderOpen size={12} />
                     </button>
+                    </>
                   )}
                   <button
                     type="button"
                     onClick={() => handleRemove(i)}
-                    className="p-1 text-text-secondary hover:text-red-400"
+                    className="p-1 text-text-secondary hover:text-danger"
                     title={t(locale, "skills.targets.removeTarget")}
                   >
                     <Trash2 size={12} />
@@ -301,6 +407,148 @@ export default function TargetEditor({ skillName, projectPath, targets, onTarget
         onconfirm={() => void handlePruneConfirm()}
         oncancel={() => setPruneOrphans(null)}
       />
+      <TargetRemovalDialog
+        open={pendingRemove !== null}
+        target={pendingRemove}
+        busy={removing}
+        onchoose={(policy) => void handleRemovePolicy(policy)}
+        oncancel={() => setPendingRemove(null)}
+      />
+      <TargetContentModal
+        state={contentModal}
+        onclose={() => setContentModal(null)}
+      />
+    </div>
+  );
+}
+
+function TargetContentModal({
+  state,
+  onclose,
+}: {
+  state: {
+    target: SkillTarget;
+    content: string | null;
+    error: string | null;
+    loading: boolean;
+  } | null;
+  onclose: () => void;
+}) {
+  const locale = useLocaleStore((s) => s.locale);
+  if (!state) return null;
+  const label =
+    state.target.scope === "project"
+      ? `${state.target.agent}: ${state.target.project ?? ""}`
+      : `${state.target.agent}: ~/.felina`;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center">
+      <button
+        type="button"
+        className="absolute inset-0 bg-black/50"
+        onClick={onclose}
+        aria-label={t(locale, "skills.targets.contentClose")}
+      />
+      <div className="relative z-10 flex max-h-[80vh] w-[42rem] max-w-[calc(100vw-2rem)] flex-col rounded border border-border bg-bg-secondary shadow-2xl">
+        <div className="flex items-start justify-between gap-3 border-b border-border px-4 py-3">
+          <div className="min-w-0">
+            <h3 className="text-sm font-semibold text-text-primary">
+              {t(locale, "skills.targets.contentTitle", { target: label })}
+            </h3>
+          </div>
+          <button
+            type="button"
+            onClick={onclose}
+            className="p-1 text-text-secondary hover:text-text-primary"
+            title={t(locale, "skills.targets.contentClose")}
+          >
+            <X size={14} />
+          </button>
+        </div>
+        <div className="min-h-0 flex-1 overflow-auto p-4">
+          {state.loading && (
+            <div className="text-sm text-text-secondary">
+              {t(locale, "skills.targets.contentLoading")}
+            </div>
+          )}
+          {state.error && (
+            <div className="rounded border border-danger/30 bg-danger-dim p-3 text-xs text-danger">
+              {t(locale, "skills.targets.contentFailed", { error: state.error })}
+            </div>
+          )}
+          {state.content !== null && (
+            <pre className="whitespace-pre-wrap rounded border border-border bg-bg-primary p-3 font-mono text-xs text-text-primary">
+              {state.content}
+            </pre>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TargetRemovalDialog({
+  open,
+  target,
+  busy,
+  onchoose,
+  oncancel,
+}: {
+  open: boolean;
+  target: SkillTarget | null;
+  busy: boolean;
+  onchoose: (policy: TargetRemovalPolicy) => void;
+  oncancel: () => void;
+}) {
+  const locale = useLocaleStore((s) => s.locale);
+  if (!open || !target) return null;
+  const label =
+    target.scope === "project"
+      ? `${target.agent}: ${target.project ?? ""}`
+      : `${target.agent}: ~/.felina`;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center">
+      <button
+        type="button"
+        className="absolute inset-0 bg-black/50"
+        onClick={oncancel}
+        aria-label={t(locale, "skills.targets.removeCancel")}
+      />
+      <div className="relative bg-bg-secondary border border-border rounded shadow-2xl w-[32rem] max-w-[calc(100vw-2rem)] p-5 space-y-4 z-10">
+        <div>
+          <h3 className="text-base font-semibold text-text-primary">
+            {t(locale, "skills.targets.removeTitle")}
+          </h3>
+          <p className="text-sm text-text-muted mt-1">
+            {t(locale, "skills.targets.removeMessage", { target: label })}
+          </p>
+        </div>
+        <div className="grid grid-cols-3 gap-2">
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => onchoose("removeTargetOnly")}
+            className="rounded border border-border bg-bg-tertiary px-3 py-2 text-xs text-text-primary hover:bg-bg-hover disabled:opacity-50"
+          >
+            {t(locale, "skills.targets.removeOnly")}
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => onchoose("removeTargetAndDeleteFile")}
+            className="rounded border border-danger/40 bg-danger/10 px-3 py-2 text-xs text-danger hover:bg-danger/20 disabled:opacity-50"
+          >
+            {t(locale, "skills.targets.removeAndDelete")}
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => onchoose("cancel")}
+            className="rounded border border-border bg-bg-tertiary px-3 py-2 text-xs text-text-primary hover:bg-bg-hover disabled:opacity-50"
+          >
+            {t(locale, "skills.targets.removeCancel")}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

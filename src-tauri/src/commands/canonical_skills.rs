@@ -435,7 +435,7 @@ fn mark_sync_meta_dirty(skill_dir: &Path) {
     let raw = match fs::read_to_string(&path) {
         Ok(s) => s,
         Err(_) => {
-            let meta = SyncMetaV2 { dirty: true, ..SyncMetaV2::default() };
+            let meta = SyncMetaV2::default();
             let _ = write_sync_meta_v2(skill_dir, &meta);
             return;
         }
@@ -452,7 +452,10 @@ fn mark_sync_meta_dirty(skill_dir: &Path) {
 
     if is_v2 {
         let mut meta: SyncMetaV2 = serde_json::from_str(&raw).unwrap_or_default();
-        let has_pushable = meta.targets.iter().any(|t| t.enabled && !matches!(t.mode, TargetMode::Detached | TargetMode::Forked));
+        let has_pushable = meta
+            .targets
+            .iter()
+            .any(|t| t.enabled && !matches!(t.mode, TargetMode::Detached | TargetMode::Forked));
         meta.dirty = has_pushable;
         let _ = write_sync_meta_v2(skill_dir, &meta);
     } else {
@@ -614,8 +617,7 @@ pub fn canonical_skills_write_raw(name: String, content: String) -> Result<Write
     fs::create_dir_all(&skill_dir)
         .map_err(|e| format!("failed to create canonical skill dir: {e}"))?;
     let skill_md = skill_dir.join("SKILL.md");
-    fs::write(&skill_md, &content)
-        .map_err(|e| format!("failed to write SKILL.md: {e}"))?;
+    fs::write(&skill_md, &content).map_err(|e| format!("failed to write SKILL.md: {e}"))?;
 
     let mut normalized_from: Option<String> = None;
     if let Ok(skill) = parse_skill_md(&content) {
@@ -700,8 +702,8 @@ pub fn canonical_skills_write(
         );
     }
 
-    let fm_yaml = serde_yaml::to_string(&fm)
-        .map_err(|e| format!("failed to serialize frontmatter: {e}"))?;
+    let fm_yaml =
+        serde_yaml::to_string(&fm).map_err(|e| format!("failed to serialize frontmatter: {e}"))?;
     let fm_trimmed = fm_yaml.trim_end_matches('\n');
     let body_normalized = if body.ends_with('\n') {
         body
@@ -719,17 +721,13 @@ pub fn canonical_skills_write(
 /// `last_sync` entries whose key no longer matches any target in the new
 /// list; preserves entries for targets that remain. Flips `dirty=true`.
 #[tauri::command]
-pub fn skill_targets_set(
-    skill_name: String,
-    targets: Vec<SkillTarget>,
-) -> Result<(), String> {
+pub fn skill_targets_set(skill_name: String, targets: Vec<SkillTarget>) -> Result<(), String> {
     let dir = canonical_skills_dir();
     let skill_dir = dir.join(&skill_name);
     if !skill_dir.is_dir() {
         return Err(format!("skill not found: {skill_name}"));
     }
-    let valid_keys: std::collections::HashSet<String> =
-        targets.iter().map(target_key).collect();
+    let valid_keys: std::collections::HashSet<String> = targets.iter().map(target_key).collect();
     let path = skill_dir.join(SYNC_META_FILENAME);
     let mut meta = match fs::read_to_string(&path)
         .ok()
@@ -740,8 +738,166 @@ pub fn skill_targets_set(
     };
     meta.last_sync.retain(|k, _| valid_keys.contains(k));
     meta.targets = targets;
-    meta.dirty = meta.targets.iter().any(|t| t.enabled && !matches!(t.mode, TargetMode::Detached | TargetMode::Forked));
+    meta.dirty = meta
+        .targets
+        .iter()
+        .any(|t| t.enabled && !matches!(t.mode, TargetMode::Detached | TargetMode::Forked));
     write_sync_meta_v2(&skill_dir, &meta)
+}
+
+#[tauri::command]
+pub fn skill_target_remove_with_policy(
+    skill_name: String,
+    target: SkillTarget,
+    policy: TargetRemovalPolicy,
+) -> Result<SkillTargetRemovalResult, String> {
+    let dir = canonical_skills_dir();
+    let skill_dir = dir.join(&skill_name);
+    if !skill_dir.is_dir() {
+        return Err(format!("skill not found: {skill_name}"));
+    }
+    let key = target_key(&target);
+    if matches!(policy, TargetRemovalPolicy::Cancel) {
+        return Ok(SkillTargetRemovalResult {
+            policy,
+            target_key: key,
+            target_removed: false,
+            delete_result: None,
+        });
+    }
+
+    let mut meta = fs::read_to_string(skill_dir.join(SYNC_META_FILENAME))
+        .ok()
+        .and_then(|raw| serde_json::from_str::<SyncMetaV2>(&raw).ok())
+        .unwrap_or_default();
+    let Some(existing_target) = meta
+        .targets
+        .iter()
+        .find(|existing| target_key(existing) == key)
+        .cloned()
+    else {
+        return Err("target not found".into());
+    };
+
+    let delete_result = if matches!(policy, TargetRemovalPolicy::RemoveTargetAndDeleteFile) {
+        let delete_result =
+            resolve_target_skill_dir(&skill_name, &existing_target).map(delete_skill_dir_result)?;
+        if !delete_result.success {
+            return Ok(SkillTargetRemovalResult {
+                policy,
+                target_key: key,
+                target_removed: false,
+                delete_result: Some(delete_result),
+            });
+        }
+        Some(delete_result)
+    } else {
+        None
+    };
+
+    meta.targets.retain(|existing| target_key(existing) != key);
+    meta.last_sync.remove(&key);
+    meta.dirty = meta
+        .targets
+        .iter()
+        .any(|t| t.enabled && matches!(t.mode, TargetMode::Tracked));
+    write_sync_meta_v2(&skill_dir, &meta)?;
+
+    Ok(SkillTargetRemovalResult {
+        policy,
+        target_key: key,
+        target_removed: true,
+        delete_result,
+    })
+}
+
+#[tauri::command]
+pub fn skill_target_repoint(
+    skill_name: String,
+    target: SkillTarget,
+    new_project: String,
+) -> Result<SkillTargetRepointResult, String> {
+    if !matches!(target.scope, SkillScope::Project) {
+        return Err("only project-scoped targets can be repointed".into());
+    }
+    let normalized_project = super::known_projects::normalize_path(&new_project);
+    if normalized_project.is_empty() {
+        return Err("new project path must not be empty".into());
+    }
+
+    let dir = canonical_skills_dir();
+    let skill_dir = dir.join(&skill_name);
+    if !skill_dir.is_dir() {
+        return Err(format!("skill not found: {skill_name}"));
+    }
+
+    let old_key = target_key(&target);
+    let mut meta = fs::read_to_string(skill_dir.join(SYNC_META_FILENAME))
+        .ok()
+        .and_then(|raw| serde_json::from_str::<SyncMetaV2>(&raw).ok())
+        .unwrap_or_default();
+    let Some(index) = meta
+        .targets
+        .iter()
+        .position(|existing| target_key(existing) == old_key)
+    else {
+        return Err("target not found".into());
+    };
+
+    let mut updated = meta.targets[index].clone();
+    updated.project = Some(normalized_project);
+    let new_key = target_key(&updated);
+    meta.targets[index] = updated.clone();
+    meta.last_sync.remove(&old_key);
+    meta.last_sync.remove(&new_key);
+    meta.dirty = true;
+    write_sync_meta_v2(&skill_dir, &meta)?;
+
+    Ok(SkillTargetRepointResult {
+        old_target_key: old_key,
+        new_target_key: new_key,
+        target: updated,
+        dirty: true,
+    })
+}
+
+#[tauri::command]
+pub fn skill_target_read_content(skill_name: String, target_key: String) -> Result<String, String> {
+    let dir = canonical_skills_dir();
+    let skill_dir = dir.join(&skill_name);
+    let skill_md = skill_dir.join("SKILL.md");
+    if !skill_md.is_file() {
+        return Err(format!("skill not found: {skill_name}"));
+    }
+    let raw = fs::read_to_string(&skill_md).map_err(|e| format!("failed to read SKILL.md: {e}"))?;
+    let skill = parse_skill_md(&raw)?;
+    let (meta, _) = read_sync_meta_v2(&skill_dir, &skill);
+    let target = meta
+        .targets
+        .iter()
+        .find(|target| crate::commands::canonical_skills::target_key(target) == target_key)
+        .ok_or_else(|| "target not found".to_string())?;
+    let target_skill_dir = resolve_target_skill_dir(&skill_name, target)?;
+    let target_skill_md = target_skill_dir.join("SKILL.md");
+    if !target_skill_md.is_file() {
+        return Err(format!(
+            "agent-side SKILL.md does not exist or path cannot be resolved: {}",
+            target_skill_md.display()
+        ));
+    }
+    fs::read_to_string(&target_skill_md)
+        .map_err(|e| format!("failed to read agent-side SKILL.md: {e}"))
+}
+
+fn resolve_target_skill_dir(skill_name: &str, target: &SkillTarget) -> Result<PathBuf, String> {
+    let cfg = super::agent_paths::agent_paths_get()?;
+    let pair = match target.agent {
+        AgentId::Anthropic => &cfg.anthropic,
+        AgentId::Codex => &cfg.codex,
+        AgentId::Gemini => &cfg.gemini,
+    };
+    super::fan_out::resolve_pair(target.scope, target.project.as_deref(), pair)
+        .map(|root| root.join(skill_name))
 }
 
 /// An agent-side file that exists on disk but has no corresponding enabled +
@@ -758,9 +914,63 @@ pub struct OrphanFile {
     pub project: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum CanonicalDeletePolicy {
+    Cascade,
+    Detach,
+    Cancel,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeletePathResult {
+    pub path: String,
+    pub success: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CanonicalSkillDeleteResult {
+    pub policy: CanonicalDeletePolicy,
+    pub canonical_path: String,
+    pub canonical_deleted: bool,
+    pub target_results: Vec<DeletePathResult>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum TargetRemovalPolicy {
+    RemoveTargetOnly,
+    RemoveTargetAndDeleteFile,
+    Cancel,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillTargetRemovalResult {
+    pub policy: TargetRemovalPolicy,
+    pub target_key: String,
+    pub target_removed: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub delete_result: Option<DeletePathResult>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillTargetRepointResult {
+    pub old_target_key: String,
+    pub new_target_key: String,
+    pub target: SkillTarget,
+    pub dirty: bool,
+}
+
 /// Scan agent directories for orphaned SKILL.md files belonging to this skill.
 /// A file is orphaned when the corresponding target is absent from the target
-/// list, or its mode is Detached / Disabled.
+/// list, or its mode is Detached / Forked. Disabled tracked targets still
+/// represent known agent-side files and are not orphaned.
 ///
 /// The scope/project pairs scanned are derived from `meta.targets` themselves
 /// (plus the always-checked global) — no caller-supplied `project_path` is
@@ -774,8 +984,7 @@ pub fn skill_prune_orphans_scan(skill_name: String) -> Result<Vec<OrphanFile>, S
     if !skill_md.is_file() {
         return Err(format!("skill not found: {skill_name}"));
     }
-    let raw = fs::read_to_string(&skill_md)
-        .map_err(|e| format!("failed to read SKILL.md: {e}"))?;
+    let raw = fs::read_to_string(&skill_md).map_err(|e| format!("failed to read SKILL.md: {e}"))?;
     let skill = parse_skill_md(&raw)?;
 
     let (meta, _) = read_sync_meta_v2(&skill_dir, &skill);
@@ -786,8 +995,7 @@ pub fn skill_prune_orphans_scan(skill_name: String) -> Result<Vec<OrphanFile>, S
     // Always check global; additionally check every project path referenced
     // by any of the skill's targets (regardless of agent / enabled / mode —
     // a once-pushed project still has on-disk files to potentially orphan).
-    let mut scopes_to_check: Vec<(SkillScope, Option<String>)> =
-        vec![(SkillScope::Global, None)];
+    let mut scopes_to_check: Vec<(SkillScope, Option<String>)> = vec![(SkillScope::Global, None)];
     let mut seen_projects: std::collections::HashSet<String> = std::collections::HashSet::new();
     for t in &meta.targets {
         if let (SkillScope::Project, Some(pp)) = (t.scope, t.project.as_deref()) {
@@ -807,14 +1015,11 @@ pub fn skill_prune_orphans_scan(skill_name: String) -> Result<Vec<OrphanFile>, S
             AgentId::Gemini => &cfg.gemini,
         };
         for (check_scope, check_project) in &scopes_to_check {
-            let target_dir = match super::fan_out::resolve_pair(
-                *check_scope,
-                check_project.as_deref(),
-                pair,
-            ) {
-                Ok(d) => d,
-                Err(_) => continue,
-            };
+            let target_dir =
+                match super::fan_out::resolve_pair(*check_scope, check_project.as_deref(), pair) {
+                    Ok(d) => d,
+                    Err(_) => continue,
+                };
             let agent_skill_md = target_dir.join(&skill_name).join("SKILL.md");
             if !agent_skill_md.is_file() {
                 continue;
@@ -822,7 +1027,6 @@ pub fn skill_prune_orphans_scan(skill_name: String) -> Result<Vec<OrphanFile>, S
             let is_active = meta.targets.iter().any(|t| {
                 t.agent == agent
                     && t.scope == *check_scope
-                    && t.enabled
                     && matches!(t.mode, TargetMode::Tracked)
                     && match check_scope {
                         SkillScope::Global => true,
@@ -836,10 +1040,7 @@ pub fn skill_prune_orphans_scan(skill_name: String) -> Result<Vec<OrphanFile>, S
             });
             if !is_active {
                 orphans.push(OrphanFile {
-                    path: target_dir
-                        .join(&skill_name)
-                        .to_string_lossy()
-                        .to_string(),
+                    path: target_dir.join(&skill_name).to_string_lossy().to_string(),
                     agent,
                     scope: *check_scope,
                     project: check_project.clone(),
@@ -899,7 +1100,10 @@ pub fn skill_prune_orphans_apply(
     if errors.is_empty() {
         Ok(())
     } else {
-        Err(format!("some orphans could not be deleted: {}", errors.join("; ")))
+        Err(format!(
+            "some orphans could not be deleted: {}",
+            errors.join("; ")
+        ))
     }
 }
 
@@ -914,6 +1118,109 @@ pub fn canonical_skills_delete(name: String) -> Result<(), String> {
             .map_err(|e| format!("failed to delete canonical skill dir: {e}"))?;
     }
     Ok(())
+}
+
+#[tauri::command]
+pub fn canonical_skills_delete_with_policy(
+    name: String,
+    policy: CanonicalDeletePolicy,
+) -> Result<CanonicalSkillDeleteResult, String> {
+    validate_skill_name(&name)?;
+    let dir = canonical_skills_dir();
+    let skill_dir = dir.join(&name);
+    let canonical_path = skill_dir.to_string_lossy().to_string();
+
+    if matches!(policy, CanonicalDeletePolicy::Cancel) {
+        return Ok(CanonicalSkillDeleteResult {
+            policy,
+            canonical_path,
+            canonical_deleted: false,
+            target_results: Vec::new(),
+        });
+    }
+
+    let target_results = if matches!(policy, CanonicalDeletePolicy::Cascade) {
+        resolve_current_target_skill_dirs(&skill_dir, &name)?
+            .into_iter()
+            .map(delete_skill_dir_result)
+            .collect()
+    } else {
+        Vec::new()
+    };
+
+    let canonical_deleted = if skill_dir.exists() {
+        fs::remove_dir_all(&skill_dir)
+            .map_err(|e| format!("failed to delete canonical skill dir: {e}"))?;
+        true
+    } else {
+        false
+    };
+
+    Ok(CanonicalSkillDeleteResult {
+        policy,
+        canonical_path,
+        canonical_deleted,
+        target_results,
+    })
+}
+
+fn resolve_current_target_skill_dirs(
+    skill_dir: &Path,
+    skill_name: &str,
+) -> Result<Vec<PathBuf>, String> {
+    let skill_md = skill_dir.join("SKILL.md");
+    if !skill_md.is_file() {
+        return Ok(Vec::new());
+    }
+    let raw = fs::read_to_string(&skill_md)
+        .map_err(|e| format!("failed to read canonical SKILL.md: {e}"))?;
+    let mut skill = parse_skill_md(&raw)?;
+    skill.name = skill_name.to_string();
+    skill.canonical_id = skill_name.to_string();
+    let (meta, _legacy) = read_sync_meta_v2(skill_dir, &skill);
+    let cfg = super::agent_paths::agent_paths_get()?;
+    let mut dirs = Vec::new();
+    for target in meta.targets {
+        if !target.enabled || target.mode != TargetMode::Tracked {
+            continue;
+        }
+        let pair = match target.agent {
+            AgentId::Anthropic => &cfg.anthropic,
+            AgentId::Codex => &cfg.codex,
+            AgentId::Gemini => &cfg.gemini,
+        };
+        if let Ok(root) =
+            super::fan_out::resolve_pair(target.scope, target.project.as_deref(), pair)
+        {
+            dirs.push(root.join(skill_name));
+        }
+    }
+    dirs.sort();
+    dirs.dedup();
+    Ok(dirs)
+}
+
+fn delete_skill_dir_result(path: PathBuf) -> DeletePathResult {
+    let path_string = path.to_string_lossy().to_string();
+    if !path.exists() {
+        return DeletePathResult {
+            path: path_string,
+            success: true,
+            error: None,
+        };
+    }
+    match fs::remove_dir_all(&path) {
+        Ok(()) => DeletePathResult {
+            path: path_string,
+            success: true,
+            error: None,
+        },
+        Err(e) => DeletePathResult {
+            path: path_string,
+            success: false,
+            error: Some(e.to_string()),
+        },
+    }
 }
 
 fn type_label(v: &serde_yaml::Value) -> &'static str {
@@ -1074,7 +1381,10 @@ Hello.\n";
 
         // Sorted alphabetically by name. alpha + beta = Ok, broken = Broken.
         match &entries[0] {
-            SkillListEntry::Ok { canonical_id, skill } => {
+            SkillListEntry::Ok {
+                canonical_id,
+                skill,
+            } => {
                 assert_eq!(canonical_id, "alpha");
                 assert_eq!(skill.canonical_id, "alpha");
                 assert_eq!(skill.name, "alpha");
@@ -1082,7 +1392,10 @@ Hello.\n";
             other => panic!("expected Ok(alpha), got {other:?}"),
         }
         match &entries[1] {
-            SkillListEntry::Ok { canonical_id, skill } => {
+            SkillListEntry::Ok {
+                canonical_id,
+                skill,
+            } => {
                 assert_eq!(canonical_id, "beta");
                 assert_eq!(skill.canonical_id, "beta");
                 assert_eq!(skill.name, "beta");
@@ -1090,7 +1403,12 @@ Hello.\n";
             other => panic!("expected Ok(beta), got {other:?}"),
         }
         match &entries[2] {
-            SkillListEntry::Broken { canonical_id, name, error, .. } => {
+            SkillListEntry::Broken {
+                canonical_id,
+                name,
+                error,
+                ..
+            } => {
                 assert_eq!(canonical_id, "broken");
                 assert_eq!(name, "broken");
                 assert!(!error.is_empty());
@@ -1183,12 +1501,8 @@ Hello.\n";
             "with space",
             "with;semi",
         ] {
-            let err = canonical_skills_write(
-                bad.into(),
-                empty_fm.clone(),
-                String::new(),
-            )
-            .unwrap_err();
+            let err =
+                canonical_skills_write(bad.into(), empty_fm.clone(), String::new()).unwrap_err();
             assert!(
                 err.contains("skill name") || err.contains("disallowed"),
                 "bad={bad:?} err={err}"
@@ -1228,7 +1542,10 @@ Hello.\n";
 
         let listed = canonical_skills_list().expect("list");
         match &listed[0] {
-            SkillListEntry::Ok { canonical_id, skill } => {
+            SkillListEntry::Ok {
+                canonical_id,
+                skill,
+            } => {
                 assert_eq!(canonical_id, "folder-name");
                 assert_eq!(skill.name, "different-name");
             }
@@ -1272,7 +1589,8 @@ Hello.\n";
         assert!(parse_skill_md(&canonical_skills_read_raw("fixme".into()).unwrap()).is_err());
 
         // Corrected raw write makes it parse and become a normal skill.
-        let fixed = "---\nname: fixme\ndescription: repaired\nagents:\n  - anthropic\n---\n# Body\n";
+        let fixed =
+            "---\nname: fixme\ndescription: repaired\nagents:\n  - anthropic\n---\n# Body\n";
         canonical_skills_write_raw("fixme".into(), fixed.into()).expect("raw write fixed");
         let after = canonical_skills_read("fixme".into()).expect("structured read after repair");
         assert_eq!(after.description, "repaired");
@@ -1571,7 +1889,10 @@ Hello.\n";
         let (meta, legacy) = read_sync_meta_v2(&skill_dir, &skill);
 
         assert_eq!(meta.version, 2);
-        assert!(meta.targets.is_empty(), "v2 + empty targets must NOT backfill from agents");
+        assert!(
+            meta.targets.is_empty(),
+            "v2 + empty targets must NOT backfill from agents"
+        );
         assert!(legacy.is_none());
     }
 
@@ -1616,30 +1937,49 @@ Hello.\n";
         );
 
         let t_anth = SkillTarget {
-            agent: AgentId::Anthropic, scope: SkillScope::Global, project: None,
-            enabled: true, mode: TargetMode::Tracked,
+            agent: AgentId::Anthropic,
+            scope: SkillScope::Global,
+            project: None,
+            enabled: true,
+            mode: TargetMode::Tracked,
         };
         let t_codex = SkillTarget {
-            agent: AgentId::Codex, scope: SkillScope::Global, project: None,
-            enabled: true, mode: TargetMode::Tracked,
+            agent: AgentId::Codex,
+            scope: SkillScope::Global,
+            project: None,
+            enabled: true,
+            mode: TargetMode::Tracked,
         };
 
         let mut ls = BTreeMap::new();
-        ls.insert(target_key(&t_anth), LastSyncEntry {
-            pushed_hash: "h1".into(), base_snapshot: None, at: "2026-01-01T00:00:00Z".into(),
-        });
-        ls.insert(target_key(&t_codex), LastSyncEntry {
-            pushed_hash: "h2".into(), base_snapshot: None, at: "2026-01-01T00:00:00Z".into(),
-        });
-        write_sync_meta_v2(&skill_dir, &SyncMetaV2 {
-            version: 2, targets: vec![t_anth.clone(), t_codex.clone()],
-            last_sync: ls, dirty: false,
-        }).unwrap();
+        ls.insert(
+            target_key(&t_anth),
+            LastSyncEntry {
+                pushed_hash: "h1".into(),
+                base_snapshot: None,
+                at: "2026-01-01T00:00:00Z".into(),
+            },
+        );
+        ls.insert(
+            target_key(&t_codex),
+            LastSyncEntry {
+                pushed_hash: "h2".into(),
+                base_snapshot: None,
+                at: "2026-01-01T00:00:00Z".into(),
+            },
+        );
+        write_sync_meta_v2(
+            &skill_dir,
+            &SyncMetaV2 {
+                version: 2,
+                targets: vec![t_anth.clone(), t_codex.clone()],
+                last_sync: ls,
+                dirty: false,
+            },
+        )
+        .unwrap();
 
-        skill_targets_set(
-            "tgt-test".into(),
-            vec![t_anth.clone()],
-        ).unwrap();
+        skill_targets_set("tgt-test".into(), vec![t_anth.clone()]).unwrap();
 
         let raw = fs::read_to_string(skill_dir.join(SYNC_META_FILENAME)).unwrap();
         let meta: SyncMetaV2 = serde_json::from_str(&raw).unwrap();
@@ -1710,7 +2050,11 @@ Hello.\n";
             .iter()
             .filter(|o| o.agent == AgentId::Gemini)
             .collect();
-        assert_eq!(gemini_orphans.len(), 1, "gemini should be orphaned: {orphans:?}");
+        assert_eq!(
+            gemini_orphans.len(),
+            1,
+            "gemini should be orphaned: {orphans:?}"
+        );
         assert!(
             gemini_orphans[0].path.contains("prune-me"),
             "orphan path should contain skill name: {}",
@@ -1728,7 +2072,7 @@ Hello.\n";
     }
 
     #[test]
-    fn orphan_scan_flags_disabled_and_detached() {
+    fn orphan_scan_preserves_disabled_tracked_and_flags_detached() {
         let tmp = tempdir();
         let _g = override_felina_home(&tmp);
         let project = tmp.to_string_lossy().to_string();
@@ -1755,7 +2099,7 @@ Hello.\n";
         fs::write(anthropic_dir.join("SKILL.md"), "rendered").unwrap();
         fs::write(codex_dir.join("SKILL.md"), "rendered").unwrap();
 
-        // anthropic = disabled, codex = detached — both should be orphans.
+        // anthropic = disabled tracked (known, not orphan), codex = detached (orphan).
         let skill_dir = tmp.join(".felina").join("skills").join("flag-test");
         write_sync_meta_v2(
             &skill_dir,
@@ -1786,9 +2130,16 @@ Hello.\n";
         let orphans = skill_prune_orphans_scan("flag-test".into()).unwrap();
         let _ = project;
 
-        assert_eq!(orphans.len(), 2, "both disabled and detached are orphans: {orphans:?}");
+        assert_eq!(
+            orphans.len(),
+            1,
+            "only detached target should be orphaned: {orphans:?}"
+        );
         let agents: Vec<AgentId> = orphans.iter().map(|o| o.agent).collect();
-        assert!(agents.contains(&AgentId::Anthropic), "disabled anthropic");
+        assert!(
+            !agents.contains(&AgentId::Anthropic),
+            "disabled tracked anthropic should not be orphaned"
+        );
         assert!(agents.contains(&AgentId::Codex), "detached codex");
     }
 
@@ -1917,11 +2268,105 @@ Hello.\n";
         assert!(orphans.is_empty(), "no agent files on disk → no orphans");
     }
 
+    #[test]
+    fn skill_target_read_content_reads_agent_side_skill_md() {
+        let tmp = tempdir();
+        let _g = override_felina_home(&tmp);
+        let project = tmp.to_string_lossy().to_string();
+
+        let mut fm = serde_yaml::Mapping::new();
+        fm.insert("name".into(), "code-review".into());
+        fm.insert("description".into(), "test".into());
+        fm.insert(
+            "agents".into(),
+            serde_yaml::Value::Sequence(vec!["codex".into()]),
+        );
+        canonical_skills_write(
+            "code-review".into(),
+            serde_yaml::Value::Mapping(fm),
+            "body".into(),
+        )
+        .unwrap();
+
+        let target = SkillTarget {
+            agent: AgentId::Codex,
+            scope: SkillScope::Project,
+            project: Some(project.clone()),
+            enabled: false,
+            mode: TargetMode::Tracked,
+        };
+        let skill_dir = tmp.join(".felina").join("skills").join("code-review");
+        write_sync_meta_v2(
+            &skill_dir,
+            &SyncMetaV2 {
+                version: 2,
+                targets: vec![target.clone()],
+                last_sync: BTreeMap::new(),
+                dirty: false,
+            },
+        )
+        .unwrap();
+        let agent_dir = tmp.join(".agents").join("skills").join("code-review");
+        fs::create_dir_all(&agent_dir).unwrap();
+        fs::write(agent_dir.join("SKILL.md"), "agent-side raw").unwrap();
+
+        let content = skill_target_read_content("code-review".into(), target_key(&target))
+            .expect("read agent content");
+
+        assert_eq!(content, "agent-side raw");
+    }
+
+    #[test]
+    fn skill_target_read_content_reports_missing_agent_file() {
+        let tmp = tempdir();
+        let _g = override_felina_home(&tmp);
+        let project = tmp.to_string_lossy().to_string();
+
+        let mut fm = serde_yaml::Mapping::new();
+        fm.insert("name".into(), "code-review".into());
+        fm.insert("description".into(), "test".into());
+        fm.insert(
+            "agents".into(),
+            serde_yaml::Value::Sequence(vec!["codex".into()]),
+        );
+        canonical_skills_write(
+            "code-review".into(),
+            serde_yaml::Value::Mapping(fm),
+            "body".into(),
+        )
+        .unwrap();
+
+        let target = SkillTarget {
+            agent: AgentId::Codex,
+            scope: SkillScope::Project,
+            project: Some(project),
+            enabled: false,
+            mode: TargetMode::Tracked,
+        };
+        let skill_dir = tmp.join(".felina").join("skills").join("code-review");
+        write_sync_meta_v2(
+            &skill_dir,
+            &SyncMetaV2 {
+                version: 2,
+                targets: vec![target.clone()],
+                last_sync: BTreeMap::new(),
+                dirty: false,
+            },
+        )
+        .unwrap();
+
+        let err = skill_target_read_content("code-review".into(), target_key(&target)).unwrap_err();
+
+        assert!(
+            err.contains("does not exist") || err.contains("resolve"),
+            "got: {err}"
+        );
+    }
+
     /// Smoke regression (task 8.4 / handoff UI #3a): a freshly-written
-    /// canonical surfaces as `dirty=true` in the list and read paths, so
-    /// the per-skill Push button shows "Push" not "Re-push". On overwrite
-    /// of an already-synced skill, `last_synced` is preserved while
-    /// `dirty` flips back to true.
+    /// canonical without targets is not pushable and surfaces as `dirty=false`.
+    /// On overwrite of an already-synced skill with a pushable target,
+    /// `last_synced` is preserved while `dirty` flips back to true.
     #[test]
     fn write_marks_canonical_dirty_in_sync_meta() {
         let tmp = tempdir();
@@ -1950,8 +2395,14 @@ Hello.\n";
         .expect("first write");
 
         let skill = canonical_skills_read("fresh".into()).expect("read v1");
-        assert!(skill.dirty, "fresh canonical must be dirty=true");
-        assert!(skill.last_synced.is_none(), "fresh canonical has no last_synced");
+        assert!(
+            !skill.dirty,
+            "fresh canonical with no targets must be dirty=false"
+        );
+        assert!(
+            skill.last_synced.is_none(),
+            "fresh canonical has no last_synced"
+        );
 
         // Add a target so subsequent edits become pushable.
         let skill_dir = tmp.join(".felina").join("skills").join("fresh");
@@ -2045,11 +2496,9 @@ Hello.\n";
 
         let fixed_with_wrong_name =
             "---\nname: real\ndescription: repaired\nagents:\n  - anthropic\n---\n# Body\n";
-        let result = canonical_skills_write_raw(
-            "smoke-nested".into(),
-            fixed_with_wrong_name.into(),
-        )
-        .expect("raw write");
+        let result =
+            canonical_skills_write_raw("smoke-nested".into(), fixed_with_wrong_name.into())
+                .expect("raw write");
 
         assert_eq!(
             result.normalized_from.as_deref(),
@@ -2086,8 +2535,8 @@ Hello.\n";
         let correct = "---\nname: my-skill\ndescription: ok\nagents:\n  - codex\n---\nbody\n";
         write_skill(&skills_root, "my-skill", "placeholder");
 
-        let result = canonical_skills_write_raw("my-skill".into(), correct.into())
-            .expect("raw write");
+        let result =
+            canonical_skills_write_raw("my-skill".into(), correct.into()).expect("raw write");
         assert!(
             result.normalized_from.is_none(),
             "no normalization needed: {result:?}"
@@ -2122,7 +2571,8 @@ Hello.\n";
         skill_targets_set("folder-id".into(), vec![target.clone()])
             .expect("targets_set must succeed keyed on the canonical directory identity");
 
-        let raw = fs::read_to_string(skills_root.join("folder-id").join(SYNC_META_FILENAME)).unwrap();
+        let raw =
+            fs::read_to_string(skills_root.join("folder-id").join(SYNC_META_FILENAME)).unwrap();
         let meta: SyncMetaV2 = serde_json::from_str(&raw).unwrap();
         assert_eq!(meta.targets.len(), 1);
         assert_eq!(meta.targets[0].agent, AgentId::Anthropic);
@@ -2131,6 +2581,438 @@ Hello.\n";
         assert!(
             skill_targets_set("parsed-different".into(), vec![target]).is_err(),
             "parsed frontmatter name must not resolve a skill directory",
+        );
+    }
+
+    #[test]
+    fn canonical_delete_policy_detach_cascade_and_cancel_control_agent_files() {
+        let tmp = tempdir();
+        let _g = override_felina_home(&tmp);
+
+        for name in ["delete-detach", "delete-cascade", "delete-cancel"] {
+            let mut fm = serde_yaml::Mapping::new();
+            fm.insert("name".into(), name.into());
+            fm.insert("description".into(), "test".into());
+            fm.insert(
+                "agents".into(),
+                serde_yaml::Value::Sequence(vec![
+                    "anthropic".into(),
+                    "codex".into(),
+                    "gemini".into(),
+                ]),
+            );
+            canonical_skills_write(name.into(), serde_yaml::Value::Mapping(fm), "body".into())
+                .unwrap();
+            let project = tmp.to_string_lossy().to_string();
+            let disabled_project = tmp.join("disabled-project");
+            let detached_project = tmp.join("detached-project");
+            skill_targets_set(
+                name.into(),
+                vec![
+                    SkillTarget {
+                        agent: AgentId::Anthropic,
+                        scope: SkillScope::Project,
+                        project: Some(project.clone()),
+                        enabled: true,
+                        mode: TargetMode::Tracked,
+                    },
+                    SkillTarget {
+                        agent: AgentId::Codex,
+                        scope: SkillScope::Project,
+                        project: Some(project.clone()),
+                        enabled: true,
+                        mode: TargetMode::Tracked,
+                    },
+                    SkillTarget {
+                        agent: AgentId::Gemini,
+                        scope: SkillScope::Project,
+                        project: Some(disabled_project.to_string_lossy().to_string()),
+                        enabled: false,
+                        mode: TargetMode::Tracked,
+                    },
+                    SkillTarget {
+                        agent: AgentId::Anthropic,
+                        scope: SkillScope::Project,
+                        project: Some(detached_project.to_string_lossy().to_string()),
+                        enabled: true,
+                        mode: TargetMode::Detached,
+                    },
+                ],
+            )
+            .unwrap();
+            for root in [".claude", ".agents", ".gemini"] {
+                let dir = tmp.join(root).join("skills").join(name);
+                fs::create_dir_all(&dir).unwrap();
+                fs::write(dir.join("SKILL.md"), "agent side").unwrap();
+            }
+            for dir in [
+                disabled_project.join(".gemini").join("skills").join(name),
+                detached_project.join(".claude").join("skills").join(name),
+            ] {
+                fs::create_dir_all(&dir).unwrap();
+                fs::write(dir.join("SKILL.md"), "agent side").unwrap();
+            }
+        }
+
+        let detach = canonical_skills_delete_with_policy(
+            "delete-detach".into(),
+            CanonicalDeletePolicy::Detach,
+        )
+        .unwrap();
+        assert!(detach.canonical_deleted);
+        assert!(!tmp
+            .join(".felina")
+            .join("skills")
+            .join("delete-detach")
+            .exists());
+        assert!(tmp
+            .join(".claude")
+            .join("skills")
+            .join("delete-detach")
+            .exists());
+        assert!(tmp
+            .join(".agents")
+            .join("skills")
+            .join("delete-detach")
+            .exists());
+
+        let cascade = canonical_skills_delete_with_policy(
+            "delete-cascade".into(),
+            CanonicalDeletePolicy::Cascade,
+        )
+        .unwrap();
+        assert!(cascade.canonical_deleted);
+        assert_eq!(cascade.target_results.len(), 2);
+        assert!(cascade.target_results.iter().all(|r| r.success));
+        assert!(!tmp
+            .join(".felina")
+            .join("skills")
+            .join("delete-cascade")
+            .exists());
+        assert!(!tmp
+            .join(".claude")
+            .join("skills")
+            .join("delete-cascade")
+            .exists());
+        assert!(!tmp
+            .join(".agents")
+            .join("skills")
+            .join("delete-cascade")
+            .exists());
+        assert!(tmp
+            .join("disabled-project")
+            .join(".gemini")
+            .join("skills")
+            .join("delete-cascade")
+            .exists());
+        assert!(tmp
+            .join("detached-project")
+            .join(".claude")
+            .join("skills")
+            .join("delete-cascade")
+            .exists());
+
+        let cancel = canonical_skills_delete_with_policy(
+            "delete-cancel".into(),
+            CanonicalDeletePolicy::Cancel,
+        )
+        .unwrap();
+        assert!(!cancel.canonical_deleted);
+        assert!(tmp
+            .join(".felina")
+            .join("skills")
+            .join("delete-cancel")
+            .exists());
+        assert!(tmp
+            .join(".claude")
+            .join("skills")
+            .join("delete-cancel")
+            .exists());
+        assert!(tmp
+            .join(".agents")
+            .join("skills")
+            .join("delete-cancel")
+            .exists());
+    }
+
+    #[test]
+    fn target_remove_policy_prunes_meta_deletes_only_selected_and_preserves_on_failure() {
+        let tmp = tempdir();
+        let _g = override_felina_home(&tmp);
+
+        let mut fm = serde_yaml::Mapping::new();
+        fm.insert("name".into(), "target-remove".into());
+        fm.insert("description".into(), "test".into());
+        fm.insert(
+            "agents".into(),
+            serde_yaml::Value::Sequence(vec!["anthropic".into(), "gemini".into(), "codex".into()]),
+        );
+        canonical_skills_write(
+            "target-remove".into(),
+            serde_yaml::Value::Mapping(fm),
+            "body".into(),
+        )
+        .unwrap();
+
+        let project = tmp.to_string_lossy().to_string();
+        let anthropic = SkillTarget {
+            agent: AgentId::Anthropic,
+            scope: SkillScope::Project,
+            project: Some(project.clone()),
+            enabled: true,
+            mode: TargetMode::Tracked,
+        };
+        let gemini = SkillTarget {
+            agent: AgentId::Gemini,
+            scope: SkillScope::Project,
+            project: Some(project.clone()),
+            enabled: true,
+            mode: TargetMode::Tracked,
+        };
+        let codex = SkillTarget {
+            agent: AgentId::Codex,
+            scope: SkillScope::Project,
+            project: Some(project.clone()),
+            enabled: true,
+            mode: TargetMode::Tracked,
+        };
+        skill_targets_set(
+            "target-remove".into(),
+            vec![anthropic.clone(), gemini.clone(), codex.clone()],
+        )
+        .unwrap();
+
+        let skill_dir = tmp.join(".felina").join("skills").join("target-remove");
+        let mut meta: SyncMetaV2 =
+            serde_json::from_str(&fs::read_to_string(skill_dir.join(SYNC_META_FILENAME)).unwrap())
+                .unwrap();
+        meta.last_sync.insert(
+            target_key(&anthropic),
+            LastSyncEntry {
+                pushed_hash: "a".into(),
+                base_snapshot: None,
+                at: "2026-05-26T00:00:00Z".into(),
+            },
+        );
+        meta.last_sync.insert(
+            target_key(&gemini),
+            LastSyncEntry {
+                pushed_hash: "g".into(),
+                base_snapshot: None,
+                at: "2026-05-26T00:00:00Z".into(),
+            },
+        );
+        meta.last_sync.insert(
+            target_key(&codex),
+            LastSyncEntry {
+                pushed_hash: "c".into(),
+                base_snapshot: None,
+                at: "2026-05-26T00:00:00Z".into(),
+            },
+        );
+        write_sync_meta_v2(&skill_dir, &meta).unwrap();
+
+        let anthropic_dir = tmp.join(".claude").join("skills").join("target-remove");
+        let gemini_dir = tmp.join(".gemini").join("skills").join("target-remove");
+        let codex_path = tmp.join(".agents").join("skills").join("target-remove");
+        fs::create_dir_all(&anthropic_dir).unwrap();
+        fs::create_dir_all(&gemini_dir).unwrap();
+        fs::create_dir_all(codex_path.parent().unwrap()).unwrap();
+        fs::write(anthropic_dir.join("SKILL.md"), "anthropic").unwrap();
+        fs::write(gemini_dir.join("SKILL.md"), "gemini").unwrap();
+        fs::write(&codex_path, "not a directory").unwrap();
+
+        let cancel = skill_target_remove_with_policy(
+            "target-remove".into(),
+            anthropic.clone(),
+            TargetRemovalPolicy::Cancel,
+        )
+        .unwrap();
+        assert!(!cancel.target_removed);
+
+        let remove_only = skill_target_remove_with_policy(
+            "target-remove".into(),
+            anthropic.clone(),
+            TargetRemovalPolicy::RemoveTargetOnly,
+        )
+        .unwrap();
+        assert!(remove_only.target_removed);
+        assert!(
+            anthropic_dir.join("SKILL.md").is_file(),
+            "remove-only leaves file"
+        );
+
+        let delete_file = skill_target_remove_with_policy(
+            "target-remove".into(),
+            gemini.clone(),
+            TargetRemovalPolicy::RemoveTargetAndDeleteFile,
+        )
+        .unwrap();
+        assert!(delete_file.target_removed);
+        assert!(
+            !gemini_dir.exists(),
+            "delete-file removes selected target dir"
+        );
+        assert!(anthropic_dir.exists(), "other agent dir is not touched");
+
+        let failed = skill_target_remove_with_policy(
+            "target-remove".into(),
+            codex.clone(),
+            TargetRemovalPolicy::RemoveTargetAndDeleteFile,
+        )
+        .unwrap();
+        assert!(!failed.target_removed, "failed delete keeps target row");
+        assert!(failed.delete_result.as_ref().is_some_and(|r| !r.success));
+
+        let unexpected_project = tmp.join("unexpected-project");
+        let unexpected_dir = unexpected_project
+            .join(".claude")
+            .join("skills")
+            .join("target-remove");
+        fs::create_dir_all(&unexpected_dir).unwrap();
+        fs::write(unexpected_dir.join("SKILL.md"), "unexpected").unwrap();
+        let unexpected = SkillTarget {
+            agent: AgentId::Anthropic,
+            scope: SkillScope::Project,
+            project: Some(unexpected_project.to_string_lossy().to_string()),
+            enabled: true,
+            mode: TargetMode::Tracked,
+        };
+        let missing_err = skill_target_remove_with_policy(
+            "target-remove".into(),
+            unexpected,
+            TargetRemovalPolicy::RemoveTargetAndDeleteFile,
+        )
+        .unwrap_err();
+        assert_eq!(missing_err, "target not found");
+        assert!(
+            unexpected_dir.join("SKILL.md").is_file(),
+            "unknown target payload must not delete files"
+        );
+
+        let after: SyncMetaV2 =
+            serde_json::from_str(&fs::read_to_string(skill_dir.join(SYNC_META_FILENAME)).unwrap())
+                .unwrap();
+        assert!(!after
+            .targets
+            .iter()
+            .any(|t| target_key(t) == target_key(&anthropic)));
+        assert!(!after
+            .targets
+            .iter()
+            .any(|t| target_key(t) == target_key(&gemini)));
+        assert!(after
+            .targets
+            .iter()
+            .any(|t| target_key(t) == target_key(&codex)));
+        assert!(!after.last_sync.contains_key(&target_key(&anthropic)));
+        assert!(!after.last_sync.contains_key(&target_key(&gemini)));
+        assert!(after.last_sync.contains_key(&target_key(&codex)));
+    }
+
+    #[test]
+    fn target_repoint_updates_project_key_marks_dirty_and_preserves_old_files() {
+        let tmp = tempdir();
+        let _g = override_felina_home(&tmp);
+
+        let old_project = tmp.join("old-project");
+        let new_project = tmp.join("new-project");
+        fs::create_dir_all(
+            old_project
+                .join(".claude")
+                .join("skills")
+                .join("repoint-skill"),
+        )
+        .unwrap();
+        fs::create_dir_all(&new_project).unwrap();
+        fs::write(
+            old_project
+                .join(".claude")
+                .join("skills")
+                .join("repoint-skill")
+                .join("SKILL.md"),
+            "old file",
+        )
+        .unwrap();
+
+        let mut fm = serde_yaml::Mapping::new();
+        fm.insert("name".into(), "repoint-skill".into());
+        fm.insert("description".into(), "test".into());
+        fm.insert(
+            "agents".into(),
+            serde_yaml::Value::Sequence(vec!["anthropic".into()]),
+        );
+        canonical_skills_write(
+            "repoint-skill".into(),
+            serde_yaml::Value::Mapping(fm),
+            "body".into(),
+        )
+        .unwrap();
+
+        let target = SkillTarget {
+            agent: AgentId::Anthropic,
+            scope: SkillScope::Project,
+            project: Some(old_project.to_string_lossy().to_string()),
+            enabled: true,
+            mode: TargetMode::Tracked,
+        };
+        skill_targets_set("repoint-skill".into(), vec![target.clone()]).unwrap();
+
+        let skill_dir = tmp.join(".felina").join("skills").join("repoint-skill");
+        let old_key = target_key(&target);
+        let mut meta: SyncMetaV2 =
+            serde_json::from_str(&fs::read_to_string(skill_dir.join(SYNC_META_FILENAME)).unwrap())
+                .unwrap();
+        meta.last_sync.insert(
+            old_key.clone(),
+            LastSyncEntry {
+                pushed_hash: "old".into(),
+                base_snapshot: None,
+                at: "2026-05-26T00:00:00Z".into(),
+            },
+        );
+        meta.dirty = false;
+        write_sync_meta_v2(&skill_dir, &meta).unwrap();
+
+        let result = skill_target_repoint(
+            "repoint-skill".into(),
+            target.clone(),
+            new_project.to_string_lossy().to_string(),
+        )
+        .unwrap();
+
+        assert_eq!(result.old_target_key, old_key);
+        assert_ne!(result.old_target_key, result.new_target_key);
+        assert_eq!(result.target.agent, target.agent);
+        assert_eq!(result.target.scope, SkillScope::Project);
+        assert_eq!(result.target.enabled, target.enabled);
+        assert_eq!(result.target.mode, target.mode);
+        assert_eq!(
+            result.target.project.as_deref(),
+            Some(
+                crate::commands::known_projects::normalize_path(&new_project.to_string_lossy())
+                    .as_str()
+            ),
+        );
+        assert!(result.dirty);
+
+        let after: SyncMetaV2 =
+            serde_json::from_str(&fs::read_to_string(skill_dir.join(SYNC_META_FILENAME)).unwrap())
+                .unwrap();
+        assert!(!after.last_sync.contains_key(&result.old_target_key));
+        assert!(after.dirty);
+        assert!(after
+            .targets
+            .iter()
+            .any(|t| target_key(t) == result.new_target_key));
+        assert!(
+            old_project
+                .join(".claude")
+                .join("skills")
+                .join("repoint-skill")
+                .join("SKILL.md")
+                .is_file(),
+            "repoint must not delete files from the old project path",
         );
     }
 
@@ -2146,12 +3028,14 @@ Hello.\n";
         let broken = "---\n- still broken\n---\nbody\n";
         write_skill(&skills_root, "broken-skill", "placeholder");
 
-        let result = canonical_skills_write_raw("broken-skill".into(), broken.into())
-            .expect("raw write");
+        let result =
+            canonical_skills_write_raw("broken-skill".into(), broken.into()).expect("raw write");
         assert!(
             result.normalized_from.is_none(),
             "broken content has no name to normalize: {result:?}"
         );
-        assert!(parse_skill_md(&canonical_skills_read_raw("broken-skill".into()).unwrap()).is_err());
+        assert!(
+            parse_skill_md(&canonical_skills_read_raw("broken-skill".into()).unwrap()).is_err()
+        );
     }
 }

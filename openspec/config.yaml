@@ -82,3 +82,5 @@ rules:
       「npm run tauri dev 手動驗證」task,列出要驗證的具體行為
     - 涉及 Rust commands 新增/修改的 change,驗證階段須包含
       「cargo build 在 src-tauri/ 通過」task
+    - 可抽成純函式的前端邏輯(不依賴 React/DOM)須用 node:test 寫單元測試,
+      測試檔放 tests/。包含但不限於:資料轉換、狀態推導、衝突判定、validation

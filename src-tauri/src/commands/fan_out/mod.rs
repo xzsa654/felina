@@ -13,10 +13,10 @@
 //!     gemini.rs     — SKILL.md (name + description only)
 
 use crate::commands::canonical_skills::{
-    canonical_skills_dir, parse_skill_md, read_sync_meta_v2, target_key,
-    write_sync_meta_v2, AgentId, CanonicalSkill, LastSyncEntry, SkillScope, TargetMode,
+    canonical_skills_dir, parse_skill_md, read_sync_meta_v2, target_key, write_sync_meta_v2,
+    AgentId, CanonicalSkill, LastSyncEntry, SkillScope, TargetMode,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -45,6 +45,94 @@ pub struct SyncResult {
     /// `lastSync[targetKey].at` on success. Always set (success or failure)
     /// so the UI can display when the most recent attempt happened.
     pub at: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SkillSyncPreviewOperation {
+    Create,
+    Overwrite,
+    NoOp,
+    Skipped,
+    BlockedDrift,
+    OverwriteUnknown,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SkillSyncDriftResolution {
+    Override,
+    Detach,
+    Cancel,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillSyncPreviewItem {
+    pub skill_name: String,
+    pub target_key: String,
+    pub agent: AgentId,
+    pub scope: SkillScope,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project: Option<String>,
+    pub target_dir: String,
+    pub skill_dir: String,
+    pub skill_md_path: String,
+    pub operation: SkillSyncPreviewOperation,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub current_hash: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rendered_hash: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_sync_hash: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillSyncPreviewSummary {
+    pub create: usize,
+    pub overwrite: usize,
+    pub no_op: usize,
+    pub skipped: usize,
+    pub blocked_drift: usize,
+    pub overwrite_unknown: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillSyncPreview {
+    pub skill_name: String,
+    pub items: Vec<SkillSyncPreviewItem>,
+    pub summary: SkillSyncPreviewSummary,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillSyncAllPreview {
+    pub skills: Vec<SkillSyncPreview>,
+    pub summary: SkillSyncPreviewSummary,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillSyncResolution {
+    pub target_key: String,
+    pub resolution: SkillSyncDriftResolution,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillSyncCommitRequest {
+    pub skill_name: String,
+    pub resolutions: Vec<SkillSyncResolution>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillSyncAllCommitRequest {
+    pub resolutions_by_skill: std::collections::BTreeMap<String, Vec<SkillSyncResolution>>,
 }
 
 /// One render-and-write pass for a single agent.
@@ -216,7 +304,11 @@ pub fn skill_sync_all() -> Result<Vec<SyncResult>, String> {
     let entries = super::canonical_skills::canonical_skills_list()?;
     let mut out = Vec::new();
     for entry in entries {
-        if let super::canonical_skills::SkillListEntry::Ok { canonical_id, skill } = entry {
+        if let super::canonical_skills::SkillListEntry::Ok {
+            canonical_id,
+            skill,
+        } = entry
+        {
             // Re-use skill_sync_one for consistent semantics (meta update etc).
             match skill_sync_one(canonical_id) {
                 Ok(mut r) => out.append(&mut r),
@@ -239,6 +331,457 @@ pub fn skill_sync_all() -> Result<Vec<SyncResult>, String> {
         }
     }
     Ok(out)
+}
+
+#[tauri::command]
+pub fn skill_sync_preview(name: String) -> Result<SkillSyncPreview, String> {
+    let (skill, canonical_skill_dir, meta) = load_skill_for_fan_out(&name)?;
+    build_preview_for_skill(&skill, &canonical_skill_dir, &meta)
+}
+
+#[tauri::command]
+pub fn skill_sync_all_preview() -> Result<SkillSyncAllPreview, String> {
+    let entries = super::canonical_skills::canonical_skills_list()?;
+    let mut skills = Vec::new();
+    let mut summary = SkillSyncPreviewSummary::default();
+    for entry in entries {
+        if let super::canonical_skills::SkillListEntry::Ok { canonical_id, .. } = entry {
+            let preview = skill_sync_preview(canonical_id)?;
+            merge_summary(&mut summary, &preview.summary);
+            skills.push(preview);
+        }
+    }
+    Ok(SkillSyncAllPreview { skills, summary })
+}
+
+#[tauri::command]
+pub fn skill_sync_commit(request: SkillSyncCommitRequest) -> Result<Vec<SyncResult>, String> {
+    let (skill, canonical_skill_dir, mut meta) = load_skill_for_fan_out(&request.skill_name)?;
+    let preview = build_preview_for_skill(&skill, &canonical_skill_dir, &meta)?;
+    let resolutions: std::collections::BTreeMap<String, SkillSyncDriftResolution> = request
+        .resolutions
+        .into_iter()
+        .map(|r| (r.target_key, r.resolution))
+        .collect();
+    let attempted_at = current_iso8601();
+    let mut results = Vec::new();
+    let mut any_failure = false;
+
+    for item in preview.items {
+        let Some(target_index) = meta
+            .targets
+            .iter()
+            .position(|target| target_key(target) == item.target_key)
+        else {
+            continue;
+        };
+        let target = meta.targets[target_index].clone();
+
+        match item.operation {
+            SkillSyncPreviewOperation::Skipped => {
+                if let Some(error) = item.error.clone() {
+                    any_failure = true;
+                    results.push(commit_result_from_item(
+                        &item,
+                        false,
+                        Some(error),
+                        &attempted_at,
+                    ));
+                }
+            }
+            SkillSyncPreviewOperation::BlockedDrift
+            | SkillSyncPreviewOperation::OverwriteUnknown => {
+                match resolutions.get(&item.target_key).copied() {
+                    Some(SkillSyncDriftResolution::Override) => {
+                        match write_target(
+                            &skill,
+                            &canonical_skill_dir,
+                            &target,
+                            &attempted_at,
+                            &mut meta,
+                        ) {
+                            Ok(result) => results.push(result),
+                            Err(result) => {
+                                any_failure = true;
+                                results.push(result);
+                            }
+                        }
+                    }
+                    Some(SkillSyncDriftResolution::Detach) => {
+                        meta.targets[target_index].mode = TargetMode::Detached;
+                        results.push(commit_result_from_item(&item, true, None, &attempted_at));
+                    }
+                    Some(SkillSyncDriftResolution::Cancel) | None => {
+                        any_failure = true;
+                        results.push(commit_result_from_item(
+                            &item,
+                            false,
+                            Some(
+                                "drift or overwrite-unknown target requires override or detach"
+                                    .into(),
+                            ),
+                            &attempted_at,
+                        ));
+                    }
+                }
+            }
+            SkillSyncPreviewOperation::Create | SkillSyncPreviewOperation::Overwrite => {
+                match write_target(
+                    &skill,
+                    &canonical_skill_dir,
+                    &target,
+                    &attempted_at,
+                    &mut meta,
+                ) {
+                    Ok(result) => results.push(result),
+                    Err(result) => {
+                        any_failure = true;
+                        results.push(result);
+                    }
+                }
+            }
+            SkillSyncPreviewOperation::NoOp => {
+                if let Some(hash) = item.rendered_hash.as_deref().or(item.current_hash.as_deref()) {
+                    meta.last_sync.insert(
+                        item.target_key.clone(),
+                        LastSyncEntry {
+                            pushed_hash: hash.to_string(),
+                            base_snapshot: None,
+                            at: attempted_at.clone(),
+                        },
+                    );
+                }
+                results.push(commit_result_from_item(&item, true, None, &attempted_at));
+            }
+        }
+    }
+
+    meta.dirty = any_failure
+        || meta.targets.iter().any(|target| {
+            target.enabled && matches!(target.mode, TargetMode::Tracked) && {
+                let key = target_key(target);
+                !meta.last_sync.contains_key(&key)
+            }
+        });
+    let _ = write_sync_meta_v2(&canonical_skill_dir, &meta);
+
+    Ok(results)
+}
+
+#[tauri::command]
+pub fn skill_sync_all_commit(
+    request: SkillSyncAllCommitRequest,
+) -> Result<Vec<SyncResult>, String> {
+    let entries = super::canonical_skills::canonical_skills_list()?;
+    let mut out = Vec::new();
+    for entry in entries {
+        if let super::canonical_skills::SkillListEntry::Ok { canonical_id, .. } = entry {
+            let resolutions = request
+                .resolutions_by_skill
+                .get(&canonical_id)
+                .cloned()
+                .unwrap_or_default();
+            let mut results = skill_sync_commit(SkillSyncCommitRequest {
+                skill_name: canonical_id,
+                resolutions,
+            })?;
+            out.append(&mut results);
+        }
+    }
+    Ok(out)
+}
+
+fn write_target(
+    skill: &CanonicalSkill,
+    canonical_skill_dir: &Path,
+    target: &super::canonical_skills::SkillTarget,
+    attempted_at: &str,
+    meta: &mut super::canonical_skills::SyncMetaV2,
+) -> Result<SyncResult, SyncResult> {
+    let cfg = match super::agent_paths::agent_paths_get() {
+        Ok(cfg) => cfg,
+        Err(e) => {
+            return Err(SyncResult {
+                agent: target.agent,
+                scope: target.scope,
+                target_path: String::new(),
+                success: false,
+                error: Some(e),
+                at: attempted_at.to_string(),
+            });
+        }
+    };
+    let renderer = renderer_for(target.agent);
+    let pair = pair_for(&cfg, target.agent);
+    let target_dir =
+        match renderer.resolve_target_dir(target.scope, target.project.as_deref(), pair) {
+            Ok(path) => path,
+            Err(e) => {
+                return Err(SyncResult {
+                    agent: target.agent,
+                    scope: target.scope,
+                    target_path: String::new(),
+                    success: false,
+                    error: Some(e),
+                    at: attempted_at.to_string(),
+                });
+            }
+        };
+    let target_skill_dir = target_dir.join(&skill.name);
+    let final_result = match renderer.render(skill, &target_dir) {
+        Ok(()) => copy_bundled_siblings(canonical_skill_dir, &target_skill_dir),
+        Err(e) => Err(e),
+    };
+
+    match final_result {
+        Ok(()) => {
+            let rendered =
+                fs::read_to_string(target_skill_dir.join("SKILL.md")).unwrap_or_default();
+            meta.last_sync.insert(
+                target_key(target),
+                LastSyncEntry {
+                    pushed_hash: sha256_hex(&rendered),
+                    base_snapshot: None,
+                    at: attempted_at.to_string(),
+                },
+            );
+            Ok(SyncResult {
+                agent: target.agent,
+                scope: target.scope,
+                target_path: target_skill_dir.to_string_lossy().to_string(),
+                success: true,
+                error: None,
+                at: attempted_at.to_string(),
+            })
+        }
+        Err(e) => Err(SyncResult {
+            agent: target.agent,
+            scope: target.scope,
+            target_path: target_skill_dir.to_string_lossy().to_string(),
+            success: false,
+            error: Some(e),
+            at: attempted_at.to_string(),
+        }),
+    }
+}
+
+fn commit_result_from_item(
+    item: &SkillSyncPreviewItem,
+    success: bool,
+    error: Option<String>,
+    attempted_at: &str,
+) -> SyncResult {
+    SyncResult {
+        agent: item.agent,
+        scope: item.scope,
+        target_path: item.skill_dir.clone(),
+        success,
+        error,
+        at: attempted_at.to_string(),
+    }
+}
+
+fn load_skill_for_fan_out(
+    name: &str,
+) -> Result<(CanonicalSkill, PathBuf, super::canonical_skills::SyncMetaV2), String> {
+    let canonical_dir = canonical_skills_dir();
+    let canonical_skill_dir = canonical_dir.join(name);
+    let skill_md = canonical_skill_dir.join("SKILL.md");
+    if !skill_md.is_file() {
+        return Err(format!("canonical skill not found: {name}"));
+    }
+    let raw = fs::read_to_string(&skill_md)
+        .map_err(|e| format!("failed to read canonical SKILL.md: {e}"))?;
+    let mut skill = parse_skill_md(&raw)?;
+    skill.canonical_id = name.to_string();
+    skill.name = name.to_string();
+    let (meta, _legacy) = read_sync_meta_v2(&canonical_skill_dir, &skill);
+    Ok((skill, canonical_skill_dir, meta))
+}
+
+fn build_preview_for_skill(
+    skill: &CanonicalSkill,
+    canonical_skill_dir: &Path,
+    meta: &super::canonical_skills::SyncMetaV2,
+) -> Result<SkillSyncPreview, String> {
+    let cfg = super::agent_paths::agent_paths_get()?;
+    let mut items = Vec::new();
+    for target in &meta.targets {
+        let key = target_key(target);
+        let renderer = renderer_for(target.agent);
+        let pair = pair_for(&cfg, target.agent);
+
+        let target_dir =
+            match renderer.resolve_target_dir(target.scope, target.project.as_deref(), pair) {
+                Ok(path) => path,
+                Err(error) => {
+                    items.push(SkillSyncPreviewItem {
+                        skill_name: skill.name.clone(),
+                        target_key: key,
+                        agent: target.agent,
+                        scope: target.scope,
+                        project: target.project.clone(),
+                        target_dir: String::new(),
+                        skill_dir: String::new(),
+                        skill_md_path: String::new(),
+                        operation: SkillSyncPreviewOperation::Skipped,
+                        current_hash: None,
+                        rendered_hash: None,
+                        last_sync_hash: meta
+                            .last_sync
+                            .get(&target_key(target))
+                            .map(|e| e.pushed_hash.clone()),
+                        error: Some(error),
+                    });
+                    continue;
+                }
+            };
+        let skill_dir = target_dir.join(&skill.name);
+        let skill_md_path = skill_dir.join("SKILL.md");
+        let last_sync_hash = meta.last_sync.get(&key).map(|e| e.pushed_hash.clone());
+
+        if !target.enabled || matches!(target.mode, TargetMode::Detached | TargetMode::Forked) {
+            items.push(SkillSyncPreviewItem {
+                skill_name: skill.name.clone(),
+                target_key: key,
+                agent: target.agent,
+                scope: target.scope,
+                project: target.project.clone(),
+                target_dir: target_dir.to_string_lossy().to_string(),
+                skill_dir: skill_dir.to_string_lossy().to_string(),
+                skill_md_path: skill_md_path.to_string_lossy().to_string(),
+                operation: SkillSyncPreviewOperation::Skipped,
+                current_hash: None,
+                rendered_hash: None,
+                last_sync_hash,
+                error: None,
+            });
+            continue;
+        }
+
+        let rendered_hash = match rendered_skill_md_hash(skill, target.agent, canonical_skill_dir) {
+            Ok(hash) => hash,
+            Err(error) => {
+                items.push(SkillSyncPreviewItem {
+                    skill_name: skill.name.clone(),
+                    target_key: key,
+                    agent: target.agent,
+                    scope: target.scope,
+                    project: target.project.clone(),
+                    target_dir: target_dir.to_string_lossy().to_string(),
+                    skill_dir: skill_dir.to_string_lossy().to_string(),
+                    skill_md_path: skill_md_path.to_string_lossy().to_string(),
+                    operation: SkillSyncPreviewOperation::Skipped,
+                    current_hash: None,
+                    rendered_hash: None,
+                    last_sync_hash,
+                    error: Some(error),
+                });
+                continue;
+            }
+        };
+
+        let current_hash = if skill_md_path.is_file() {
+            let current = fs::read_to_string(&skill_md_path).map_err(|e| {
+                format!(
+                    "failed to read target SKILL.md {}: {e}",
+                    skill_md_path.display()
+                )
+            })?;
+            Some(sha256_hex(&current))
+        } else {
+            None
+        };
+
+        let operation = match (&current_hash, &last_sync_hash) {
+            (None, _) => SkillSyncPreviewOperation::Create,
+            (Some(current), _) if current == &rendered_hash => SkillSyncPreviewOperation::NoOp,
+            (Some(current), Some(last)) if current != last => {
+                SkillSyncPreviewOperation::BlockedDrift
+            }
+            (Some(_), Some(_)) => SkillSyncPreviewOperation::Overwrite,
+            (Some(_), None) => SkillSyncPreviewOperation::OverwriteUnknown,
+        };
+
+        items.push(SkillSyncPreviewItem {
+            skill_name: skill.name.clone(),
+            target_key: key,
+            agent: target.agent,
+            scope: target.scope,
+            project: target.project.clone(),
+            target_dir: target_dir.to_string_lossy().to_string(),
+            skill_dir: skill_dir.to_string_lossy().to_string(),
+            skill_md_path: skill_md_path.to_string_lossy().to_string(),
+            operation,
+            current_hash,
+            rendered_hash: Some(rendered_hash),
+            last_sync_hash,
+            error: None,
+        });
+    }
+
+    let mut summary = SkillSyncPreviewSummary::default();
+    for item in &items {
+        count_operation(&mut summary, item.operation);
+    }
+
+    Ok(SkillSyncPreview {
+        skill_name: skill.name.clone(),
+        items,
+        summary,
+    })
+}
+
+fn rendered_skill_md_hash(
+    skill: &CanonicalSkill,
+    agent: AgentId,
+    canonical_skill_dir: &Path,
+) -> Result<String, String> {
+    let render_root = std::env::temp_dir().join(format!(
+        "felina-preview-{}-{}-{}",
+        std::process::id(),
+        skill.name,
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0)
+    ));
+    fs::create_dir_all(&render_root)
+        .map_err(|e| format!("failed to create preview temp dir: {e}"))?;
+    let renderer = renderer_for(agent);
+    let render_result = renderer.render(skill, &render_root);
+    let target_skill_dir = render_root.join(&skill.name);
+    let final_result = match render_result {
+        Ok(()) => copy_bundled_siblings(canonical_skill_dir, &target_skill_dir),
+        Err(e) => Err(e),
+    };
+    let hash_result = final_result.and_then(|_| {
+        fs::read_to_string(target_skill_dir.join("SKILL.md"))
+            .map(|rendered| sha256_hex(&rendered))
+            .map_err(|e| format!("failed to read rendered preview SKILL.md: {e}"))
+    });
+    let _ = fs::remove_dir_all(&render_root);
+    hash_result
+}
+
+fn count_operation(summary: &mut SkillSyncPreviewSummary, operation: SkillSyncPreviewOperation) {
+    match operation {
+        SkillSyncPreviewOperation::Create => summary.create += 1,
+        SkillSyncPreviewOperation::Overwrite => summary.overwrite += 1,
+        SkillSyncPreviewOperation::NoOp => summary.no_op += 1,
+        SkillSyncPreviewOperation::Skipped => summary.skipped += 1,
+        SkillSyncPreviewOperation::BlockedDrift => summary.blocked_drift += 1,
+        SkillSyncPreviewOperation::OverwriteUnknown => summary.overwrite_unknown += 1,
+    }
+}
+
+fn merge_summary(into: &mut SkillSyncPreviewSummary, from: &SkillSyncPreviewSummary) {
+    into.create += from.create;
+    into.overwrite += from.overwrite;
+    into.no_op += from.no_op;
+    into.skipped += from.skipped;
+    into.blocked_drift += from.blocked_drift;
+    into.overwrite_unknown += from.overwrite_unknown;
 }
 
 /// Resolved fan-out destination directory for one target, plus an on-disk
@@ -466,8 +1009,8 @@ mod tests {
     // never touched.
 
     use crate::commands::canonical_skills::{
-        canonical_skills_list, canonical_skills_write, write_sync_meta_v2,
-        SkillListEntry, SkillScope, SkillTarget, SyncMetaV2, TargetMode,
+        canonical_skills_list, canonical_skills_write, write_sync_meta_v2, SkillListEntry,
+        SkillScope, SkillTarget, SyncMetaV2, TargetMode,
     };
     use std::sync::atomic::{AtomicU32, Ordering};
 
@@ -536,9 +1079,27 @@ mod tests {
             &SyncMetaV2 {
                 version: 2,
                 targets: vec![
-                    SkillTarget { agent: AgentId::Anthropic, scope: SkillScope::Project, project: Some(project.clone()), enabled: true, mode: TargetMode::Tracked },
-                    SkillTarget { agent: AgentId::Codex,     scope: SkillScope::Project, project: Some(project.clone()), enabled: true, mode: TargetMode::Tracked },
-                    SkillTarget { agent: AgentId::Gemini,    scope: SkillScope::Project, project: Some(project.clone()), enabled: true, mode: TargetMode::Tracked },
+                    SkillTarget {
+                        agent: AgentId::Anthropic,
+                        scope: SkillScope::Project,
+                        project: Some(project.clone()),
+                        enabled: true,
+                        mode: TargetMode::Tracked,
+                    },
+                    SkillTarget {
+                        agent: AgentId::Codex,
+                        scope: SkillScope::Project,
+                        project: Some(project.clone()),
+                        enabled: true,
+                        mode: TargetMode::Tracked,
+                    },
+                    SkillTarget {
+                        agent: AgentId::Gemini,
+                        scope: SkillScope::Project,
+                        project: Some(project.clone()),
+                        enabled: true,
+                        mode: TargetMode::Tracked,
+                    },
                 ],
                 last_sync: std::collections::BTreeMap::new(),
                 dirty: true,
@@ -694,8 +1255,20 @@ mod tests {
             &SyncMetaV2 {
                 version: 2,
                 targets: vec![
-                    SkillTarget { agent: AgentId::Anthropic, scope: SkillScope::Project, project: Some(project.clone()), enabled: true, mode: TargetMode::Tracked },
-                    SkillTarget { agent: AgentId::Gemini,    scope: SkillScope::Project, project: Some(project.clone()), enabled: true, mode: TargetMode::Tracked },
+                    SkillTarget {
+                        agent: AgentId::Anthropic,
+                        scope: SkillScope::Project,
+                        project: Some(project.clone()),
+                        enabled: true,
+                        mode: TargetMode::Tracked,
+                    },
+                    SkillTarget {
+                        agent: AgentId::Gemini,
+                        scope: SkillScope::Project,
+                        project: Some(project.clone()),
+                        enabled: true,
+                        mode: TargetMode::Tracked,
+                    },
                 ],
                 last_sync: std::collections::BTreeMap::new(),
                 dirty: true,
@@ -749,12 +1322,17 @@ mod tests {
 
         let before = canonical_skills_list().expect("list before");
         match &before[0] {
-            SkillListEntry::Ok { skill, .. } => assert!(skill.dirty, "expected dirty=true before push"),
+            SkillListEntry::Ok { skill, .. } => {
+                assert!(skill.dirty, "expected dirty=true before push")
+            }
             other => panic!("expected Ok entry, got {other:?}"),
         }
 
         let results = skill_sync_one("smoke-dirty".into()).expect("sync");
-        assert!(results.iter().all(|r| r.success), "push failed: {results:#?}");
+        assert!(
+            results.iter().all(|r| r.success),
+            "push failed: {results:#?}"
+        );
 
         let after_meta: serde_json::Value =
             serde_json::from_str(&fs::read_to_string(&meta_path).unwrap()).unwrap();
@@ -794,7 +1372,10 @@ mod tests {
         fs::create_dir_all(&broken_dir).unwrap();
         let broken_content = "---\n- not\n- a mapping\n---\n# Body\n";
         fs::write(broken_dir.join("SKILL.md"), broken_content).unwrap();
-        assert!(parse_skill_md(broken_content).is_err(), "fixture must be unparseable");
+        assert!(
+            parse_skill_md(broken_content).is_err(),
+            "fixture must be unparseable"
+        );
 
         // Give it a tracked target so, absent the guard, push would write.
         let project = tmp.to_string_lossy().to_string();
@@ -817,7 +1398,10 @@ mod tests {
 
         // sync_one must error (parse gate), not push.
         let one = skill_sync_one("broken-push".into());
-        assert!(one.is_err(), "broken skill must not push via sync_one: {one:?}");
+        assert!(
+            one.is_err(),
+            "broken skill must not push via sync_one: {one:?}"
+        );
 
         // sync_all must skip the broken entry entirely.
         let all = skill_sync_all().expect("sync_all returns Ok overall");
@@ -909,7 +1493,10 @@ mod tests {
         .expect("resolve");
         assert!(!before.exists, "destination should not exist before push");
         assert!(
-            before.path.replace('\\', "/").ends_with(".claude/skills/smoke-nested"),
+            before
+                .path
+                .replace('\\', "/")
+                .ends_with(".claude/skills/smoke-nested"),
             "path must use canonical identity: {}",
             before.path,
         );
@@ -925,5 +1512,213 @@ mod tests {
         )
         .expect("resolve");
         assert!(after.exists, "destination should exist after creation");
+    }
+
+    #[test]
+    fn preview_classifies_targets_and_does_not_mutate_files_or_sync_meta() {
+        let tmp = smoke_tempdir("preview");
+        let _g = override_felina_home(&tmp);
+        make_canonical("preview-skill", &["anthropic", "codex", "gemini"]);
+
+        let canonical_skill_dir = tmp.join(".felina").join("skills").join("preview-skill");
+        let project = tmp.to_string_lossy().to_string();
+        let anthropic = SkillTarget {
+            agent: AgentId::Anthropic,
+            scope: SkillScope::Project,
+            project: Some(project.clone()),
+            enabled: true,
+            mode: TargetMode::Tracked,
+        };
+        let codex = SkillTarget {
+            agent: AgentId::Codex,
+            scope: SkillScope::Project,
+            project: Some(project.clone()),
+            enabled: true,
+            mode: TargetMode::Tracked,
+        };
+        let gemini = SkillTarget {
+            agent: AgentId::Gemini,
+            scope: SkillScope::Project,
+            project: Some(project.clone()),
+            enabled: true,
+            mode: TargetMode::Tracked,
+        };
+
+        let codex_dir = tmp.join(".agents").join("skills").join("preview-skill");
+        fs::create_dir_all(&codex_dir).unwrap();
+        fs::write(
+            codex_dir.join("SKILL.md"),
+            "---\nname: preview-skill\ndescription: preview-skill description\n---\n# preview-skill\n\nBody for preview-skill.\n",
+        )
+        .unwrap();
+
+        let gemini_dir = tmp.join(".gemini").join("skills").join("preview-skill");
+        fs::create_dir_all(&gemini_dir).unwrap();
+        fs::write(gemini_dir.join("SKILL.md"), "external edit\n").unwrap();
+
+        let mut last_sync = std::collections::BTreeMap::new();
+        last_sync.insert(
+            target_key(&gemini),
+            LastSyncEntry {
+                pushed_hash: sha256_hex("previous push\n"),
+                base_snapshot: None,
+                at: "2026-05-26T00:00:00Z".into(),
+            },
+        );
+        let meta = SyncMetaV2 {
+            version: 2,
+            targets: vec![anthropic.clone(), codex.clone(), gemini.clone()],
+            last_sync,
+            dirty: true,
+        };
+        write_sync_meta_v2(&canonical_skill_dir, &meta).unwrap();
+        let before_meta =
+            fs::read_to_string(canonical_skill_dir.join(".felina-sync-meta.json")).unwrap();
+
+        let preview = skill_sync_preview("preview-skill".into()).expect("preview");
+
+        assert_eq!(preview.items.len(), 3);
+        assert_eq!(preview.summary.create, 1);
+        assert_eq!(preview.summary.no_op, 1);
+        assert_eq!(preview.summary.blocked_drift, 1);
+        assert_eq!(preview.summary.overwrite, 0);
+        assert_eq!(preview.summary.overwrite_unknown, 0);
+
+        assert!(
+            !tmp.join(".claude")
+                .join("skills")
+                .join("preview-skill")
+                .exists(),
+            "preview must not create missing target dirs",
+        );
+        assert_eq!(
+            fs::read_to_string(canonical_skill_dir.join(".felina-sync-meta.json")).unwrap(),
+            before_meta,
+            "preview must not update sync-meta",
+        );
+        assert_eq!(
+            fs::read_to_string(gemini_dir.join("SKILL.md")).unwrap(),
+            "external edit\n",
+            "preview must not overwrite drifted files",
+        );
+    }
+
+    #[test]
+    fn commit_blocks_drift_until_override_and_detach_are_explicit() {
+        let tmp = smoke_tempdir("commit-drift");
+        let _g = override_felina_home(&tmp);
+        make_canonical("commit-skill", &["anthropic", "gemini"]);
+
+        let canonical_skill_dir = tmp.join(".felina").join("skills").join("commit-skill");
+        let project = tmp.to_string_lossy().to_string();
+        let anthropic = SkillTarget {
+            agent: AgentId::Anthropic,
+            scope: SkillScope::Project,
+            project: Some(project.clone()),
+            enabled: true,
+            mode: TargetMode::Tracked,
+        };
+        let gemini = SkillTarget {
+            agent: AgentId::Gemini,
+            scope: SkillScope::Project,
+            project: Some(project.clone()),
+            enabled: true,
+            mode: TargetMode::Tracked,
+        };
+
+        let anthropic_dir = tmp.join(".claude").join("skills").join("commit-skill");
+        let gemini_dir = tmp.join(".gemini").join("skills").join("commit-skill");
+        fs::create_dir_all(&anthropic_dir).unwrap();
+        fs::create_dir_all(&gemini_dir).unwrap();
+        fs::write(anthropic_dir.join("SKILL.md"), "anthropic drift\n").unwrap();
+        fs::write(gemini_dir.join("SKILL.md"), "gemini drift\n").unwrap();
+
+        let mut last_sync = std::collections::BTreeMap::new();
+        last_sync.insert(
+            target_key(&anthropic),
+            LastSyncEntry {
+                pushed_hash: sha256_hex("old anthropic\n"),
+                base_snapshot: None,
+                at: "2026-05-26T00:00:00Z".into(),
+            },
+        );
+        last_sync.insert(
+            target_key(&gemini),
+            LastSyncEntry {
+                pushed_hash: sha256_hex("old gemini\n"),
+                base_snapshot: None,
+                at: "2026-05-26T00:00:00Z".into(),
+            },
+        );
+        write_sync_meta_v2(
+            &canonical_skill_dir,
+            &SyncMetaV2 {
+                version: 2,
+                targets: vec![anthropic.clone(), gemini.clone()],
+                last_sync,
+                dirty: true,
+            },
+        )
+        .unwrap();
+
+        let blocked = skill_sync_commit(SkillSyncCommitRequest {
+            skill_name: "commit-skill".into(),
+            resolutions: vec![],
+        })
+        .expect("blocked commit returns per-target results");
+        assert!(blocked.iter().all(|r| !r.success), "{blocked:#?}");
+        assert_eq!(
+            fs::read_to_string(anthropic_dir.join("SKILL.md")).unwrap(),
+            "anthropic drift\n",
+            "blocked drift must not write",
+        );
+
+        let committed = skill_sync_commit(SkillSyncCommitRequest {
+            skill_name: "commit-skill".into(),
+            resolutions: vec![
+                SkillSyncResolution {
+                    target_key: target_key(&anthropic),
+                    resolution: SkillSyncDriftResolution::Override,
+                },
+                SkillSyncResolution {
+                    target_key: target_key(&gemini),
+                    resolution: SkillSyncDriftResolution::Detach,
+                },
+            ],
+        })
+        .expect("resolved commit");
+
+        let anth_result = committed
+            .iter()
+            .find(|r| r.agent == AgentId::Anthropic)
+            .expect("anthropic result");
+        assert!(anth_result.success, "{committed:#?}");
+        assert!(
+            fs::read_to_string(anthropic_dir.join("SKILL.md"))
+                .unwrap()
+                .contains("name: commit-skill"),
+            "override must write rendered canonical content",
+        );
+        assert_eq!(
+            fs::read_to_string(gemini_dir.join("SKILL.md")).unwrap(),
+            "gemini drift\n",
+            "detach must preserve drifted file",
+        );
+
+        let meta: SyncMetaV2 = serde_json::from_str(
+            &fs::read_to_string(canonical_skill_dir.join(".felina-sync-meta.json")).unwrap(),
+        )
+        .unwrap();
+        assert!(meta.last_sync.contains_key(&target_key(&anthropic)));
+        let gemini_after = meta
+            .targets
+            .iter()
+            .find(|t| t.agent == AgentId::Gemini)
+            .expect("gemini target survives");
+        assert_eq!(gemini_after.mode, TargetMode::Detached);
+        assert!(
+            !meta.dirty,
+            "after override + detach no enabled tracked target remains pending",
+        );
     }
 }

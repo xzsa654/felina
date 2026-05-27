@@ -101,8 +101,6 @@ pub fn felina_global_skills_dir() -> PathBuf {
     felina_home().join("skills")
 }
 
-
-
 pub fn global_rules_dir() -> PathBuf {
     claude_home().join("rules")
 }
@@ -348,5 +346,4 @@ mod tests {
         let real = felina_global_skills_dir();
         assert!(real.starts_with(dirs::home_dir().expect("home")));
     }
-
 }

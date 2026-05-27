@@ -37,6 +37,14 @@
   --color-accent: #8b5cf6;
   --color-accent-hover: #7c3aed;
   --color-accent-dim: #8b5cf626;
+  --color-success: #1a7f37;
+  --color-success-dim: #1a7f3726;
+  --color-warning: #9a6700;
+  --color-warning-dim: #9a670026;
+  --color-danger: #d1242f;
+  --color-danger-dim: #d1242f26;
+  --color-info: #0969da;
+  --color-info-dim: #0969da26;
 }
 
 html, body, #app {

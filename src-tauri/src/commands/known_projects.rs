@@ -55,8 +55,7 @@ fn read_store() -> KnownProjectsStore {
 fn write_store(store: &KnownProjectsStore) -> Result<(), String> {
     let path = store_path();
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|e| format!("failed to create felina home: {e}"))?;
+        fs::create_dir_all(parent).map_err(|e| format!("failed to create felina home: {e}"))?;
     }
     let json = serde_json::to_string_pretty(store)
         .map_err(|e| format!("failed to serialize store: {e}"))?;
@@ -64,9 +63,7 @@ fn write_store(store: &KnownProjectsStore) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn known_projects_list(
-    current_project: Option<String>,
-) -> Result<Vec<KnownProject>, String> {
+pub fn known_projects_list(current_project: Option<String>) -> Result<Vec<KnownProject>, String> {
     let mut map: std::collections::HashMap<String, Vec<ProjectSource>> =
         std::collections::HashMap::new();
 
@@ -174,7 +171,10 @@ mod tests {
     #[test]
     fn normalize_strips_trailing_slashes() {
         assert_eq!(normalize_path("/a/b/c/"), "/a/b/c");
-        assert_eq!(normalize_path("D:/x/y//"), if cfg!(windows) { "d:/x/y" } else { "D:/x/y" });
+        assert_eq!(
+            normalize_path("D:/x/y//"),
+            if cfg!(windows) { "d:/x/y" } else { "D:/x/y" }
+        );
     }
 
     #[test]
@@ -192,8 +192,10 @@ mod tests {
 
         let result = list_with_store(
             Some("C:/proj/foo".into()),
-            &[("C:/proj/foo".into(), ProjectSource::Detected),
-              ("C:/proj/bar".into(), ProjectSource::Detected)],
+            &[
+                ("C:/proj/foo".into(), ProjectSource::Detected),
+                ("C:/proj/bar".into(), ProjectSource::Detected),
+            ],
             &store_file,
         );
 
@@ -246,11 +248,7 @@ mod tests {
         let tmp = tempdir();
         let store_file = tmp.join("nonexistent.json");
 
-        let result = list_with_store(
-            Some("C:/proj/x".into()),
-            &[],
-            &store_file,
-        );
+        let result = list_with_store(Some("C:/proj/x".into()), &[], &store_file);
         assert_eq!(result.len(), 1);
     }
 
@@ -284,11 +282,7 @@ mod tests {
         )
         .unwrap();
 
-        let result = list_with_store(
-            Some(real.to_string_lossy().to_string()),
-            &[],
-            &store_file,
-        );
+        let result = list_with_store(Some(real.to_string_lossy().to_string()), &[], &store_file);
 
         let real_key = normalize_path(&real.to_string_lossy());
         let bogus_key = normalize_path(&bogus.to_string_lossy());
@@ -308,7 +302,10 @@ mod tests {
 
         let store = read_store_at(&store_file);
         assert_eq!(store.projects.len(), 1);
-        assert_eq!(normalize_path(&store.projects[0]), normalize_path("C:/proj/bar"));
+        assert_eq!(
+            normalize_path(&store.projects[0]),
+            normalize_path("C:/proj/bar")
+        );
     }
 
     fn read_store_at(path: &std::path::Path) -> KnownProjectsStore {

@@ -41,14 +41,14 @@ export default function AgentStatusPanel({
                 <span
                   className={`px-2 py-1 rounded border ${
                     lastResult.status === "ok"
-                      ? "bg-green-500/10 border-green-500/30 text-green-400"
-                      : "bg-amber-500/10 border-amber-500/30 text-amber-400"
+                      ? "bg-success-dim border-success/30 text-success"
+                      : "bg-warning-dim border-warning/30 text-warning"
                   }`}
                 >
                   {lastResult.status}
                 </span>
                 {lastResult.fallback_used && (
-                  <span className="px-2 py-1 rounded bg-amber-500/10 border border-amber-500/30 text-amber-400">
+                  <span className="px-2 py-1 rounded bg-warning-dim border border-warning/30 text-warning">
                     {t(locale, "tokens.agents.fallbackUsed")}
                   </span>
                 )}
@@ -97,7 +97,7 @@ export default function AgentStatusPanel({
             {formatNumberFull(lastResult.events_inserted, locale)}
           </div>
           {lastResult.errors.length > 0 && (
-            <div className="flex items-start gap-1 text-amber-400">
+            <div className="flex items-start gap-1 text-warning">
               <AlertTriangle size={12} className="mt-0.5 shrink-0" />
               <span>
                 {lastResult.errors.length} {t(locale, "tokens.agents.errors")}
@@ -118,7 +118,7 @@ export default function AgentStatusPanel({
           >
             <div className="flex items-center gap-2">
               {agent.available ? (
-                <Check size={14} className="text-green-500" />
+                <Check size={14} className="text-success" />
               ) : (
                 <X size={14} className="text-text-muted" />
               )}
@@ -143,7 +143,7 @@ export default function AgentStatusPanel({
                     </span>
                   )}
                   {agent.last_error && (
-                    <span className="ml-2 text-amber-400" title={agent.last_error}>
+                    <span className="ml-2 text-warning" title={agent.last_error}>
                       <AlertTriangle size={10} className="inline mb-0.5" />{" "}
                       {agent.last_error.length > 40
                         ? agent.last_error.slice(0, 40) + "..."

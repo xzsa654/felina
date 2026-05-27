@@ -24,5 +24,5 @@ pub mod tokens;
 pub mod agent_paths;
 pub mod canonical_skills;
 pub mod fan_out;
-pub mod skill_import;
 pub mod known_projects;
+pub mod skill_import;

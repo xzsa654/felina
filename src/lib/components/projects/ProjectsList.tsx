@@ -86,7 +86,7 @@ export default function ProjectsList({ projects, loaded, selectedPath, onSelect,
                 </span>
                 {!p.exists && (
                   <span
-                    className="inline-flex items-center gap-1 text-red-400 shrink-0 text-[11px]"
+                    className="inline-flex items-center gap-1 text-danger shrink-0 text-[11px]"
                     title={t(locale, "projects.list.notFoundTooltip")}
                   >
                     <AlertTriangle size={11} /> {t(locale, "projects.list.notFound")}
@@ -112,7 +112,7 @@ export default function ProjectsList({ projects, loaded, selectedPath, onSelect,
                 type="button"
                 onClick={() => setPendingRemove(p.path)}
                 title={t(locale, "projects.list.removeTooltip")}
-                className="px-2 shrink-0 text-text-muted hover:text-red-400"
+                className="px-2 shrink-0 text-text-muted hover:text-danger"
               >
                 <Trash2 size={14} />
               </button>

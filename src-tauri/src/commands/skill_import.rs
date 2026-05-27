@@ -53,6 +53,8 @@ pub struct ImportCandidate {
 pub struct DeferredMultiSource {
     /// Distinct agents whose folders contained this skill name.
     pub agents: Vec<AgentId>,
+    /// Full per-source candidates for this grouped skill name.
+    pub candidates: Vec<ImportCandidate>,
     /// Human-readable note for the wizard row.
     pub reason: String,
 }
@@ -74,12 +76,22 @@ pub struct ImportSelection {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-#[serde(tag = "kind", rename_all = "camelCase")]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
 pub enum ImportResolution {
-    KeepCanonical,
     OverwriteCanonical,
     Skip,
-    Rename { new_name: String },
+    Rename {
+        new_name: String,
+    },
+    SelectSource {
+        source_index: usize,
+        #[serde(default)]
+        new_name: Option<String>,
+    },
 }
 
 const BODY_PREVIEW_BYTES: usize = 240;
@@ -98,13 +110,15 @@ const BODY_PREVIEW_BYTES: usize = 240;
 /// Canonical destination is always global; scope-of-write is determined
 /// later from the same `project_path` when adding the `SkillTarget`.
 fn scan_scope(project_path: Option<&str>) -> SkillScope {
-    if project_path.is_some() { SkillScope::Project } else { SkillScope::Global }
+    if project_path.is_some() {
+        SkillScope::Project
+    } else {
+        SkillScope::Global
+    }
 }
 
 #[tauri::command]
-pub fn skill_import_scan_quick(
-    project_path: Option<String>,
-) -> Result<ImportScanQuick, String> {
+pub fn skill_import_scan_quick(project_path: Option<String>) -> Result<ImportScanQuick, String> {
     let cfg = agent_paths_get()?;
     let mut out = ImportScanQuick::default();
     let scope = scan_scope(project_path.as_deref());
@@ -178,9 +192,7 @@ fn count_skill_subdirs_at(dir: &Path) -> u32 {
 /// `ImportCandidate` per skill found. Body previews are clipped to keep
 /// the wizard payload small.
 #[tauri::command]
-pub fn skill_import_scan(
-    project_path: Option<String>,
-) -> Result<Vec<ImportCandidate>, String> {
+pub fn skill_import_scan(project_path: Option<String>) -> Result<Vec<ImportCandidate>, String> {
     let cfg = agent_paths_get()?;
     let canonical_dir = canonical_skills_dir();
     let scope = scan_scope(project_path.as_deref());
@@ -213,7 +225,10 @@ fn body_has_nested_frontmatter(body: &str) -> bool {
         return false;
     };
     // The `---` must be followed by a line ending (not just trailing content).
-    let rest = match rest.strip_prefix("\r\n").or_else(|| rest.strip_prefix('\n')) {
+    let rest = match rest
+        .strip_prefix("\r\n")
+        .or_else(|| rest.strip_prefix('\n'))
+    {
         Some(r) => r,
         None => return false,
     };
@@ -228,8 +243,8 @@ fn validate_source_frontmatter(raw: &str) -> Result<(), String> {
     if fm_text.is_empty() {
         return Err("missing or unterminated YAML frontmatter".into());
     }
-    let value: serde_yaml::Value = serde_yaml::from_str(&fm_text)
-        .map_err(|e| format!("malformed YAML: {e}"))?;
+    let value: serde_yaml::Value =
+        serde_yaml::from_str(&fm_text).map_err(|e| format!("malformed YAML: {e}"))?;
     if !value.is_mapping() {
         return Err("frontmatter root must be a YAML mapping".into());
     }
@@ -330,7 +345,7 @@ fn group_by_name(raw: Vec<ImportCandidate>) -> Vec<ImportCandidate> {
             out.push(group.into_iter().next().expect("len==1"));
             continue;
         }
-        // Multi-source → defer. Distinct agents, preserving first-seen order.
+        // Multi-source → grouped row. Distinct agents, preserving first-seen order.
         let mut agents: Vec<AgentId> = Vec::new();
         for c in &group {
             if !agents.contains(&c.source_agent) {
@@ -339,14 +354,19 @@ fn group_by_name(raw: Vec<ImportCandidate>) -> Vec<ImportCandidate> {
         }
         let labels: Vec<&str> = agents.iter().map(|a| agent_label(*a)).collect();
         let reason = format!(
-            "Found in {} locations ({}). Multi-source import is handled by the upcoming target-control change.",
+            "Found in {} locations ({}). Select one source to import as canonical content.",
             group.len(),
             labels.join(", "),
         );
-        // Representative row carries the first source's preview/path; it is
-        // greyed out and never imported, so which source it shows is cosmetic.
+        // Representative row carries the first source's preview/path, while the
+        // deferred payload preserves every source so apply can use a selected index.
+        let candidates = group.clone();
         let mut rep = group.into_iter().next().expect("len>=2");
-        rep.deferred = Some(DeferredMultiSource { agents, reason });
+        rep.deferred = Some(DeferredMultiSource {
+            agents,
+            candidates,
+            reason,
+        });
         out.push(rep);
     }
     out
@@ -413,10 +433,12 @@ pub fn skill_import_apply(
     let canonical_dir = canonical_skills_dir();
 
     for sel in selections {
-        // Defence in depth: multi-source skills are never importable in this
-        // version. The wizard already greys them out, but refuse here too in
-        // case a client sends one directly.
-        if sel.candidate.deferred.is_some() {
+        // Until SelectSource handling runs, legacy resolutions for grouped
+        // multi-source rows stay no-op rather than silently importing the
+        // representative source.
+        if sel.candidate.deferred.is_some()
+            && !matches!(sel.resolution, ImportResolution::SelectSource { .. })
+        {
             continue;
         }
         // Note: a `validation_error` candidate is NOT skipped — it imports as a
@@ -424,7 +446,6 @@ pub fn skill_import_apply(
         // Broken list entry the user repairs in the editor's raw mode.
         match &sel.resolution {
             ImportResolution::Skip => continue,
-            ImportResolution::KeepCanonical => continue, // canonical untouched
             ImportResolution::OverwriteCanonical => {
                 write_canonical_from_source(
                     &sel.candidate,
@@ -438,6 +459,34 @@ pub fn skill_import_apply(
                     &sel.candidate,
                     &canonical_dir,
                     Some(new_name.as_str()),
+                    project_path.as_deref(),
+                )?;
+            }
+            ImportResolution::SelectSource {
+                source_index,
+                new_name,
+            } => {
+                let deferred =
+                    sel.candidate.deferred.as_ref().ok_or_else(|| {
+                        "SelectSource requires a multi-source candidate".to_string()
+                    })?;
+                let selected = deferred.candidates.get(*source_index).ok_or_else(|| {
+                    format!(
+                        "source_index {source_index} out of range for {} candidates",
+                        deferred.candidates.len()
+                    )
+                })?;
+                write_canonical_from_source(
+                    selected,
+                    &canonical_dir,
+                    new_name.as_deref(),
+                    project_path.as_deref(),
+                )?;
+                write_disabled_targets_for_non_selected_sources(
+                    &deferred.candidates,
+                    *source_index,
+                    new_name.as_deref().unwrap_or(&selected.skill_name),
+                    &canonical_dir,
                     project_path.as_deref(),
                 )?;
             }
@@ -506,22 +555,7 @@ fn write_canonical_from_source(
     // target per `agents` + the source target); an overwrite preserves the
     // existing target list and just adds/keeps the source target.
     let mut meta = read_sync_meta_v2_no_backfill(&target_dir);
-    let new_target = match project_path {
-        Some(pp) => SkillTarget {
-            agent: candidate.source_agent,
-            scope: SkillScope::Project,
-            project: Some(pp.to_string()),
-            enabled: true,
-            mode: TargetMode::Tracked,
-        },
-        None => SkillTarget {
-            agent: candidate.source_agent,
-            scope: SkillScope::Global,
-            project: None,
-            enabled: true,
-            mode: TargetMode::Tracked,
-        },
-    };
+    let new_target = import_target_for(candidate, project_path, true);
     let already = meta.targets.iter().any(|t| {
         t.agent == new_target.agent
             && t.scope == new_target.scope
@@ -538,6 +572,62 @@ fn write_canonical_from_source(
     meta.version = 2;
     write_sync_meta_v2(&target_dir, &meta)?;
     Ok(())
+}
+
+fn import_target_for(
+    candidate: &ImportCandidate,
+    project_path: Option<&str>,
+    enabled: bool,
+) -> SkillTarget {
+    match project_path {
+        Some(pp) => SkillTarget {
+            agent: candidate.source_agent,
+            scope: SkillScope::Project,
+            project: Some(pp.to_string()),
+            enabled,
+            mode: TargetMode::Tracked,
+        },
+        None => SkillTarget {
+            agent: candidate.source_agent,
+            scope: SkillScope::Global,
+            project: None,
+            enabled,
+            mode: TargetMode::Tracked,
+        },
+    }
+}
+
+fn write_disabled_targets_for_non_selected_sources(
+    candidates: &[ImportCandidate],
+    selected_index: usize,
+    canonical_name: &str,
+    canonical_dir: &Path,
+    project_path: Option<&str>,
+) -> Result<(), String> {
+    let target_dir = canonical_dir.join(canonical_name);
+    let mut meta = read_sync_meta_v2_no_backfill(&target_dir);
+    for (idx, candidate) in candidates.iter().enumerate() {
+        if idx == selected_index {
+            continue;
+        }
+        let disabled = import_target_for(candidate, project_path, false);
+        if let Some(existing) = meta.targets.iter_mut().find(|target| {
+            target.agent == disabled.agent
+                && target.scope == disabled.scope
+                && target.project == disabled.project
+        }) {
+            existing.enabled = false;
+            existing.mode = TargetMode::Tracked;
+        } else {
+            meta.targets.push(disabled);
+        }
+    }
+    meta.dirty = meta
+        .targets
+        .iter()
+        .any(|t| t.enabled && !matches!(t.mode, TargetMode::Detached | TargetMode::Forked));
+    meta.version = 2;
+    write_sync_meta_v2(&target_dir, &meta)
 }
 
 /// Recursively copy everything in `src` into `dst`, excluding the SKILL.md
@@ -620,8 +710,8 @@ fn ensure_required_fields(raw: &str, name: &str, source_agent: AgentId) -> Resul
         return Err("missing or unterminated YAML frontmatter".into());
     }
 
-    let value: serde_yaml::Value = serde_yaml::from_str(&fm_text)
-        .map_err(|e| format!("malformed YAML: {e}"))?;
+    let value: serde_yaml::Value =
+        serde_yaml::from_str(&fm_text).map_err(|e| format!("malformed YAML: {e}"))?;
 
     let mut map = match value {
         serde_yaml::Value::Mapping(m) => m,
@@ -792,6 +882,13 @@ mod tests {
         let def = shared.deferred.as_ref().expect("shared must be deferred");
         assert_eq!(def.agents, vec![AgentId::Anthropic, AgentId::Codex]);
         assert!(def.reason.contains("2 locations"), "reason: {}", def.reason);
+        assert_eq!(
+            def.candidates.len(),
+            2,
+            "multi-source row must preserve all source candidates"
+        );
+        assert_eq!(def.candidates[0].source_agent, AgentId::Anthropic);
+        assert_eq!(def.candidates[1].source_agent, AgentId::Codex);
 
         let solo = &grouped[1];
         assert_eq!(solo.skill_name, "solo");
@@ -799,6 +896,58 @@ mod tests {
             solo.deferred.is_none(),
             "single-source must stay importable"
         );
+    }
+
+    #[test]
+    fn group_by_name_preserves_three_source_candidate_previews() {
+        let mut anthropic = candidate("shared", AgentId::Anthropic);
+        anthropic.body_preview = "# Anthropic".into();
+        let mut codex = candidate("shared", AgentId::Codex);
+        codex.body_preview = "# Codex".into();
+        let mut gemini = candidate("shared", AgentId::Gemini);
+        gemini.body_preview = "# Gemini".into();
+
+        let grouped = group_by_name(vec![anthropic, codex, gemini]);
+        let deferred = grouped[0].deferred.as_ref().expect("grouped row");
+
+        assert_eq!(deferred.candidates.len(), 3);
+        assert_eq!(deferred.candidates[0].body_preview, "# Anthropic");
+        assert_eq!(deferred.candidates[1].body_preview, "# Codex");
+        assert_eq!(deferred.candidates[2].body_preview, "# Gemini");
+    }
+
+    #[test]
+    fn import_resolution_deserializes_select_source_camel_case_payload() {
+        let raw = r#"{"kind":"selectSource","sourceIndex":1}"#;
+        let resolution: ImportResolution = serde_json::from_str(raw).unwrap();
+
+        match resolution {
+            ImportResolution::SelectSource {
+                source_index,
+                new_name,
+            } => {
+                assert_eq!(source_index, 1);
+                assert_eq!(new_name, None);
+            }
+            other => panic!("expected SelectSource, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn import_resolution_deserializes_select_source_rename_payload() {
+        let raw = r#"{"kind":"selectSource","sourceIndex":1,"newName":"code-review-alt"}"#;
+        let resolution: ImportResolution = serde_json::from_str(raw).unwrap();
+
+        match resolution {
+            ImportResolution::SelectSource {
+                source_index,
+                new_name,
+            } => {
+                assert_eq!(source_index, 1);
+                assert_eq!(new_name.as_deref(), Some("code-review-alt"));
+            }
+            other => panic!("expected SelectSource, got {other:?}"),
+        }
     }
 
     /// Bug 1 building block: distinct names dedupe a name that appears in
@@ -832,6 +981,10 @@ mod tests {
         let mut c = candidate("shared", AgentId::Anthropic);
         c.deferred = Some(DeferredMultiSource {
             agents: vec![AgentId::Anthropic, AgentId::Codex],
+            candidates: vec![
+                candidate("shared", AgentId::Anthropic),
+                candidate("shared", AgentId::Codex),
+            ],
             reason: "x".into(),
         });
         let sel = ImportSelection {
@@ -841,15 +994,237 @@ mod tests {
         // Canonical is now always global; the override redirects ~/.felina
         // to <tmp>/.felina so this writes inside the tempdir. Deferred
         // selections must be a no-op regardless.
-        skill_import_apply(
-            Some(tmp.to_string_lossy().to_string()),
-            vec![sel],
-        )
-        .expect("apply");
+        skill_import_apply(Some(tmp.to_string_lossy().to_string()), vec![sel]).expect("apply");
         assert!(
             !tmp.join(".felina").join("skills").join("shared").exists(),
             "deferred candidate must not be written to canonical"
         );
+    }
+
+    #[test]
+    fn select_source_imports_selected_candidate_content() {
+        let home = unique_tmp("select-source-home");
+        let sources = unique_tmp("select-source-src");
+        crate::paths::set_felina_home_override_for_test(Some(home.join(".felina")));
+        struct G;
+        impl Drop for G {
+            fn drop(&mut self) {
+                crate::paths::set_felina_home_override_for_test(None);
+            }
+        }
+        let _g = G;
+
+        let anth_dir = sources.join(".claude").join("skills").join("code-review");
+        let codex_dir = sources.join(".agents").join("skills").join("code-review");
+        fs::create_dir_all(&anth_dir).unwrap();
+        fs::create_dir_all(&codex_dir).unwrap();
+        let anthropic_content =
+            "---\nname: code-review\ndescription: a\nagents: [anthropic]\n---\n# Code Review - Review pull requests\n";
+        let codex_content =
+            "---\nname: code-review\ndescription: c\nagents: [codex]\n---\n# Code Review - Analyze code changes\n";
+        fs::write(anth_dir.join("SKILL.md"), anthropic_content).unwrap();
+        fs::write(codex_dir.join("SKILL.md"), codex_content).unwrap();
+
+        let mut anthropic = candidate("code-review", AgentId::Anthropic);
+        anthropic.source_path = anth_dir.join("SKILL.md").to_string_lossy().to_string();
+        let mut codex = candidate("code-review", AgentId::Codex);
+        codex.source_path = codex_dir.join("SKILL.md").to_string_lossy().to_string();
+        let mut grouped = anthropic.clone();
+        grouped.deferred = Some(DeferredMultiSource {
+            agents: vec![AgentId::Anthropic, AgentId::Codex],
+            candidates: vec![anthropic, codex],
+            reason: "x".into(),
+        });
+
+        skill_import_apply(
+            None,
+            vec![ImportSelection {
+                candidate: grouped,
+                resolution: ImportResolution::SelectSource {
+                    source_index: 0,
+                    new_name: None,
+                },
+            }],
+        )
+        .expect("select source apply");
+
+        let written = fs::read_to_string(
+            home.join(".felina")
+                .join("skills")
+                .join("code-review")
+                .join("SKILL.md"),
+        )
+        .expect("canonical written");
+        assert!(written.contains("# Code Review - Review pull requests"));
+        assert!(!written.contains("# Code Review - Analyze code changes"));
+    }
+
+    #[test]
+    fn select_source_creates_disabled_targets_for_non_selected_sources() {
+        let home = unique_tmp("select-source-targets-home");
+        let sources = unique_tmp("select-source-targets-src");
+        crate::paths::set_felina_home_override_for_test(Some(home.join(".felina")));
+        struct G;
+        impl Drop for G {
+            fn drop(&mut self) {
+                crate::paths::set_felina_home_override_for_test(None);
+            }
+        }
+        let _g = G;
+
+        let mut candidates = Vec::new();
+        for (agent, root, body) in [
+            (AgentId::Anthropic, ".claude", "anthropic body"),
+            (AgentId::Codex, ".agents", "codex body"),
+            (AgentId::Gemini, ".gemini", "gemini body"),
+        ] {
+            let dir = sources.join(root).join("skills").join("my-helper");
+            fs::create_dir_all(&dir).unwrap();
+            fs::write(
+                dir.join("SKILL.md"),
+                format!("---\nname: my-helper\ndescription: d\nagents: [{agent:?}]\n---\n{body}\n"),
+            )
+            .unwrap();
+            let mut c = candidate("my-helper", agent);
+            c.source_path = dir.join("SKILL.md").to_string_lossy().to_string();
+            candidates.push(c);
+        }
+
+        let mut grouped = candidates[0].clone();
+        grouped.deferred = Some(DeferredMultiSource {
+            agents: vec![AgentId::Anthropic, AgentId::Codex, AgentId::Gemini],
+            candidates,
+            reason: "x".into(),
+        });
+
+        skill_import_apply(
+            None,
+            vec![ImportSelection {
+                candidate: grouped,
+                resolution: ImportResolution::SelectSource {
+                    source_index: 0,
+                    new_name: None,
+                },
+            }],
+        )
+        .expect("select source apply");
+
+        let meta_raw = fs::read_to_string(
+            home.join(".felina")
+                .join("skills")
+                .join("my-helper")
+                .join(".felina-sync-meta.json"),
+        )
+        .expect("sidecar");
+        let meta: serde_json::Value = serde_json::from_str(&meta_raw).unwrap();
+        let targets = meta["targets"].as_array().expect("targets array");
+        assert_eq!(targets.len(), 3, "selected + two disabled targets");
+        assert_eq!(targets[0]["agent"], "anthropic");
+        assert_eq!(targets[0]["enabled"], true);
+        assert_eq!(targets[1]["agent"], "codex");
+        assert_eq!(targets[1]["enabled"], false);
+        assert_eq!(targets[1]["mode"], "tracked");
+        assert_eq!(targets[2]["agent"], "gemini");
+        assert_eq!(targets[2]["enabled"], false);
+        assert_eq!(targets[2]["mode"], "tracked");
+    }
+
+    #[test]
+    fn select_source_rename_writes_selected_content_under_new_name() {
+        let home = unique_tmp("select-source-rename-home");
+        let sources = unique_tmp("select-source-rename-src");
+        crate::paths::set_felina_home_override_for_test(Some(home.join(".felina")));
+        struct G;
+        impl Drop for G {
+            fn drop(&mut self) {
+                crate::paths::set_felina_home_override_for_test(None);
+            }
+        }
+        let _g = G;
+
+        let anth_dir = sources.join(".claude").join("skills").join("code-review");
+        let codex_dir = sources.join(".agents").join("skills").join("code-review");
+        fs::create_dir_all(&anth_dir).unwrap();
+        fs::create_dir_all(&codex_dir).unwrap();
+        fs::write(
+            anth_dir.join("SKILL.md"),
+            "---\nname: code-review\ndescription: a\nagents: [anthropic]\n---\nanthropic body\n",
+        )
+        .unwrap();
+        fs::write(
+            codex_dir.join("SKILL.md"),
+            "---\nname: code-review\ndescription: c\nagents: [codex]\n---\ncodex body\n",
+        )
+        .unwrap();
+
+        let mut anthropic = candidate("code-review", AgentId::Anthropic);
+        anthropic.source_path = anth_dir.join("SKILL.md").to_string_lossy().to_string();
+        let mut codex = candidate("code-review", AgentId::Codex);
+        codex.source_path = codex_dir.join("SKILL.md").to_string_lossy().to_string();
+        let mut grouped = anthropic.clone();
+        grouped.deferred = Some(DeferredMultiSource {
+            agents: vec![AgentId::Anthropic, AgentId::Codex],
+            candidates: vec![anthropic, codex],
+            reason: "x".into(),
+        });
+
+        skill_import_apply(
+            None,
+            vec![ImportSelection {
+                candidate: grouped,
+                resolution: ImportResolution::SelectSource {
+                    source_index: 0,
+                    new_name: Some("code-review-alt".into()),
+                },
+            }],
+        )
+        .expect("select source rename apply");
+
+        assert!(
+            !home
+                .join(".felina")
+                .join("skills")
+                .join("code-review")
+                .exists(),
+            "rename must not overwrite original canonical identity"
+        );
+        let renamed = home.join(".felina").join("skills").join("code-review-alt");
+        let written = fs::read_to_string(renamed.join("SKILL.md")).expect("renamed canonical");
+        assert!(written.contains("anthropic body"));
+        assert!(renamed.join(".felina-sync-meta.json").is_file());
+    }
+
+    #[test]
+    fn select_source_rejects_out_of_range_index() {
+        let home = unique_tmp("select-source-range-home");
+        crate::paths::set_felina_home_override_for_test(Some(home.join(".felina")));
+        struct G;
+        impl Drop for G {
+            fn drop(&mut self) {
+                crate::paths::set_felina_home_override_for_test(None);
+            }
+        }
+        let _g = G;
+
+        let mut grouped = candidate("shared", AgentId::Anthropic);
+        grouped.deferred = Some(DeferredMultiSource {
+            agents: vec![AgentId::Anthropic],
+            candidates: vec![candidate("shared", AgentId::Anthropic)],
+            reason: "x".into(),
+        });
+
+        let err = skill_import_apply(
+            None,
+            vec![ImportSelection {
+                candidate: grouped,
+                resolution: ImportResolution::SelectSource {
+                    source_index: 9,
+                    new_name: None,
+                },
+            }],
+        )
+        .unwrap_err();
+        assert!(err.contains("source_index"), "got: {err}");
     }
 
     /// Task 2.1: BOM + CRLF source with missing `agents` preserves description
@@ -858,20 +1233,33 @@ mod tests {
     fn ensure_required_fields_handles_bom_crlf_source() {
         let raw = "\u{feff}---\r\nname: session-start\r\ndescription: Start session context\r\n---\r\n# Body\r\n";
         let out = ensure_required_fields(raw, "session-start", AgentId::Anthropic).unwrap();
-        assert!(out.contains("description: Start session context"), "description preserved, got:\n{out}");
+        assert!(
+            out.contains("description: Start session context"),
+            "description preserved, got:\n{out}"
+        );
         assert!(out.contains("agents:"), "agents injected, got:\n{out}");
         assert!(out.contains("- anthropic"), "anthropic agent, got:\n{out}");
         // Body must not contain a second frontmatter block.
         let parts: Vec<&str> = out.match_indices("---\n").map(|(i, _)| &out[i..]).collect();
-        assert!(parts.len() <= 3, "at most open + close + body content; got {} fences:\n{out}", parts.len());
+        assert!(
+            parts.len() <= 3,
+            "at most open + close + body content; got {} fences:\n{out}",
+            parts.len()
+        );
     }
 
     #[test]
     fn ensure_required_fields_rewrites_mismatched_name_to_directory_identity() {
         let raw = "---\nname: different-name\ndescription: Start session context\nagents:\n  - anthropic\n---\n# Body\n";
         let out = ensure_required_fields(raw, "folder-name", AgentId::Anthropic).unwrap();
-        assert!(out.contains("name: folder-name"), "canonical name should rewrite to directory identity, got:\n{out}");
-        assert!(!out.contains("name: different-name"), "mismatched source name should not survive, got:\n{out}");
+        assert!(
+            out.contains("name: folder-name"),
+            "canonical name should rewrite to directory identity, got:\n{out}"
+        );
+        assert!(
+            !out.contains("name: different-name"),
+            "mismatched source name should not survive, got:\n{out}"
+        );
     }
 
     /// Task 2.2: malformed YAML is rejected.
@@ -890,7 +1278,10 @@ mod tests {
     fn ensure_required_fields_rejects_non_mapping_root() {
         let raw = "---\n- list\n- items\n---\nbody\n";
         let err = ensure_required_fields(raw, "bad", AgentId::Anthropic).unwrap_err();
-        assert!(err.contains("mapping"), "should mention mapping, got: {err}");
+        assert!(
+            err.contains("mapping"),
+            "should mention mapping, got: {err}"
+        );
     }
 
     /// Task 2.3: nested / repeated frontmatter is rejected — no canonical
@@ -912,7 +1303,10 @@ mod tests {
     fn validate_source_rejects_nested_frontmatter() {
         let raw = "---\ndescription: ''\n---\n---\nname: x\n---\nbody\n";
         let err = validate_source_frontmatter(raw).unwrap_err();
-        assert!(err.contains("nested") || err.contains("repeated"), "got: {err}");
+        assert!(
+            err.contains("nested") || err.contains("repeated"),
+            "got: {err}"
+        );
     }
 
     /// Task 2.3: validate_source_frontmatter accepts valid frontmatter.
@@ -967,7 +1361,10 @@ mod tests {
             .join("bad-skill")
             .join("SKILL.md");
         let on_disk = fs::read_to_string(&written).expect("verbatim broken file written");
-        assert_eq!(on_disk, source_content, "broken source must be written verbatim");
+        assert_eq!(
+            on_disk, source_content,
+            "broken source must be written verbatim"
+        );
         assert!(
             parse_skill_md(&on_disk).is_err(),
             "written canonical must read back as Broken (unparseable)"
@@ -1014,12 +1411,19 @@ mod tests {
 
         // Global master exists with EXACTLY one project target.
         let meta_raw = fs::read_to_string(
-            home.join(".felina").join("skills").join("skill-a").join(".felina-sync-meta.json"),
+            home.join(".felina")
+                .join("skills")
+                .join("skill-a")
+                .join(".felina-sync-meta.json"),
         )
         .expect("sidecar");
         let meta: serde_json::Value = serde_json::from_str(&meta_raw).unwrap();
         let targets = meta["targets"].as_array().expect("targets array");
-        assert_eq!(targets.len(), 1, "import must write a single target, got: {targets:?}");
+        assert_eq!(
+            targets.len(),
+            1,
+            "import must write a single target, got: {targets:?}"
+        );
         assert_eq!(targets[0]["scope"], "project");
         assert_eq!(targets[0]["project"], project_str);
         assert_eq!(targets[0]["agent"], "anthropic");
