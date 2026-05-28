@@ -1021,13 +1021,23 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<(), String> {
 pub(crate) fn expand_user_path(p: &str) -> PathBuf {
     if let Some(rest) = p.strip_prefix("~/").or_else(|| p.strip_prefix("~\\")) {
         if let Some(home) = dirs::home_dir() {
-            return home.join(rest);
+            let normalized = if cfg!(windows) {
+                rest.replace('/', "\\")
+            } else {
+                rest.to_string()
+            };
+            return home.join(normalized);
         }
     }
     if p == "~" {
         return dirs::home_dir().unwrap_or_else(|| PathBuf::from(p));
     }
-    PathBuf::from(p)
+    let normalized = if cfg!(windows) {
+        p.replace('/', "\\")
+    } else {
+        p.to_string()
+    };
+    PathBuf::from(normalized)
 }
 
 /// Resolve a path pair into a concrete target directory using the same rule
@@ -1182,6 +1192,7 @@ mod tests {
             name.into(),
             serde_yaml::Value::Mapping(fm),
             format!("# {name}\n\nBody for {name}.\n"),
+            None,
         )
         .expect("canonical write");
     }
@@ -1942,5 +1953,93 @@ mod tests {
         // Preview should now show NoOp.
         let after_preview = skill_sync_preview("mig-skill".into()).expect("after preview");
         assert_eq!(after_preview.items[0].operation, SkillSyncPreviewOperation::NoOp);
+    }
+
+    #[test]
+    fn unknown_extras_preserved_in_canonical_but_not_emitted() {
+        let tmp = smoke_tempdir("unknown-extras");
+        let _g = override_felina_home(&tmp);
+
+        // Write a canonical skill with an unknown field in frontmatter.
+        let mut fm = serde_yaml::Mapping::new();
+        fm.insert(
+            serde_yaml::Value::String("description".into()),
+            serde_yaml::Value::String("d".into()),
+        );
+        fm.insert(
+            serde_yaml::Value::String("agents".into()),
+            serde_yaml::Value::Sequence(vec![
+                serde_yaml::Value::String("anthropic".into()),
+                serde_yaml::Value::String("codex".into()),
+                serde_yaml::Value::String("gemini".into()),
+            ]),
+        );
+        fm.insert(
+            serde_yaml::Value::String("vendor_future_flag".into()),
+            serde_yaml::Value::Bool(true),
+        );
+        canonical_skills_write(
+            "unknown-test".into(),
+            serde_yaml::Value::Mapping(fm),
+            "body\n".into(),
+            None,
+        )
+        .unwrap();
+
+        let project = tmp.to_string_lossy().to_string();
+        let canonical_skill_dir = tmp.join(".felina").join("skills").join("unknown-test");
+        write_sync_meta_v2(
+            &canonical_skill_dir,
+            &SyncMetaV2 {
+                version: 2,
+                targets: vec![
+                    SkillTarget {
+                        agent: AgentId::Anthropic,
+                        scope: SkillScope::Project,
+                        project: Some(project.clone()),
+                        enabled: true,
+                        mode: TargetMode::Tracked,
+                    },
+                    SkillTarget {
+                        agent: AgentId::Codex,
+                        scope: SkillScope::Project,
+                        project: Some(project.clone()),
+                        enabled: true,
+                        mode: TargetMode::Tracked,
+                    },
+                    SkillTarget {
+                        agent: AgentId::Gemini,
+                        scope: SkillScope::Project,
+                        project: Some(project.clone()),
+                        enabled: true,
+                        mode: TargetMode::Tracked,
+                    },
+                ],
+                last_sync: std::collections::BTreeMap::new(),
+                dirty: true,
+            },
+        )
+        .unwrap();
+
+        skill_sync_one("unknown-test".into()).unwrap();
+
+        // Canonical should still have the unknown field.
+        let canonical_raw = fs::read_to_string(canonical_skill_dir.join("SKILL.md")).unwrap();
+        assert!(
+            canonical_raw.contains("vendor_future_flag"),
+            "unknown field must be preserved in canonical"
+        );
+
+        // No target SKILL.md should contain the unknown field.
+        for subdir in [".claude/skills", ".agents/skills", ".gemini/skills"] {
+            let md_path = tmp.join(subdir).join("unknown-test").join("SKILL.md");
+            if md_path.is_file() {
+                let md = fs::read_to_string(&md_path).unwrap();
+                assert!(
+                    !md.contains("vendor_future_flag"),
+                    "{subdir} output leaked unknown field:\n{md}"
+                );
+            }
+        }
     }
 }

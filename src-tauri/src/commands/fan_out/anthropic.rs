@@ -39,20 +39,15 @@ impl FanOutRenderer for AnthropicRenderer {
             serde_yaml::Value::String("description".into()),
             serde_yaml::Value::String(skill.description.clone()),
         );
-        // Anthropic does NOT have an `agents` field; canonical's `agents`
-        // is a sync-control field that doesn't make sense on the rendered
-        // side. We drop it deliberately.
-
-        if let serde_yaml::Value::Mapping(extras) = &skill.frontmatter_extras {
-            for (k, v) in extras.iter() {
-                let serde_yaml::Value::String(key) = k else {
-                    continue; // skip non-string keys (would be invalid YAML frontmatter anyway)
-                };
+        // Emit only fields from agent_fields.anthropic — not flat extras.
+        // Each key is already in canonical (kebab-case) form.
+        if let Some(serde_yaml::Value::Mapping(anth)) = skill.agent_fields.get("anthropic") {
+            for (k, v) in anth {
+                let serde_yaml::Value::String(key) = k else { continue; };
                 if key == "name" || key == "description" || key == "agents" {
-                    continue; // already handled / dropped
+                    continue;
                 }
-                let renamed = snake_to_kebab(key);
-                map.insert(serde_yaml::Value::String(renamed), v.clone());
+                map.insert(serde_yaml::Value::String(key.clone()), v.clone());
             }
         }
 
@@ -93,18 +88,22 @@ mod tests {
     use super::*;
 
     fn sample_skill() -> CanonicalSkill {
-        let mut extras = serde_yaml::Mapping::new();
-        // `allowed_tools` → `allowed-tools`; `effort` is already valid kebab.
-        extras.insert(
-            serde_yaml::Value::String("allowed_tools".into()),
+        let mut anth_fields = serde_yaml::Mapping::new();
+        anth_fields.insert(
+            serde_yaml::Value::String("allowed-tools".into()),
             serde_yaml::Value::Sequence(vec![
                 serde_yaml::Value::String("Read".into()),
                 serde_yaml::Value::String("Edit".into()),
             ]),
         );
-        extras.insert(
+        anth_fields.insert(
             serde_yaml::Value::String("effort".into()),
             serde_yaml::Value::String("high".into()),
+        );
+        let mut agent_fields = std::collections::BTreeMap::new();
+        agent_fields.insert(
+            "anthropic".to_string(),
+            serde_yaml::Value::Mapping(anth_fields),
         );
 
         CanonicalSkill {
@@ -112,12 +111,13 @@ mod tests {
             name: "demo".into(),
             description: "Demo skill".into(),
             agents: vec![AgentId::Anthropic, AgentId::Codex, AgentId::Gemini],
-            frontmatter_extras: serde_yaml::Value::Mapping(extras),
+            frontmatter_extras: serde_yaml::Value::Mapping(serde_yaml::Mapping::new()),
             body: "# Demo\n\nHello.\n".into(),
             dirty: false,
             last_synced: None,
             targets: Vec::new(),
             last_sync: std::collections::BTreeMap::new(),
+            agent_fields,
         }
     }
 

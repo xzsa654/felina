@@ -73,6 +73,8 @@ export type {
   ProjectSource,
   KnownProject,
   OrphanFile,
+  SkillFieldDefinition,
+  FieldAgent,
   // Deprecated; removed in tasks 5.3 + 6.6.
   SkillInfo,
 } from "./skills";

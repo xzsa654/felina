@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { ChevronDown, ChevronRight, FolderOpen, Plus, Save, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronRight, FolderOpen, Save, Trash2 } from "lucide-react";
 import type { CanonicalSkill } from "$lib/types";
 import { api } from "$lib/tauri/commands";
 import { openPath } from "$lib/tauri/shell";
@@ -7,6 +7,7 @@ import { useSkillsStore } from "$lib/stores/skills-store";
 import { useLocaleStore } from "$lib/stores/locale";
 import { t } from "$lib/i18n";
 import MarkdownPreview from "$lib/components/shared/MarkdownPreview";
+import AgentFieldsEditor from "./AgentFieldsEditor";
 
 interface Props {
   /** `null` when creating a new skill; otherwise the skill being edited. */
@@ -71,6 +72,9 @@ export default function SkillEditor({ skill, brokenRaw, onSaved, onCancel, onDel
   const [body, setBody] = useState(skill?.body ?? "");
   const [bodyMode, setBodyMode] = useState<"edit" | "preview">("edit");
   const [extras, setExtras] = useState<ExtraRow[]>(() => initExtras(skill));
+  const [agentFields, setAgentFields] = useState<Record<string, unknown>>(
+    () => skill?.agentFields ?? {},
+  );
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -83,6 +87,7 @@ export default function SkillEditor({ skill, brokenRaw, onSaved, onCancel, onDel
     setBody(skill?.body ?? "");
     setBodyMode("edit");
     setExtras(initExtras(skill));
+    setAgentFields(skill?.agentFields ?? {});
     setAdvancedOpen(false);
     setError(null);
   }, [skill?.canonicalId, isNew]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -140,7 +145,13 @@ export default function SkillEditor({ skill, brokenRaw, onSaved, onCancel, onDel
         }
         frontmatter[trimmedKey] = parseExtraValue(row.value);
       }
-      await api.canonicalSkills.write(dirName, frontmatter, body);
+      const hasAgentFields = Object.keys(agentFields).length > 0;
+      await api.canonicalSkills.write(
+        dirName,
+        frontmatter,
+        body,
+        hasAgentFields ? agentFields : undefined,
+      );
       const currentTargets = skill?.targets ?? [];
       upsertEntry({
         canonicalId: dirName,
@@ -153,6 +164,7 @@ export default function SkillEditor({ skill, brokenRaw, onSaved, onCancel, onDel
         lastSynced: skill?.lastSynced ?? null,
         targets: currentTargets,
         lastSync: skill?.lastSync ?? {},
+        agentFields: skill?.agentFields ?? {},
       });
       await loadEntries();
       // Structured save also normalizes a mismatched `frontmatter.name` to the
@@ -339,55 +351,55 @@ export default function SkillEditor({ skill, brokenRaw, onSaved, onCancel, onDel
           {t(locale, "skills.editor.advancedFields")}
         </button>
         {advancedOpen && (
-          <div className="flex flex-col gap-2">
-            <p className="text-xs text-text-secondary">
-              {t(locale, "skills.editor.advancedHint")}
-            </p>
-            {extras.map((row, idx) => (
-              <div key={row.id} className="flex items-center gap-2">
-                <input
-                  type="text"
-                  value={row.key}
-                  onChange={(e) =>
-                    setExtras((prev) =>
-                      prev.map((r, i) => (i === idx ? { ...r, key: e.target.value } : r)),
-                    )
-                  }
-                  placeholder={t(locale, "skills.editor.keyPlaceholder")}
-                  className="px-2 py-1 rounded bg-bg-primary border border-border text-xs w-1/3"
-                />
-                <input
-                  type="text"
-                  value={row.value}
-                  onChange={(e) =>
-                    setExtras((prev) =>
-                      prev.map((r, i) => (i === idx ? { ...r, value: e.target.value } : r)),
-                    )
-                  }
-                  placeholder={t(locale, "skills.editor.valuePlaceholder")}
-                  className="px-2 py-1 rounded bg-bg-primary border border-border text-xs flex-1"
-                />
-                <button
-                  type="button"
-                  onClick={() =>
-                    setExtras((prev) => prev.filter((_, i) => i !== idx))
-                  }
-                  className="p-1 text-text-secondary hover:text-danger"
-                  title={t(locale, "skills.editor.removeRow")}
-                >
-                  <Trash2 size={14} />
-                </button>
+          <div className="flex flex-col gap-3">
+            <AgentFieldsEditor
+              agentFields={agentFields}
+              targets={skill?.targets ?? []}
+              onChange={setAgentFields}
+            />
+            {extras.length > 0 && (
+              <div className="flex flex-col gap-2">
+                <p className="text-xs text-text-secondary">
+                  {t(locale, "skills.editor.advancedHint")}
+                </p>
+                {extras.map((row, idx) => (
+                  <div key={row.id} className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={row.key}
+                      onChange={(e) =>
+                        setExtras((prev) =>
+                          prev.map((r, i) => (i === idx ? { ...r, key: e.target.value } : r)),
+                        )
+                      }
+                      placeholder={t(locale, "skills.editor.keyPlaceholder")}
+                      className="px-2 py-1 rounded bg-bg-primary border border-border text-xs w-1/3"
+                    />
+                    <input
+                      type="text"
+                      value={row.value}
+                      onChange={(e) =>
+                        setExtras((prev) =>
+                          prev.map((r, i) => (i === idx ? { ...r, value: e.target.value } : r)),
+                        )
+                      }
+                      placeholder={t(locale, "skills.editor.valuePlaceholder")}
+                      className="px-2 py-1 rounded bg-bg-primary border border-border text-xs flex-1"
+                    />
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setExtras((prev) => prev.filter((_, i) => i !== idx))
+                      }
+                      className="p-1 text-text-secondary hover:text-danger"
+                      title={t(locale, "skills.editor.removeRow")}
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                ))}
               </div>
-            ))}
-            <button
-              type="button"
-              onClick={() =>
-                setExtras((prev) => [...prev, { id: makeRowId(), key: "", value: "" }])
-              }
-              className="self-start inline-flex items-center gap-1 text-xs px-2 py-1 rounded border border-border text-text-secondary hover:text-text-primary hover:border-accent"
-            >
-              <Plus size={12} /> {t(locale, "skills.editor.addField")}
-            </button>
+            )}
           </div>
         )}
       </section>
