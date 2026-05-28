@@ -830,10 +830,18 @@ pub fn skill_targets_set(skill_name: String, targets: Vec<SkillTarget>) -> Resul
     };
     meta.last_sync.retain(|k, _| valid_keys.contains(k));
     meta.targets = targets;
-    meta.dirty = meta
-        .targets
-        .iter()
-        .any(|t| t.enabled && !matches!(t.mode, TargetMode::Detached | TargetMode::Forked));
+    // Preserve existing dirty state (set by canonical_skills_write /
+    // mark_sync_meta_dirty). Only additionally mark dirty if a newly enabled
+    // tracked target has never been pushed (no last_sync entry). Re-enabling
+    // a previously synced target does not flip dirty — was_dirty already
+    // reflects whether canonical changed since the last push.
+    let was_dirty = meta.dirty;
+    let has_unsynced_target = meta.targets.iter().any(|t| {
+        t.enabled
+            && !matches!(t.mode, TargetMode::Detached | TargetMode::Forked)
+            && !meta.last_sync.contains_key(&target_key(t))
+    });
+    meta.dirty = was_dirty || has_unsynced_target;
     write_sync_meta_v2(&skill_dir, &meta)
 }
 
@@ -887,12 +895,15 @@ pub fn skill_target_remove_with_policy(
         None
     };
 
+    let was_dirty = meta.dirty;
     meta.targets.retain(|existing| target_key(existing) != key);
     meta.last_sync.remove(&key);
-    meta.dirty = meta
-        .targets
-        .iter()
-        .any(|t| t.enabled && matches!(t.mode, TargetMode::Tracked));
+    let has_unsynced = meta.targets.iter().any(|t| {
+        t.enabled
+            && !matches!(t.mode, TargetMode::Detached | TargetMode::Forked)
+            && !meta.last_sync.contains_key(&target_key(t))
+    });
+    meta.dirty = was_dirty || has_unsynced;
     write_sync_meta_v2(&skill_dir, &meta)?;
 
     Ok(SkillTargetRemovalResult {
@@ -2200,7 +2211,8 @@ Hello.\n";
         assert_eq!(meta.targets[0].agent, AgentId::Anthropic);
         assert!(meta.last_sync.contains_key(&target_key(&t_anth)));
         assert!(!meta.last_sync.contains_key(&target_key(&t_codex)));
-        assert!(meta.dirty);
+        // Remaining anthropic target has a last_sync entry → not dirty.
+        assert!(!meta.dirty);
     }
 
     // -----------------------------------------------------------------
