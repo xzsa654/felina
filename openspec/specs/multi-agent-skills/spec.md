@@ -121,7 +121,7 @@ code:
 ---
 ### Requirement: Pending-Push Sync State
 
-The system SHALL track, per skill, whether the canonical content has changed since its last successful push (a dirty flag) and the timestamp of the last successful push. Editing and saving a canonical skill SHALL set its dirty flag. A successful push SHALL clear the dirty flag and update the last-synced timestamp. The system SHALL NOT push automatically on save. The Skills page SHALL surface aggregate pending changes through a persistent banner that offers a single action to push all dirty skills, and SHALL also offer a per-skill push action.
+The system SHALL track, per skill, whether the canonical content has changed since its last successful push (a dirty flag) and the timestamp of the last successful push. Editing and saving a canonical skill SHALL set its dirty flag. A successful push SHALL clear the dirty flag and update the last-synced timestamp. The system SHALL NOT push automatically on save. The Skills page SHALL surface aggregate pending changes through a persistent banner that offers a single action to push all dirty skills, and SHALL also offer a per-skill push action. The Push all preview and confirmation dialog SHALL include only dirty skills that have at least one pushable target.
 
 #### Scenario: Editing marks a skill dirty
 
@@ -135,6 +135,23 @@ The system SHALL track, per skill, whether the canonical content has changed sin
 - **THEN** the Skills page SHALL display a banner indicating three skills changed since last sync
 - **AND** the banner SHALL offer a single action to push all of them
 
+#### Scenario: Push all preview lists only affected skills
+
+- **GIVEN** skill "alpha" is dirty and has at least one pushable target
+- **AND** skill "beta" is clean and has at least one target
+- **AND** skill "gamma" is dirty but has no pushable targets
+- **WHEN** the user clicks Push all
+- **THEN** the preview and confirmation dialog SHALL list "alpha"
+- **AND** the preview and confirmation dialog SHALL NOT list "beta"
+- **AND** the preview and confirmation dialog SHALL NOT list "gamma"
+
+#### Scenario: Push all commit operates on previewed skills only
+
+- **GIVEN** the Push all preview contains only skill "alpha"
+- **WHEN** the user confirms Push all
+- **THEN** the system SHALL commit sync only for "alpha"
+- **AND** the system SHALL NOT commit sync for clean or targetless skills that were excluded from the preview
+
 #### Scenario: Push clears dirty state
 
 - **WHEN** a user pushes a dirty skill and all its targets succeed
@@ -143,55 +160,40 @@ The system SHALL track, per skill, whether the canonical content has changed sin
 
 #### Scenario: Save does not auto-push
 
-- **WHEN** a user saves a canonical skill edit
-- **THEN** the system SHALL NOT write to any agent target until the user invokes a push action
+- **WHEN** a user saves a canonical skill
+- **THEN** the system SHALL NOT write to any agent-native skill directory until the user explicitly pushes
 
 
 <!-- @trace
-source: multi-agent-skills-foundation
-updated: 2026-05-22
+source: push-all-affected-list-bug
+updated: 2026-05-28
 code:
-  - src/lib/types/index.ts
-  - package.json
-  - src-tauri/src/lib.rs
-  - src-tauri/Cargo.toml
-  - src/lib/components/shared/OnboardingWelcome.tsx
-  - src/lib/stores/locale.ts
-  - .knowledge/knowledge-base/_index.json
-  - src-tauri/tauri.conf.json
-  - src/lib/components/layout/UpdateBanner.tsx
-  - src/lib/components/settings/SettingsPage.tsx
-  - index.html
-  - src/lib/components/shared/PageScaffold.tsx
-  - .knowledge/experience/_index.json
   - src-tauri/src/commands/fan_out/mod.rs
-  - src/lib/components/skills/SkillList.tsx
-  - src/lib/tauri/commands.ts
-  - src/lib/components/skills/SkillImportWizard.tsx
-  - src/lib/types/skills.ts
-  - src-tauri/src/commands/fan_out/codex.rs
-  - src-tauri/src/commands/skills.rs
-  - src-tauri/src/commands/fan_out/gemini.rs
-  - src/lib/components/skills/SkillImportBanner.tsx
-  - src-tauri/src/paths.rs
-  - src-tauri/src/commands/canonical_skills.rs
-  - src-tauri/src/main.rs
-  - src/lib/components/layout/Sidebar.tsx
-  - .session/design-backlog.md
-  - src/lib/components/skills/PendingPushBar.tsx
-  - src/lib/components/skills/SkillsPage.tsx
-  - src/router.tsx
-  - src/lib/components/settings/AgentPathsSection.tsx
+  - src/lib/i18n/locales/en.ts
+  - src-tauri/src/lib.rs
+  - src/lib/i18n/locales/zh-TW.ts
+  - src/lib/components/tokens/TokensPage.tsx
+  - src-tauri/src/tokens/tokscale_ingestion.rs
+  - src-tauri/src/commands/skill_fields.rs
   - src-tauri/src/commands/fan_out/anthropic.rs
+  - src/lib/components/skills/AgentFieldsEditor.tsx
+  - src-tauri/src/commands/tokens.rs
+  - src/lib/components/tokens/components/TopSessionsCard.tsx
+  - src-tauri/src/tokens/aggregator.rs
   - src-tauri/src/commands/agent_paths.rs
-  - src/lib/components/skills/SkillEditor.tsx
-  - src-tauri/src/commands/skill_import.rs
-  - src/lib/stores/skills-store.ts
-  - src/lib/stores/theme.ts
+  - src/lib/tauri/commands.ts
+  - src-tauri/src/commands/fan_out/gemini.rs
+  - src-tauri/src/commands/fan_out/codex.rs
+  - src-tauri/src/commands/canonical_skills.rs
   - .session/product-backlog.md
-  - .knowledge/_catalog.json
-  - .knowledge/knowledge-base/dev-docs.md
+  - src/lib/types/index.ts
+  - src-tauri/src/tokens/types.rs
   - src-tauri/src/commands/mod.rs
+  - src/lib/components/tokens/components/DayDetailPanel.tsx
+  - src/lib/types/skills.ts
+  - src-tauri/src/commands/skill_import.rs
+  - src/lib/components/skills/SkillEditor.tsx
+  - src/lib/types/token-analytics.ts
 -->
 
 ---
