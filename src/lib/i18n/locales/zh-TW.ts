@@ -213,6 +213,11 @@ const zhTW: TranslationDict = {
     syncInfo: "同步資訊：",
     notSynced: "尚未同步",
     projectNotFound: "Project 不存在",
+    syncInfoBar: {
+      synced: "已同步",
+      pending: "待同步",
+      missing: "遺失",
+    },
     list: {
       empty: "還沒有任何 skill。建立一個，或從既有的 agent 目錄匯入。",
       frontmatterBroken: "Frontmatter 解析失敗，請開啟原始檔案修正",

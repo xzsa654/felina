@@ -211,6 +211,11 @@ const en = {
     syncInfo: "Sync info:",
     notSynced: "Not synced",
     projectNotFound: "project not found",
+    syncInfoBar: {
+      synced: "Synced",
+      pending: "Pending",
+      missing: "Missing",
+    },
     list: {
       empty: "No canonical skills yet. Create one or import existing skills.",
       frontmatterBroken: "Frontmatter unreadable — open raw file",
