@@ -255,7 +255,7 @@ pub fn skill_sync_one(name: String) -> Result<Vec<SyncResult>, String> {
                 meta.last_sync.insert(
                     key.clone(),
                     LastSyncEntry {
-                        pushed_hash: sha256_hex(&rendered),
+                        pushed_hash: semantic_hash(&rendered),
                         base_snapshot: None,
                         at: attempted_at.clone(),
                     },
@@ -296,6 +296,81 @@ fn sha256_hex(data: &str) -> String {
     let mut h = Sha256::new();
     h.update(data.as_bytes());
     format!("{:x}", h.finalize())
+}
+
+/// Produce a semantic hash of a SKILL.md-style document. The content is
+/// split into YAML frontmatter and body. Frontmatter keys are sorted
+/// alphabetically and re-serialized; the body is trimmed. The concatenation
+/// is then SHA-256 hashed. Documents without frontmatter delimiters are
+/// hashed as trim-only.
+fn semantic_hash(content: &str) -> String {
+    let normalized = normalize_skill_content(content);
+    sha256_hex(&normalized)
+}
+
+fn normalize_skill_content(content: &str) -> String {
+    let Some((fm_raw, body)) = split_frontmatter(content) else {
+        return content.trim().to_string();
+    };
+
+    let sorted_fm = match serde_yaml::from_str::<serde_yaml::Value>(fm_raw) {
+        Ok(val) => normalize_yaml_value(&val),
+        Err(_) => fm_raw.trim().to_string(),
+    };
+
+    let trimmed_body = body.trim();
+    if trimmed_body.is_empty() {
+        format!("---\n{sorted_fm}\n---")
+    } else {
+        format!("---\n{sorted_fm}\n---\n{trimmed_body}")
+    }
+}
+
+fn split_frontmatter(content: &str) -> Option<(&str, &str)> {
+    let trimmed = content.trim_start();
+    if !trimmed.starts_with("---") {
+        return None;
+    }
+    let after_open = &trimmed[3..];
+    let after_open = after_open.strip_prefix('\n').unwrap_or(
+        after_open.strip_prefix("\r\n").unwrap_or(after_open),
+    );
+    let close_pos = after_open.find("\n---")?;
+    let fm = &after_open[..close_pos];
+    let rest = &after_open[close_pos + 4..];
+    let rest = rest.strip_prefix('\n').unwrap_or(
+        rest.strip_prefix("\r\n").unwrap_or(rest),
+    );
+    Some((fm, rest))
+}
+
+fn normalize_yaml_value(val: &serde_yaml::Value) -> String {
+    match val {
+        serde_yaml::Value::Mapping(map) => {
+            let mut pairs: Vec<_> = map.iter().collect();
+            pairs.sort_by(|(a, _), (b, _)| {
+                let ak = a.as_str().unwrap_or("");
+                let bk = b.as_str().unwrap_or("");
+                ak.cmp(bk)
+            });
+            let mut out = String::new();
+            for (k, v) in pairs {
+                let ks = serde_yaml::to_string(k).unwrap_or_default();
+                let vs = serde_yaml::to_string(v).unwrap_or_default();
+                // serde_yaml appends trailing newline; strip it
+                let ks = ks.trim_end();
+                let vs = vs.trim_end();
+                out.push_str(&format!("{ks}: {vs}\n"));
+            }
+            out.trim_end().to_string()
+        }
+        other => {
+            serde_yaml::to_string(other)
+                .unwrap_or_default()
+                .trim()
+                .to_string()
+        }
+    }
 }
 
 /// Sync every canonical skill in the global canonical dir. Skips broken skills.
@@ -544,7 +619,7 @@ fn write_target(
             meta.last_sync.insert(
                 target_key(target),
                 LastSyncEntry {
-                    pushed_hash: sha256_hex(&rendered),
+                    pushed_hash: semantic_hash(&rendered),
                     base_snapshot: None,
                     at: attempted_at.to_string(),
                 },
@@ -692,7 +767,7 @@ fn build_preview_for_skill(
                     skill_md_path.display()
                 )
             })?;
-            Some(sha256_hex(&current))
+            Some(semantic_hash(&current))
         } else {
             None
         };
@@ -761,7 +836,7 @@ fn rendered_skill_md_hash(
     };
     let hash_result = final_result.and_then(|_| {
         fs::read_to_string(target_skill_dir.join("SKILL.md"))
-            .map(|rendered| sha256_hex(&rendered))
+            .map(|rendered| semantic_hash(&rendered))
             .map_err(|e| format!("failed to read rendered preview SKILL.md: {e}"))
     });
     let _ = fs::remove_dir_all(&render_root);
@@ -980,6 +1055,47 @@ pub(crate) fn resolve_pair(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn semantic_hash_identical_for_reordered_frontmatter() {
+        let a = "---\nagents:\n  - claude\n  - gemini\nname: test\n---\n# Body\n";
+        let b = "---\nname: test\nagents:\n  - claude\n  - gemini\n---\n# Body\n";
+        assert_eq!(semantic_hash(a), semantic_hash(b));
+    }
+
+    #[test]
+    fn semantic_hash_identical_despite_trailing_whitespace() {
+        let a = "---\nagents:\n  - claude\n---\n# Body\n";
+        let b = "---\nagents:\n  - claude\n---\n# Body\n\n  \n";
+        assert_eq!(semantic_hash(a), semantic_hash(b));
+    }
+
+    #[test]
+    fn semantic_hash_spec_scenario_inline_vs_block_sequence() {
+        let a = "---\nagents:\n  - claude\n  - gemini\n---\n# Body";
+        let b = "---\nagents:\n  - gemini\n  - claude\n---\n# Body  \n";
+        // Both have same agents (order within array preserved by YAML — these
+        // ARE different values), so hashes differ. But formatting-only diffs
+        // (trailing whitespace) are ignored.
+        let a_trimmed = "---\nagents:\n  - claude\n  - gemini\n---\n# Body";
+        let b_no_ws = "---\nagents:\n  - gemini\n  - claude\n---\n# Body";
+        assert_eq!(semantic_hash(a), semantic_hash(a_trimmed));
+        assert_eq!(semantic_hash(b), semantic_hash(b_no_ws));
+    }
+
+    #[test]
+    fn semantic_hash_no_frontmatter_trims_only() {
+        let a = "# Just body\n";
+        let b = "# Just body\n\n  \n";
+        assert_eq!(semantic_hash(a), semantic_hash(b));
+    }
+
+    #[test]
+    fn semantic_hash_differs_for_different_content() {
+        let a = "---\nname: foo\n---\n# A";
+        let b = "---\nname: bar\n---\n# A";
+        assert_ne!(semantic_hash(a), semantic_hash(b));
+    }
 
     #[test]
     fn iso8601_format_is_well_formed() {
@@ -1724,5 +1840,107 @@ mod tests {
             !meta.dirty,
             "after override + detach no enabled tracked target remains pending",
         );
+    }
+
+    #[test]
+    fn lazy_migration_legacy_hash_triggers_drift_then_push_upgrades() {
+        let tmp = smoke_tempdir("lazymig");
+        let _g = override_felina_home(&tmp);
+        make_canonical("mig-skill", &["anthropic"]);
+
+        let canonical_skill_dir = tmp.join(".felina").join("skills").join("mig-skill");
+        let project = tmp.to_string_lossy().to_string();
+        let target = SkillTarget {
+            agent: AgentId::Anthropic,
+            scope: SkillScope::Project,
+            project: Some(project.clone()),
+            enabled: true,
+            mode: TargetMode::Tracked,
+        };
+
+        // First push to create the target file.
+        write_sync_meta_v2(
+            &canonical_skill_dir,
+            &SyncMetaV2 {
+                version: 2,
+                targets: vec![target.clone()],
+                last_sync: std::collections::BTreeMap::new(),
+                dirty: true,
+            },
+        )
+        .unwrap();
+        let results = skill_sync_one("mig-skill".into()).expect("initial push");
+        assert!(results[0].success);
+
+        // Read the semantic hash that was just written.
+        let meta_after_push: SyncMetaV2 = serde_json::from_str(
+            &fs::read_to_string(canonical_skill_dir.join(".felina-sync-meta.json")).unwrap(),
+        )
+        .unwrap();
+        let key = target_key(&target);
+        // Simulate legacy state: overwrite pushed_hash with a raw sha256_hex,
+        // then modify the canonical so rendered ≠ current on disk. This is the
+        // realistic lazy migration path: old push wrote a raw hash, then the
+        // canonical was edited, and now preview sees current != last_sync.
+        let target_skill_md = tmp
+            .join(".claude")
+            .join("skills")
+            .join("mig-skill")
+            .join("SKILL.md");
+        let rendered = fs::read_to_string(&target_skill_md).unwrap();
+        let raw_hash = sha256_hex(&rendered);
+
+        let mut legacy_meta = meta_after_push.clone();
+        legacy_meta.last_sync.insert(
+            key.clone(),
+            LastSyncEntry {
+                pushed_hash: raw_hash.clone(),
+                base_snapshot: None,
+                at: "2026-01-01T00:00:00Z".into(),
+            },
+        );
+        write_sync_meta_v2(&canonical_skill_dir, &legacy_meta).unwrap();
+
+        // Update canonical content so rendered hash changes.
+        let skill_md_path = canonical_skill_dir.join("SKILL.md");
+        let mut content = fs::read_to_string(&skill_md_path).unwrap();
+        content.push_str("\nUpdated body.\n");
+        fs::write(&skill_md_path, &content).unwrap();
+
+        // Preview: rendered ≠ current, current ≠ last_sync (legacy raw hash)
+        // → BlockedDrift.
+        let preview = skill_sync_preview("mig-skill".into()).expect("preview");
+        let item = &preview.items[0];
+        assert_eq!(
+            item.operation,
+            SkillSyncPreviewOperation::BlockedDrift,
+            "legacy hash + changed canonical must trigger BlockedDrift, got {:?}",
+            item.operation
+        );
+
+        // Commit with Override to upgrade the hash.
+        let committed = skill_sync_commit(SkillSyncCommitRequest {
+            skill_name: "mig-skill".into(),
+            resolutions: vec![SkillSyncResolution {
+                target_key: key.clone(),
+                resolution: SkillSyncDriftResolution::Override,
+            }],
+        })
+        .expect("commit override");
+        assert!(committed[0].success);
+
+        // After override-push, the stored hash should be a semantic hash (not raw).
+        let final_meta: SyncMetaV2 = serde_json::from_str(
+            &fs::read_to_string(canonical_skill_dir.join(".felina-sync-meta.json")).unwrap(),
+        )
+        .unwrap();
+        let new_pushed = &final_meta.last_sync[&key].pushed_hash;
+        assert_ne!(new_pushed, &raw_hash, "pushed hash must not be the old raw hash");
+        let new_rendered = fs::read_to_string(&target_skill_md).unwrap();
+        assert_eq!(new_pushed, &semantic_hash(&new_rendered));
+
+        // Preview should now show NoOp.
+        let after_preview = skill_sync_preview("mig-skill".into()).expect("after preview");
+        assert_eq!(after_preview.items[0].operation, SkillSyncPreviewOperation::NoOp);
     }
 }
