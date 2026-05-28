@@ -12,6 +12,7 @@ CLAUDE.md
 AGENTS.md
 .agents/
 .claude/
+.antigravitycli/
 
 # Spectra
 .spectra/
