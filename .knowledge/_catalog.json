@@ -1,5 +1,5 @@
 ﻿{
-  "lastUpdated": "2026-05-25",
+  "lastUpdated": "2026-05-28",
   "entries": [
     {
       "id": "kb-architecture-local-only-boundary",
@@ -158,16 +158,16 @@
       "updated": "2026-05-25"
     },
     {
-      "id": "kb-platform-tokscale-parser-fallback",
-      "title": "Token refresh requires parser fallback when tokscale CLI is absent",
+      "id": "kb-platform-windows-cmd-shim",
+      "title": "Windows: Rust Command::new 無法執行 npm .cmd shim",
       "type": "knowledge",
       "status": "active",
       "confidence": "confirmed",
-      "keywords": ["tokscale", "token refresh", "parser fallback", "history page", "felina parser", "scan", "jsonl", "empty db"],
-      "appliesWhen": "Calling refresh_token_data or populating the token DB for History/Analytics",
+      "keywords": ["windows", "createprocess", "cmd shim", "npm global", "rust command", "tokscale", "npx", "tauri", "gui path"],
+      "appliesWhen": "在 Rust 中呼叫 npm 全域安裝的 CLI 工具時",
       "file": "knowledge-base/platform.md",
-      "anchor": "token-refresh-requires-parser-fallback-when-tokscale-cli-is-absent",
-      "updated": "2026-05-25"
+      "anchor": "windows-rust-commandnew-cannot-execute-npm-cmd-shim",
+      "updated": "2026-05-28"
     }
   ]
 }

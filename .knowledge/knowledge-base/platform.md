@@ -43,19 +43,21 @@ Windows / git / toolchain platform-specific gotchas for Felina.
 
 ---
 
-## Token refresh requires parser fallback when tokscale CLI is absent
-**ID:** kb-platform-tokscale-parser-fallback
-**Date:** 2026-05-25
-**Updated:** 2026-05-25
+## Windows: Rust Command::new 無法執行 npm .cmd shim
+**ID:** kb-platform-windows-cmd-shim
+**Date:** 2026-05-28
+**Updated:** 2026-05-28
 **Status:** active
 **Confidence:** confirmed
-**Source:** tokens-cross-platform-fix session — History page empty despite valid .jsonl transcripts
-**Context:** `TokenAggregator.refresh()` calls `refresh_with_options(false)`, which refuses to fall back to the built-in parser when tokscale fails. Result: 0 events ingested, empty DB.
-**Applies when:** Calling refresh_token_data or any code path that populates the token DB for History/Analytics pages.
+**Source:** 2026-05-28 Session 1 — tokscale ingestion 在 Windows 上全部失敗的根因調查
+**Context:** `npm install -g tokscale` 在 Windows 產生 `tokscale.cmd`（batch wrapper），Rust `Command::new("tokscale")` 底層用 `CreateProcess` 只認 `.exe`，回傳 `NotFound`。macOS 不受影響（npm 產生 symlink + shebang，`execvp` 可直接執行）。
+**Applies when:** 在 Rust（或任何用 CreateProcess 的語言）中呼叫 npm 全域安裝的 CLI 工具時。
 **Lesson:**
-- `refresh()` = tokscale only, no fallback. `refresh_with_options(true)` = tokscale first, then Felina parser fallback.
-- The Felina parser (`run_parser_scan`) scans `~/.claude/projects/**/*.jsonl` and `~/.codex/sessions/` directly — no external CLI needed.
-- For UI-facing refresh (History page, manual refresh button), always use `refresh_with_options(true)` so users without tokscale still get data.
-- `refresh_parser_fallback()` is the explicit diagnostic-only entry point; it bypasses tokscale entirely.
-**Keywords:** tokscale, token refresh, parser fallback, history page, felina parser, scan, jsonl, empty db
+- Windows 上 `CreateProcess` 無法執行 `.cmd` / `.bat` 檔案，只認 `.exe`。
+- 解法一：用 `cmd /c <binary>` 包裝，讓 `cmd.exe` 來執行 `.cmd` shim。
+- 解法二：用環境變數（如 `FELINA_TOKSCALE_BIN`）指定絕對路徑，直接指向 `.exe` 或 `.cmd`。
+- `npx` 也是 `.cmd` shim，同樣受影響——fallback 到 npx 也會失敗。
+- GUI app（Tauri）的 PATH 可能和使用者的 shell 環境不同，進一步加劇找不到 binary 的問題。
+**Keywords:** windows, createprocess, cmd shim, npm global, rust command, tokscale, npx, tauri, gui path
 **Related:** kb-platform-windows-claude-credentials
+**Supersedes:** kb-platform-tokscale-parser-fallback
