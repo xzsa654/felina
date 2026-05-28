@@ -171,14 +171,16 @@ function TopSessions({ data, locale }: { data: DaySessionBreakdown[]; locale: Lo
                         {t(locale, "tokens.dayDetail.sessionNotFound" as never)}
                       </span>
                     )}
-                    <button
-                      type="button"
-                      onClick={() => openHistory(s)}
-                      title={t(locale, "tokens.dayDetail.viewSession" as never)}
-                      className="h-6 w-6 inline-flex items-center justify-center rounded border border-border text-text-muted hover:text-text-primary hover:bg-bg-secondary"
-                    >
-                      <ExternalLink className="h-3.5 w-3.5" />
-                    </button>
+                    {s.transcript_available && (
+                      <button
+                        type="button"
+                        onClick={() => openHistory(s)}
+                        title={t(locale, "tokens.dayDetail.viewSession" as never)}
+                        className="h-6 w-6 inline-flex items-center justify-center rounded border border-border text-text-muted hover:text-text-primary hover:bg-bg-secondary"
+                      >
+                        <ExternalLink className="h-3.5 w-3.5" />
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={() => void revealSession(s)}

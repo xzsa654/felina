@@ -600,6 +600,7 @@ impl TokenAggregator {
                 tokens: rollup.tokens,
                 messages: rollup.messages,
                 cost_usd: rollup.cost_usd,
+                transcript_available: false,
             })
             .collect();
 
@@ -929,6 +930,7 @@ impl TokenAggregator {
                         tokens,
                         messages,
                         cost_usd: 0.0,
+                        transcript_available: false,
                     })
                 },
             )

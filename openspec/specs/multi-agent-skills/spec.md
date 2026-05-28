@@ -891,3 +891,431 @@ When a project-scope target's project path is missing on disk, the Target editor
 - **GIVEN** an old project path becomes available again after a target was repointed away from it
 - **WHEN** the user inspects the old project path on disk
 - **THEN** Felina has not deleted any agent-side skill directory from the old project path as part of repoint
+
+---
+### Requirement: Agent-Scoped Canonical Skill Fields
+
+Canonical skill frontmatter SHALL support an `x_felina_agent_fields` mapping for target-specific optional fields. The mapping SHALL allow `anthropic`, `codex`, `gemini`, and `standard` namespaces. The system SHALL keep `name`, `description`, and retained `agents` metadata outside this mapping. The system SHALL read existing flat extras for backward compatibility, classify known fields into the scoped mapping, preserve unknown fields, and write the scoped mapping on the next structured save.
+
+#### Scenario: Existing flat extras migrate on save
+
+- **GIVEN** a canonical skill has flat extras `allowed_tools: Read` and `effort: high`
+- **WHEN** the user opens the skill and saves it through the structured editor
+- **THEN** the saved canonical frontmatter SHALL contain `x_felina_agent_fields.anthropic.allowed-tools: Read`
+- **AND** the saved canonical frontmatter SHALL contain `x_felina_agent_fields.anthropic.effort: high`
+- **AND** the system SHALL preserve unknown flat extras without emitting them to unrelated targets
+
+#### Scenario: Scoped fields remain separate from shared fields
+
+- **WHEN** a user saves a skill with shared `name`, shared `description`, and Codex `interface.display_name`
+- **THEN** `name` and `description` SHALL remain top-level canonical frontmatter fields
+- **AND** `interface.display_name` SHALL be stored under `x_felina_agent_fields.codex.interface.display_name`
+
+
+<!-- @trace
+source: agent-scoped-skill-fields
+updated: 2026-05-28
+code:
+  - src-tauri/src/tokens/storage.rs
+  - src/lib/components/tokens/components/DataResolutionPanel.tsx
+  - src/lib/components/projects/managed-inventory.ts
+  - src-tauri/src/tokens/types.rs
+  - src/lib/types/token-analytics.ts
+  - src-tauri/src/commands/skill_import.rs
+  - src-tauri/src/tokens/tokscale.rs
+  - src-tauri/src/tokens/tokscale_ingestion.rs
+  - src/lib/components/layout/QuickSettingsPopover.tsx
+  - src/lib/components/tokens/components/ContributionGraph.tsx
+  - src/lib/components/tokens/components/CostBudgetCard.tsx
+  - src/lib/stores/theme.ts
+  - src/lib/components/tokens/components/TokensPageSkeleton.tsx
+  - src/app.css
+  - src/lib/i18n/locales/zh-TW.ts
+  - src/lib/types/skills.ts
+  - src-tauri/src/commands/budget.rs
+  - src-tauri/src/commands/fan_out/codex.rs
+  - src-tauri/src/tokens/aggregator.rs
+  - .gitattributes
+  - src/lib/components/tokens/components/DayDetailPanel.tsx
+  - src-tauri/src/commands/fan_out/mod.rs
+  - src/lib/components/skills/SkillImportWizard.tsx
+  - .session/design-backlog.md
+  - src/lib/components/skills/SyncPreviewDialog.tsx
+  - src/lib/components/shared/MarkdownPreview.tsx
+  - src/lib/components/skills/CoverageMatrix.tsx
+  - src/lib/components/settings/SavedKnownProjectsSection.tsx
+  - src/lib/components/skills/PendingPushBar.tsx
+  - src/lib/components/history/HistoryPage.tsx
+  - src/lib/components/skills/DeletePolicyDialog.tsx
+  - src-tauri/src/commands/fan_out/gemini.rs
+  - src/lib/components/memory/MemoryPage.tsx
+  - src/lib/components/skills/AddTargetDialog.tsx
+  - .session/product-backlog.md
+  - src-tauri/gen/schemas/macOS-schema.json
+  - src/lib/components/tokens/components/AgentStatusPanel.tsx
+  - src/lib/i18n/locales/en.ts
+  - src/lib/components/skills/SkillList.tsx
+  - src-tauri/src/commands/mod.rs
+  - src/lib/components/projects/ProjectsList.tsx
+  - .knowledge/_catalog.json
+  - src-tauri/src/lib.rs
+  - src/lib/components/settings/FelinaSettingsPage.tsx
+  - src/lib/components/skills/TargetEditor.tsx
+  - src/lib/utils/path.ts
+  - src-tauri/src/commands/tokens.rs
+  - src/lib/components/tokens/TokensPage.tsx
+  - src-tauri/src/tokens/ccusage.rs
+  - src-tauri/src/commands/agent_paths.rs
+  - src-tauri/src/commands/canonical_skills.rs
+  - src-tauri/src/commands/fan_out/anthropic.rs
+  - src-tauri/src/tokens/parsers/codex_cli.rs
+  - src/lib/components/tokens/components/TimeBucketTable.tsx
+  - src/lib/components/skills/SkillEditor.tsx
+  - src-tauri/src/commands/known_projects.rs
+  - src/lib/components/instructions/InstructionsPage.tsx
+  - .knowledge/knowledge-base/platform.md
+  - src-tauri/src/paths.rs
+  - src-tauri/src/commands/skill_fields.rs
+  - src/lib/components/settings/SettingsPage.tsx
+  - src/lib/components/projects/ManagedInventory.tsx
+  - src/router.tsx
+  - src/lib/tauri/commands.ts
+  - src/lib/components/tokens/components/CacheEfficiencyCard.tsx
+  - .session/agent-capability-research.md
+  - src/lib/types/index.ts
+  - src/lib/components/skills/SkillsPage.tsx
+  - src/lib/components/tokens/components/AgentQuotaPanel.tsx
+  - src/lib/components/skills/import-conflict-warning.ts
+  - src/lib/components/skills/AgentFieldsEditor.tsx
+  - src/lib/components/settings/AgentPathsSection.tsx
+  - src/lib/components/tokens/components/TopSessionsCard.tsx
+  - src/lib/components/layout/Sidebar.tsx
+tests:
+  - tests/skill-import-conflict-warning.test.ts
+-->
+
+---
+### Requirement: Target-Filtered Advanced Field Editor
+
+The visual frontmatter editor SHALL replace free-form Advanced key/value rows with a target-filtered field picker. The picker SHALL derive available fields from the selected skill's enabled targets and SHALL group fields by agent when more than one target agent is present. The editor SHALL render each selected field with a value control matching its catalog type and SHALL prevent duplicate fields within the same agent namespace.
+
+#### Scenario: Single target filters field list
+
+- **GIVEN** a skill has one enabled Codex target
+- **WHEN** the user opens the Advanced field picker
+- **THEN** the picker SHALL show Codex field options
+- **AND** the picker SHALL NOT show Claude Code-only fields such as `allowed-tools`
+
+#### Scenario: Multiple targets are grouped by agent
+
+- **GIVEN** a skill has enabled Claude Code and Codex targets
+- **WHEN** the user opens Advanced fields
+- **THEN** the editor SHALL show one group for Claude Code fields and one group for Codex fields
+- **AND** the editor SHALL store selected values under the corresponding agent namespace
+
+#### Scenario: Gemini target has no unsupported extras
+
+- **GIVEN** a skill has only an enabled Gemini CLI target
+- **WHEN** the user opens Advanced fields
+- **THEN** the editor SHALL show no Gemini-specific optional field choices beyond shared canonical fields until the catalog contains documented Gemini CLI fields
+
+
+<!-- @trace
+source: agent-scoped-skill-fields
+updated: 2026-05-28
+code:
+  - src-tauri/src/tokens/storage.rs
+  - src/lib/components/tokens/components/DataResolutionPanel.tsx
+  - src/lib/components/projects/managed-inventory.ts
+  - src-tauri/src/tokens/types.rs
+  - src/lib/types/token-analytics.ts
+  - src-tauri/src/commands/skill_import.rs
+  - src-tauri/src/tokens/tokscale.rs
+  - src-tauri/src/tokens/tokscale_ingestion.rs
+  - src/lib/components/layout/QuickSettingsPopover.tsx
+  - src/lib/components/tokens/components/ContributionGraph.tsx
+  - src/lib/components/tokens/components/CostBudgetCard.tsx
+  - src/lib/stores/theme.ts
+  - src/lib/components/tokens/components/TokensPageSkeleton.tsx
+  - src/app.css
+  - src/lib/i18n/locales/zh-TW.ts
+  - src/lib/types/skills.ts
+  - src-tauri/src/commands/budget.rs
+  - src-tauri/src/commands/fan_out/codex.rs
+  - src-tauri/src/tokens/aggregator.rs
+  - .gitattributes
+  - src/lib/components/tokens/components/DayDetailPanel.tsx
+  - src-tauri/src/commands/fan_out/mod.rs
+  - src/lib/components/skills/SkillImportWizard.tsx
+  - .session/design-backlog.md
+  - src/lib/components/skills/SyncPreviewDialog.tsx
+  - src/lib/components/shared/MarkdownPreview.tsx
+  - src/lib/components/skills/CoverageMatrix.tsx
+  - src/lib/components/settings/SavedKnownProjectsSection.tsx
+  - src/lib/components/skills/PendingPushBar.tsx
+  - src/lib/components/history/HistoryPage.tsx
+  - src/lib/components/skills/DeletePolicyDialog.tsx
+  - src-tauri/src/commands/fan_out/gemini.rs
+  - src/lib/components/memory/MemoryPage.tsx
+  - src/lib/components/skills/AddTargetDialog.tsx
+  - .session/product-backlog.md
+  - src-tauri/gen/schemas/macOS-schema.json
+  - src/lib/components/tokens/components/AgentStatusPanel.tsx
+  - src/lib/i18n/locales/en.ts
+  - src/lib/components/skills/SkillList.tsx
+  - src-tauri/src/commands/mod.rs
+  - src/lib/components/projects/ProjectsList.tsx
+  - .knowledge/_catalog.json
+  - src-tauri/src/lib.rs
+  - src/lib/components/settings/FelinaSettingsPage.tsx
+  - src/lib/components/skills/TargetEditor.tsx
+  - src/lib/utils/path.ts
+  - src-tauri/src/commands/tokens.rs
+  - src/lib/components/tokens/TokensPage.tsx
+  - src-tauri/src/tokens/ccusage.rs
+  - src-tauri/src/commands/agent_paths.rs
+  - src-tauri/src/commands/canonical_skills.rs
+  - src-tauri/src/commands/fan_out/anthropic.rs
+  - src-tauri/src/tokens/parsers/codex_cli.rs
+  - src/lib/components/tokens/components/TimeBucketTable.tsx
+  - src/lib/components/skills/SkillEditor.tsx
+  - src-tauri/src/commands/known_projects.rs
+  - src/lib/components/instructions/InstructionsPage.tsx
+  - .knowledge/knowledge-base/platform.md
+  - src-tauri/src/paths.rs
+  - src-tauri/src/commands/skill_fields.rs
+  - src/lib/components/settings/SettingsPage.tsx
+  - src/lib/components/projects/ManagedInventory.tsx
+  - src/router.tsx
+  - src/lib/tauri/commands.ts
+  - src/lib/components/tokens/components/CacheEfficiencyCard.tsx
+  - .session/agent-capability-research.md
+  - src/lib/types/index.ts
+  - src/lib/components/skills/SkillsPage.tsx
+  - src/lib/components/tokens/components/AgentQuotaPanel.tsx
+  - src/lib/components/skills/import-conflict-warning.ts
+  - src/lib/components/skills/AgentFieldsEditor.tsx
+  - src/lib/components/settings/AgentPathsSection.tsx
+  - src/lib/components/tokens/components/TopSessionsCard.tsx
+  - src/lib/components/layout/Sidebar.tsx
+tests:
+  - tests/skill-import-conflict-warning.test.ts
+-->
+
+---
+### Requirement: Target-Scoped Fan-Out Filtering
+
+Fan-out SHALL use the agent-scoped field catalog as an allowlist and SHALL emit only fields supported by the target agent. Claude Code fan-out SHALL write allowed Claude Code fields to `SKILL.md`. Codex fan-out SHALL write only `name` and `description` to `SKILL.md` and SHALL write Codex metadata to `agents/openai.yaml`. Gemini CLI fan-out SHALL write only documented Gemini CLI fields. Unknown canonical fields SHALL be preserved in canonical storage but SHALL NOT be emitted to any agent output.
+
+#### Scenario: Codex fields do not leak to Claude Code
+
+- **GIVEN** a canonical skill contains `x_felina_agent_fields.codex.interface.display_name: Helper`
+- **AND** the skill has an enabled Claude Code target
+- **WHEN** the user pushes the skill
+- **THEN** the Claude Code `SKILL.md` output SHALL NOT contain `interface`, `display_name`, or `agents/openai.yaml` metadata
+
+#### Scenario: Claude Code fields do not leak to Codex
+
+- **GIVEN** a canonical skill contains `x_felina_agent_fields.anthropic.allowed-tools: Read Grep`
+- **AND** the skill has an enabled Codex target
+- **WHEN** the user pushes the skill
+- **THEN** the Codex `SKILL.md` output SHALL contain `name` and `description`
+- **AND** the Codex `agents/openai.yaml` output SHALL NOT contain `allowed-tools` or `allowed_tools`
+
+#### Scenario: Unknown fields are preserved but not emitted
+
+- **GIVEN** a canonical skill contains an unknown preserved field `vendor_future_flag: true`
+- **WHEN** the user pushes the skill to Claude Code, Codex, and Gemini CLI targets
+- **THEN** no target output SHALL contain `vendor_future_flag`
+- **AND** the canonical skill SHALL retain the unknown field after saving unrelated edits
+
+
+<!-- @trace
+source: agent-scoped-skill-fields
+updated: 2026-05-28
+code:
+  - src-tauri/src/tokens/storage.rs
+  - src/lib/components/tokens/components/DataResolutionPanel.tsx
+  - src/lib/components/projects/managed-inventory.ts
+  - src-tauri/src/tokens/types.rs
+  - src/lib/types/token-analytics.ts
+  - src-tauri/src/commands/skill_import.rs
+  - src-tauri/src/tokens/tokscale.rs
+  - src-tauri/src/tokens/tokscale_ingestion.rs
+  - src/lib/components/layout/QuickSettingsPopover.tsx
+  - src/lib/components/tokens/components/ContributionGraph.tsx
+  - src/lib/components/tokens/components/CostBudgetCard.tsx
+  - src/lib/stores/theme.ts
+  - src/lib/components/tokens/components/TokensPageSkeleton.tsx
+  - src/app.css
+  - src/lib/i18n/locales/zh-TW.ts
+  - src/lib/types/skills.ts
+  - src-tauri/src/commands/budget.rs
+  - src-tauri/src/commands/fan_out/codex.rs
+  - src-tauri/src/tokens/aggregator.rs
+  - .gitattributes
+  - src/lib/components/tokens/components/DayDetailPanel.tsx
+  - src-tauri/src/commands/fan_out/mod.rs
+  - src/lib/components/skills/SkillImportWizard.tsx
+  - .session/design-backlog.md
+  - src/lib/components/skills/SyncPreviewDialog.tsx
+  - src/lib/components/shared/MarkdownPreview.tsx
+  - src/lib/components/skills/CoverageMatrix.tsx
+  - src/lib/components/settings/SavedKnownProjectsSection.tsx
+  - src/lib/components/skills/PendingPushBar.tsx
+  - src/lib/components/history/HistoryPage.tsx
+  - src/lib/components/skills/DeletePolicyDialog.tsx
+  - src-tauri/src/commands/fan_out/gemini.rs
+  - src/lib/components/memory/MemoryPage.tsx
+  - src/lib/components/skills/AddTargetDialog.tsx
+  - .session/product-backlog.md
+  - src-tauri/gen/schemas/macOS-schema.json
+  - src/lib/components/tokens/components/AgentStatusPanel.tsx
+  - src/lib/i18n/locales/en.ts
+  - src/lib/components/skills/SkillList.tsx
+  - src-tauri/src/commands/mod.rs
+  - src/lib/components/projects/ProjectsList.tsx
+  - .knowledge/_catalog.json
+  - src-tauri/src/lib.rs
+  - src/lib/components/settings/FelinaSettingsPage.tsx
+  - src/lib/components/skills/TargetEditor.tsx
+  - src/lib/utils/path.ts
+  - src-tauri/src/commands/tokens.rs
+  - src/lib/components/tokens/TokensPage.tsx
+  - src-tauri/src/tokens/ccusage.rs
+  - src-tauri/src/commands/agent_paths.rs
+  - src-tauri/src/commands/canonical_skills.rs
+  - src-tauri/src/commands/fan_out/anthropic.rs
+  - src-tauri/src/tokens/parsers/codex_cli.rs
+  - src/lib/components/tokens/components/TimeBucketTable.tsx
+  - src/lib/components/skills/SkillEditor.tsx
+  - src-tauri/src/commands/known_projects.rs
+  - src/lib/components/instructions/InstructionsPage.tsx
+  - .knowledge/knowledge-base/platform.md
+  - src-tauri/src/paths.rs
+  - src-tauri/src/commands/skill_fields.rs
+  - src/lib/components/settings/SettingsPage.tsx
+  - src/lib/components/projects/ManagedInventory.tsx
+  - src/router.tsx
+  - src/lib/tauri/commands.ts
+  - src/lib/components/tokens/components/CacheEfficiencyCard.tsx
+  - .session/agent-capability-research.md
+  - src/lib/types/index.ts
+  - src/lib/components/skills/SkillsPage.tsx
+  - src/lib/components/tokens/components/AgentQuotaPanel.tsx
+  - src/lib/components/skills/import-conflict-warning.ts
+  - src/lib/components/skills/AgentFieldsEditor.tsx
+  - src/lib/components/settings/AgentPathsSection.tsx
+  - src/lib/components/tokens/components/TopSessionsCard.tsx
+  - src/lib/components/layout/Sidebar.tsx
+tests:
+  - tests/skill-import-conflict-warning.test.ts
+-->
+
+---
+### Requirement: Source-Agent Import Classification
+
+When importing a skill from an agent-native directory, the system SHALL classify recognized source fields into the matching agent namespace. Claude Code imports SHALL classify recognized Claude Code frontmatter fields into `anthropic`. Codex imports SHALL classify `agents/openai.yaml` interface, policy, and dependency metadata into `codex`. Gemini CLI imports SHALL classify only documented Gemini CLI fields. Unknown parseable fields SHALL be preserved without becoming cross-agent output fields.
+
+#### Scenario: Import Claude Code fields into anthropic namespace
+
+- **GIVEN** a source Claude Code skill has frontmatter `allowed-tools: Read Grep` and `effort: high`
+- **WHEN** the user imports the skill
+- **THEN** the canonical skill SHALL store those values under `x_felina_agent_fields.anthropic`
+
+#### Scenario: Import Codex openai metadata into codex namespace
+
+- **GIVEN** a Codex skill directory contains `SKILL.md` and `agents/openai.yaml` with `interface.display_name: Helper`
+- **WHEN** the user imports the skill
+- **THEN** the canonical skill SHALL store `Helper` under `x_felina_agent_fields.codex.interface.display_name`
+
+#### Scenario: Import Gemini CLI does not invent extra fields
+
+- **GIVEN** a Gemini CLI skill contains only `name` and `description`
+- **WHEN** the user imports the skill
+- **THEN** the canonical skill SHALL contain top-level `name` and `description`
+- **AND** the canonical skill SHALL NOT create synthetic Gemini optional fields
+
+<!-- @trace source: agent-scoped-skill-fields updated: 2026-05-28 -->
+
+<!-- @trace
+source: agent-scoped-skill-fields
+updated: 2026-05-28
+code:
+  - src-tauri/src/tokens/storage.rs
+  - src/lib/components/tokens/components/DataResolutionPanel.tsx
+  - src/lib/components/projects/managed-inventory.ts
+  - src-tauri/src/tokens/types.rs
+  - src/lib/types/token-analytics.ts
+  - src-tauri/src/commands/skill_import.rs
+  - src-tauri/src/tokens/tokscale.rs
+  - src-tauri/src/tokens/tokscale_ingestion.rs
+  - src/lib/components/layout/QuickSettingsPopover.tsx
+  - src/lib/components/tokens/components/ContributionGraph.tsx
+  - src/lib/components/tokens/components/CostBudgetCard.tsx
+  - src/lib/stores/theme.ts
+  - src/lib/components/tokens/components/TokensPageSkeleton.tsx
+  - src/app.css
+  - src/lib/i18n/locales/zh-TW.ts
+  - src/lib/types/skills.ts
+  - src-tauri/src/commands/budget.rs
+  - src-tauri/src/commands/fan_out/codex.rs
+  - src-tauri/src/tokens/aggregator.rs
+  - .gitattributes
+  - src/lib/components/tokens/components/DayDetailPanel.tsx
+  - src-tauri/src/commands/fan_out/mod.rs
+  - src/lib/components/skills/SkillImportWizard.tsx
+  - .session/design-backlog.md
+  - src/lib/components/skills/SyncPreviewDialog.tsx
+  - src/lib/components/shared/MarkdownPreview.tsx
+  - src/lib/components/skills/CoverageMatrix.tsx
+  - src/lib/components/settings/SavedKnownProjectsSection.tsx
+  - src/lib/components/skills/PendingPushBar.tsx
+  - src/lib/components/history/HistoryPage.tsx
+  - src/lib/components/skills/DeletePolicyDialog.tsx
+  - src-tauri/src/commands/fan_out/gemini.rs
+  - src/lib/components/memory/MemoryPage.tsx
+  - src/lib/components/skills/AddTargetDialog.tsx
+  - .session/product-backlog.md
+  - src-tauri/gen/schemas/macOS-schema.json
+  - src/lib/components/tokens/components/AgentStatusPanel.tsx
+  - src/lib/i18n/locales/en.ts
+  - src/lib/components/skills/SkillList.tsx
+  - src-tauri/src/commands/mod.rs
+  - src/lib/components/projects/ProjectsList.tsx
+  - .knowledge/_catalog.json
+  - src-tauri/src/lib.rs
+  - src/lib/components/settings/FelinaSettingsPage.tsx
+  - src/lib/components/skills/TargetEditor.tsx
+  - src/lib/utils/path.ts
+  - src-tauri/src/commands/tokens.rs
+  - src/lib/components/tokens/TokensPage.tsx
+  - src-tauri/src/tokens/ccusage.rs
+  - src-tauri/src/commands/agent_paths.rs
+  - src-tauri/src/commands/canonical_skills.rs
+  - src-tauri/src/commands/fan_out/anthropic.rs
+  - src-tauri/src/tokens/parsers/codex_cli.rs
+  - src/lib/components/tokens/components/TimeBucketTable.tsx
+  - src/lib/components/skills/SkillEditor.tsx
+  - src-tauri/src/commands/known_projects.rs
+  - src/lib/components/instructions/InstructionsPage.tsx
+  - .knowledge/knowledge-base/platform.md
+  - src-tauri/src/paths.rs
+  - src-tauri/src/commands/skill_fields.rs
+  - src/lib/components/settings/SettingsPage.tsx
+  - src/lib/components/projects/ManagedInventory.tsx
+  - src/router.tsx
+  - src/lib/tauri/commands.ts
+  - src/lib/components/tokens/components/CacheEfficiencyCard.tsx
+  - .session/agent-capability-research.md
+  - src/lib/types/index.ts
+  - src/lib/components/skills/SkillsPage.tsx
+  - src/lib/components/tokens/components/AgentQuotaPanel.tsx
+  - src/lib/components/skills/import-conflict-warning.ts
+  - src/lib/components/skills/AgentFieldsEditor.tsx
+  - src/lib/components/settings/AgentPathsSection.tsx
+  - src/lib/components/tokens/components/TopSessionsCard.tsx
+  - src/lib/components/layout/Sidebar.tsx
+tests:
+  - tests/skill-import-conflict-warning.test.ts
+-->

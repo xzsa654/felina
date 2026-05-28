@@ -1,3 +1,4 @@
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
@@ -89,6 +90,77 @@ fn find_session_transcript_path_in_roots(
 
 fn find_session_transcript_path(agent: &AgentId, session_id: &str) -> Option<PathBuf> {
     find_session_transcript_path_in_roots(agent, session_id, &default_session_roots())
+}
+
+fn mark_session_transcript_availability_in_roots(
+    sessions: &mut [DaySessionBreakdown],
+    roots_by_agent: &[(AgentId, Vec<PathBuf>)],
+) {
+    let mut wanted_by_agent: HashMap<AgentId, HashSet<String>> = HashMap::new();
+    for session in sessions.iter_mut() {
+        if !session.session_id.trim().is_empty() {
+            wanted_by_agent
+                .entry(session.agent.clone())
+                .or_default()
+                .insert(session.session_id.clone());
+        }
+        session.transcript_available = false;
+    }
+
+    let mut available: HashSet<(AgentId, String)> = HashSet::new();
+    for (agent, roots) in roots_by_agent {
+        let Some(wanted) = wanted_by_agent.get(agent) else {
+            continue;
+        };
+        if wanted.is_empty() {
+            continue;
+        }
+
+        for root in roots {
+            if !root.exists() {
+                continue;
+            }
+
+            for entry in WalkDir::new(root)
+                .follow_links(false)
+                .into_iter()
+                .filter_map(Result::ok)
+            {
+                if !entry.file_type().is_file() {
+                    continue;
+                }
+
+                let path = entry.path();
+                let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else {
+                    continue;
+                };
+                if !wanted.contains(stem) {
+                    continue;
+                }
+                if !matches!(
+                    path.extension().and_then(|e| e.to_str()),
+                    Some("jsonl") | Some("json")
+                ) {
+                    continue;
+                }
+
+                available.insert((agent.clone(), stem.to_string()));
+            }
+        }
+    }
+
+    for session in sessions.iter_mut() {
+        session.transcript_available =
+            available.contains(&(session.agent.clone(), session.session_id.clone()));
+    }
+}
+
+fn mark_session_transcript_availability(sessions: &mut [DaySessionBreakdown]) {
+    mark_session_transcript_availability_in_roots(sessions, &default_session_roots());
+}
+
+fn mark_analytics_transcript_availability(analytics: &mut TokenAnalytics) {
+    mark_session_transcript_availability(&mut analytics.top_sessions);
 }
 
 fn parse_agent_id(value: &str) -> AgentId {
@@ -617,7 +689,10 @@ pub fn get_token_analytics_pair(
         .aggregator
         .lock()
         .map_err(|e| format!("Lock error: {}", e))?;
-    agg.build_analytics_pair(date_start, date_end, monthly_source, daily_source)
+    let mut pair = agg.build_analytics_pair(date_start, date_end, monthly_source, daily_source)?;
+    mark_analytics_transcript_availability(&mut pair.monthly);
+    mark_analytics_transcript_availability(&mut pair.daily);
+    Ok(pair)
 }
 
 /// Managed state wrapping the TokenAggregator.
@@ -663,6 +738,10 @@ pub fn get_token_analytics(
         filter_model,
         source_override,
     )
+    .map(|mut analytics| {
+        mark_analytics_transcript_availability(&mut analytics);
+        analytics
+    })
 }
 
 #[tauri::command]
@@ -729,7 +808,9 @@ pub fn get_day_top_sessions(
         .aggregator
         .lock()
         .map_err(|e| format!("Lock error: {}", e))?;
-    agg.build_day_top_sessions(&date, limit, source_override)
+    let mut sessions = agg.build_day_top_sessions(&date, limit, source_override)?;
+    mark_session_transcript_availability(&mut sessions);
+    Ok(sessions)
 }
 
 #[tauri::command]
@@ -862,6 +943,47 @@ mod tests {
         );
         cleanup_path(&root);
         cleanup_path(&db);
+    }
+
+    #[test]
+    fn top_session_rows_report_transcript_availability() {
+        let root = temp_dir("top_session_link_root");
+        fs::write(
+            root.join("linked-session.jsonl"),
+            r#"{"timestamp":"2026-05-20T00:00:00Z","type":"response_item","payload":{"item":{"role":"user","content":[{"type":"input_text","text":"hello"}]}}}"#,
+        )
+        .expect("write transcript");
+        let mut sessions = vec![
+            DaySessionBreakdown {
+                agent: AgentId::CodexCli,
+                session_id: "linked-session".into(),
+                project: None,
+                model: "gpt-5".into(),
+                tokens: 100,
+                messages: 1,
+                cost_usd: 0.0,
+                transcript_available: false,
+            },
+            DaySessionBreakdown {
+                agent: AgentId::CodexCli,
+                session_id: "cleared-session".into(),
+                project: None,
+                model: "gpt-5".into(),
+                tokens: 80,
+                messages: 1,
+                cost_usd: 0.0,
+                transcript_available: true,
+            },
+        ];
+
+        mark_session_transcript_availability_in_roots(
+            &mut sessions,
+            &[(AgentId::CodexCli, vec![root.clone()])],
+        );
+
+        assert!(sessions[0].transcript_available);
+        assert!(!sessions[1].transcript_available);
+        cleanup_path(&root);
     }
 
     #[test]

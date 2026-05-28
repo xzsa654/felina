@@ -59,32 +59,37 @@ mod tests {
         ));
         fs::create_dir_all(&tmp).unwrap();
 
-        let mut extras = serde_yaml::Mapping::new();
-        // Every Anthropic-only / Codex-only field must be dropped.
-        extras.insert(
+        // Agent-scoped fields from other agents — Gemini must not emit them.
+        let mut anth_fields = serde_yaml::Mapping::new();
+        anth_fields.insert(
             serde_yaml::Value::String("effort".into()),
             serde_yaml::Value::String("high".into()),
         );
-        extras.insert(
-            serde_yaml::Value::String("allowed_tools".into()),
+        anth_fields.insert(
+            serde_yaml::Value::String("allowed-tools".into()),
             serde_yaml::Value::Sequence(vec![serde_yaml::Value::String("Read".into())]),
         );
-        extras.insert(
-            serde_yaml::Value::String("display_name".into()),
+        let mut codex_fields = serde_yaml::Mapping::new();
+        codex_fields.insert(
+            serde_yaml::Value::String("interface.display_name".into()),
             serde_yaml::Value::String("Demo".into()),
         );
+        let mut agent_fields = std::collections::BTreeMap::new();
+        agent_fields.insert("anthropic".into(), serde_yaml::Value::Mapping(anth_fields));
+        agent_fields.insert("codex".into(), serde_yaml::Value::Mapping(codex_fields));
 
         let skill = CanonicalSkill {
             canonical_id: "demo".into(),
             name: "demo".into(),
             description: "Demo".into(),
             agents: vec![AgentId::Gemini],
-            frontmatter_extras: serde_yaml::Value::Mapping(extras),
+            frontmatter_extras: serde_yaml::Value::Mapping(serde_yaml::Mapping::new()),
             body: "body\n".into(),
             dirty: false,
             last_synced: None,
             targets: Vec::new(),
             last_sync: std::collections::BTreeMap::new(),
+            agent_fields,
         };
         GeminiRenderer.render(&skill, &tmp).unwrap();
 

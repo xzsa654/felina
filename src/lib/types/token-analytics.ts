@@ -85,6 +85,7 @@ export interface DaySessionBreakdown {
   tokens: number;
   messages: number;
   cost_usd: number;
+  transcript_available: boolean;
 }
 
 export interface SessionTranscriptLocation {

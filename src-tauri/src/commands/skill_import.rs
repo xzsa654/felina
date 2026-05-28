@@ -547,6 +547,14 @@ fn write_canonical_from_source(
         copy_bundled_siblings(source_skill_dir, &target_dir)?;
     }
 
+    // For Codex imports: read agents/openai.yaml from source and merge into
+    // the canonical file's x_felina_agent_fields.codex.
+    if candidate.source_agent == AgentId::Codex {
+        if let Some(source_skill_dir) = source.parent() {
+            import_codex_openai_yaml(source_skill_dir, &target_dir);
+        }
+    }
+
     // Record a SkillTarget for the source location so a subsequent push can
     // fan back out to it. The scope of the target mirrors where the import
     // came from: `Some(project_path)` → scope=Project (`project=path`),
@@ -572,6 +580,86 @@ fn write_canonical_from_source(
     meta.version = 2;
     write_sync_meta_v2(&target_dir, &meta)?;
     Ok(())
+}
+
+/// Read `agents/openai.yaml` from a Codex source skill dir and merge its
+/// contents into the canonical SKILL.md's `x_felina_agent_fields.codex`.
+fn import_codex_openai_yaml(source_skill_dir: &Path, canonical_skill_dir: &Path) {
+    let yaml_path = source_skill_dir.join("agents").join("openai.yaml");
+    let raw = match fs::read_to_string(&yaml_path) {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+    let value: serde_yaml::Value = match serde_yaml::from_str(&raw) {
+        Ok(v) => v,
+        Err(_) => return,
+    };
+    let serde_yaml::Value::Mapping(root) = value else {
+        return;
+    };
+    // Read the canonical SKILL.md, parse, inject codex agent_fields, rewrite.
+    let md_path = canonical_skill_dir.join("SKILL.md");
+    let md_raw = match fs::read_to_string(&md_path) {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+    let mut skill = match parse_skill_md(&md_raw) {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+    // Flatten the openai.yaml structure into dotted keys for codex namespace.
+    let mut codex_map = serde_yaml::Mapping::new();
+    for (k, v) in &root {
+        let serde_yaml::Value::String(ref section) = k else {
+            continue;
+        };
+        if let serde_yaml::Value::Mapping(ref inner) = v {
+            for (ik, iv) in inner {
+                let serde_yaml::Value::String(ref inner_key) = ik else {
+                    continue;
+                };
+                codex_map.insert(
+                    serde_yaml::Value::String(format!("{section}.{inner_key}")),
+                    iv.clone(),
+                );
+            }
+        } else {
+            codex_map.insert(k.clone(), v.clone());
+        }
+    }
+    if codex_map.is_empty() {
+        return;
+    }
+    skill
+        .agent_fields
+        .insert("codex".into(), serde_yaml::Value::Mapping(codex_map));
+    // Rewrite canonical with agent_fields injected.
+    let (fm_text, _) = split_frontmatter(&md_raw);
+    if fm_text.is_empty() {
+        return;
+    }
+    let mut fm_value: serde_yaml::Value = match serde_yaml::from_str(&fm_text) {
+        Ok(v) => v,
+        Err(_) => return,
+    };
+    if let serde_yaml::Value::Mapping(ref mut map) = fm_value {
+        crate::commands::canonical_skills::inject_agent_fields(map, &skill.agent_fields);
+    }
+    let fm_yaml = match serde_yaml::to_string(&fm_value) {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+    let body = &skill.body;
+    let body_normalized = if body.ends_with('\n') || body.is_empty() {
+        body.to_string()
+    } else {
+        format!("{body}\n")
+    };
+    let out = format!(
+        "---\n{}\n---\n{body_normalized}",
+        fm_yaml.trim_end_matches('\n')
+    );
+    let _ = fs::write(&md_path, out);
 }
 
 fn import_target_for(
@@ -782,6 +870,7 @@ fn reserialize(skill: crate::commands::canonical_skills::CanonicalSkill) -> Stri
             map.insert(k, v);
         }
     }
+    crate::commands::canonical_skills::inject_agent_fields(&mut map, &skill.agent_fields);
     let fm_yaml = serde_yaml::to_string(&serde_yaml::Value::Mapping(map)).unwrap_or_default();
     let body_norm = if skill.body.ends_with('\n') || skill.body.is_empty() {
         skill.body
@@ -1427,5 +1516,132 @@ mod tests {
         assert_eq!(targets[0]["scope"], "project");
         assert_eq!(targets[0]["project"], project_str);
         assert_eq!(targets[0]["agent"], "anthropic");
+    }
+
+    /// Import a Claude Code source with `allowed-tools` and `effort` —
+    /// after import, parse_skill_md classifies them into agent_fields.anthropic.
+    #[test]
+    fn import_claude_source_classifies_fields_into_anthropic() {
+        let home = unique_tmp("classify-anthropic-home");
+        let project = unique_tmp("classify-anthropic-proj");
+        crate::paths::set_felina_home_override_for_test(Some(home.join(".felina")));
+        struct G;
+        impl Drop for G {
+            fn drop(&mut self) {
+                crate::paths::set_felina_home_override_for_test(None);
+            }
+        }
+        let _g = G;
+
+        let src_dir = project.join(".claude").join("skills").join("my-skill");
+        fs::create_dir_all(&src_dir).unwrap();
+        fs::write(
+            src_dir.join("SKILL.md"),
+            "---\nname: my-skill\ndescription: d\nagents:\n  - anthropic\nallowed-tools: Read Grep\neffort: high\n---\nbody\n",
+        )
+        .unwrap();
+
+        let mut c = candidate("my-skill", AgentId::Anthropic);
+        c.source_path = src_dir.join("SKILL.md").to_string_lossy().to_string();
+        skill_import_apply(None, vec![ImportSelection {
+            candidate: c,
+            resolution: ImportResolution::OverwriteCanonical,
+        }])
+        .expect("import");
+
+        let canonical = fs::read_to_string(
+            home.join(".felina").join("skills").join("my-skill").join("SKILL.md"),
+        )
+        .unwrap();
+        let skill = crate::commands::canonical_skills::parse_skill_md(&canonical).unwrap();
+        let anth = skill.agent_fields.get("anthropic").unwrap().as_mapping().unwrap();
+        assert!(anth.contains_key(serde_yaml::Value::String("allowed-tools".into())));
+        assert!(anth.contains_key(serde_yaml::Value::String("effort".into())));
+    }
+
+    /// Import a Codex source with agents/openai.yaml — fields are classified
+    /// into agent_fields.codex.
+    #[test]
+    fn import_codex_source_classifies_openai_yaml_into_codex() {
+        let home = unique_tmp("classify-codex-home");
+        let project = unique_tmp("classify-codex-proj");
+        crate::paths::set_felina_home_override_for_test(Some(home.join(".felina")));
+        struct G;
+        impl Drop for G {
+            fn drop(&mut self) {
+                crate::paths::set_felina_home_override_for_test(None);
+            }
+        }
+        let _g = G;
+
+        let src_dir = project.join(".agents").join("skills").join("helper");
+        fs::create_dir_all(&src_dir).unwrap();
+        fs::write(
+            src_dir.join("SKILL.md"),
+            "---\nname: helper\ndescription: d\n---\nbody\n",
+        )
+        .unwrap();
+        let agents_dir = src_dir.join("agents");
+        fs::create_dir_all(&agents_dir).unwrap();
+        fs::write(
+            agents_dir.join("openai.yaml"),
+            "interface:\n  display_name: Helper Tool\n  short_description: A helper\npolicy:\n  allow_implicit_invocation: false\n",
+        )
+        .unwrap();
+
+        let mut c = candidate("helper", AgentId::Codex);
+        c.source_path = src_dir.join("SKILL.md").to_string_lossy().to_string();
+        skill_import_apply(None, vec![ImportSelection {
+            candidate: c,
+            resolution: ImportResolution::OverwriteCanonical,
+        }])
+        .expect("import");
+
+        let canonical = fs::read_to_string(
+            home.join(".felina").join("skills").join("helper").join("SKILL.md"),
+        )
+        .unwrap();
+        let skill = crate::commands::canonical_skills::parse_skill_md(&canonical).unwrap();
+        let codex = skill.agent_fields.get("codex").unwrap().as_mapping().unwrap();
+        assert!(codex.contains_key(serde_yaml::Value::String("interface.display_name".into())));
+        assert!(codex.contains_key(serde_yaml::Value::String("policy.allow_implicit_invocation".into())));
+    }
+
+    /// Import a Gemini source — no synthetic optional fields created.
+    #[test]
+    fn import_gemini_source_creates_no_synthetic_fields() {
+        let home = unique_tmp("classify-gemini-home");
+        let project = unique_tmp("classify-gemini-proj");
+        crate::paths::set_felina_home_override_for_test(Some(home.join(".felina")));
+        struct G;
+        impl Drop for G {
+            fn drop(&mut self) {
+                crate::paths::set_felina_home_override_for_test(None);
+            }
+        }
+        let _g = G;
+
+        let src_dir = project.join(".gemini").join("skills").join("gem-skill");
+        fs::create_dir_all(&src_dir).unwrap();
+        fs::write(
+            src_dir.join("SKILL.md"),
+            "---\nname: gem-skill\ndescription: d\nagents:\n  - gemini\n---\nbody\n",
+        )
+        .unwrap();
+
+        let mut c = candidate("gem-skill", AgentId::Gemini);
+        c.source_path = src_dir.join("SKILL.md").to_string_lossy().to_string();
+        skill_import_apply(None, vec![ImportSelection {
+            candidate: c,
+            resolution: ImportResolution::OverwriteCanonical,
+        }])
+        .expect("import");
+
+        let canonical = fs::read_to_string(
+            home.join(".felina").join("skills").join("gem-skill").join("SKILL.md"),
+        )
+        .unwrap();
+        let skill = crate::commands::canonical_skills::parse_skill_md(&canonical).unwrap();
+        assert!(skill.agent_fields.is_empty(), "gemini import should not create agent_fields");
     }
 }
