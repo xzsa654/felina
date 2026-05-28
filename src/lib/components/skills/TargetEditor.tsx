@@ -421,6 +421,7 @@ export default function TargetEditor({ skillName, projectPath, targets, onTarget
         open={pendingRemove !== null}
         target={pendingRemove}
         busy={removing}
+        targetDirExists={pendingRemove ? (dirInfo[`${pendingRemove.agent}-${pendingRemove.scope}-${pendingRemove.project ?? ""}`]?.exists ?? false) : false}
         onchoose={(policy) => void handleRemovePolicy(policy)}
         oncancel={() => setPendingRemove(null)}
       />
@@ -538,12 +539,14 @@ function TargetRemovalDialog({
   open,
   target,
   busy,
+  targetDirExists,
   onchoose,
   oncancel,
 }: {
   open: boolean;
   target: SkillTarget | null;
   busy: boolean;
+  targetDirExists: boolean;
   onchoose: (policy: TargetRemovalPolicy) => void;
   oncancel: () => void;
 }) {
@@ -581,7 +584,7 @@ function TargetRemovalDialog({
           </button>
           <button
             type="button"
-            disabled={busy}
+            disabled={busy || !targetDirExists}
             onClick={() => onchoose("removeTargetAndDeleteFile")}
             className="rounded border border-danger/40 bg-danger/10 px-3 py-2 text-xs text-danger hover:bg-danger/20 disabled:opacity-50"
           >
