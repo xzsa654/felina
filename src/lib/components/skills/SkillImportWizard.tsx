@@ -11,6 +11,22 @@ import { useLocaleStore } from "$lib/stores/locale";
 import { t } from "$lib/i18n";
 import { getImportConflictWarning, hasImportConflict } from "./import-conflict-warning";
 
+function candidatePriority(c: ImportCandidate): number {
+  if (c.deferred) return 0;
+  if (c.conflict) return 1;
+  if (c.validationError) return 2;
+  return 3;
+}
+
+function sortCandidates(candidates: ImportCandidate[]): ImportCandidate[] {
+  return [...candidates].sort((a, b) => {
+    const pa = candidatePriority(a);
+    const pb = candidatePriority(b);
+    if (pa !== pb) return pa - pb;
+    return a.skillName.localeCompare(b.skillName);
+  });
+}
+
 interface Props {
   /** When set, scan that project's agent dirs and tag imported skills with a
    *  `scope=project` target pointing back at it. When `null`, scan global
@@ -52,7 +68,8 @@ export default function SkillImportWizard({ projectPath, onClose }: Props) {
   useEffect(() => {
     void (async () => {
       try {
-        const result = await api.skillImport.scan(projectPath ?? undefined);
+        const raw = await api.skillImport.scan(projectPath ?? undefined);
+        const result = sortCandidates(raw);
         setCandidates(result);
         setRows(
           result.map<RowState>((c) => {
@@ -302,109 +319,118 @@ export default function SkillImportWizard({ projectPath, onClose }: Props) {
                 </div>
               );
             }
-            return (
-              <div
-                key={`${c.sourcePath}-${idx}`}
-                className="border border-border rounded p-3 flex flex-col gap-2"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="text-sm font-medium text-text-primary">
-                      {c.skillName}{" "}
-                      <span className="text-xs font-normal text-text-secondary">
-                        {t(locale, "skills.importWizard.from", { agent: c.sourceAgent })}
-                      </span>
+            {
+              const expanded = expandedRows[idx] ?? false;
+              return (
+                <div
+                  key={`${c.sourcePath}-${idx}`}
+                  className="border border-border rounded p-3 flex flex-col gap-2"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <button
+                        type="button"
+                        onClick={() => setExpandedRows((prev) => ({ ...prev, [idx]: !expanded }))}
+                        className="inline-flex items-center gap-1 text-sm font-medium text-text-primary hover:text-accent"
+                      >
+                        {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                        {c.skillName}{" "}
+                        <span className="text-xs font-normal text-text-secondary">
+                          {t(locale, "skills.importWizard.from", { agent: c.sourceAgent })}
+                        </span>
+                      </button>
                     </div>
-                    <div className="text-[10px] font-mono text-text-secondary truncate">
-                      {c.sourcePath}
+                    <div className="shrink-0 flex items-center gap-2">
+                      {c.validationError && (
+                        <div className="inline-flex items-center gap-1 text-xs text-danger">
+                          <AlertTriangle size={12} /> {t(locale, "skills.importWizard.validationError")}
+                        </div>
+                      )}
+                      {c.conflict && (
+                        <div className="inline-flex items-center gap-1 text-xs text-warning">
+                          <AlertTriangle size={12} /> {t(locale, "skills.importWizard.conflict")}
+                        </div>
+                      )}
                     </div>
                   </div>
-                  <div className="shrink-0 flex items-center gap-2">
-                    {c.validationError && (
-                      <div className="inline-flex items-center gap-1 text-xs text-danger">
-                        <AlertTriangle size={12} /> {t(locale, "skills.importWizard.validationError")}
+
+                  {expanded && (
+                    <>
+                      {c.validationError && (
+                        <div className="text-xs bg-danger-dim border border-danger/30 rounded p-2 text-danger">
+                          <div className="font-medium mb-1">{t(locale, "skills.importWizard.importsAsBroken")}</div>
+                          <div className="font-mono text-[10px] text-danger/80">{c.validationError}</div>
+                        </div>
+                      )}
+
+                      {c.conflict && (
+                        <div className="text-xs bg-warning-dim border border-warning/30 rounded p-2 text-warning">
+                          <div className="font-medium mb-1">{t(locale, "skills.importWizard.conflictTitle")}</div>
+                          <div className="font-mono text-[10px] text-warning/80">
+                            {c.conflict.canonicalPath}
+                          </div>
+                          <div className="mt-1">{c.conflict.diffSummary}</div>
+                        </div>
+                      )}
+
+                      <div className="flex items-center gap-3 flex-wrap text-xs">
+                        {(c.conflict
+                          ? (["skip", "overwriteCanonical", "rename"] as const)
+                          : (["overwriteCanonical", "skip", "rename"] as const)
+                        ).map((kind) => (
+                          <label key={kind} className="inline-flex items-center gap-1 cursor-pointer">
+                            <input
+                              type="radio"
+                              name={`resolution-${idx}`}
+                              checked={row.resolution.kind === kind}
+                              onChange={() =>
+                                setRows((prev) =>
+                                  prev.map((r, i) =>
+                                    i === idx
+                                      ? {
+                                          ...r,
+                                          resolution:
+                                            kind === "rename"
+                                              ? { kind: "rename", newName: r.renameTo || c.skillName }
+                                              : { kind },
+                                        }
+                                      : r,
+                                  ),
+                                )
+                              }
+                            />
+                            {kind === "overwriteCanonical" && (c.conflict ? t(locale, "skills.importWizard.overwriteCanonical") : t(locale, "skills.importWizard.import"))}
+                            {kind === "skip" && t(locale, "skills.importWizard.skip")}
+                            {kind === "rename" && t(locale, "skills.importWizard.rename")}
+                          </label>
+                        ))}
+                        {row.resolution.kind === "rename" && (
+                          <input
+                            type="text"
+                            value={row.renameTo}
+                            onChange={(e) =>
+                              setRows((prev) =>
+                                prev.map((r, i) =>
+                                  i === idx
+                                    ? {
+                                        ...r,
+                                        renameTo: e.target.value,
+                                        resolution: { kind: "rename", newName: e.target.value },
+                                      }
+                                    : r,
+                                ),
+                              )
+                            }
+                            placeholder={t(locale, "skills.importWizard.renamePlaceholder")}
+                            className="px-2 py-0.5 rounded bg-bg-primary border border-border text-xs"
+                          />
+                        )}
                       </div>
-                    )}
-                    {c.conflict && (
-                      <div className="inline-flex items-center gap-1 text-xs text-warning">
-                        <AlertTriangle size={12} /> {t(locale, "skills.importWizard.conflict")}
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {c.validationError && (
-                  <div className="text-xs bg-danger-dim border border-danger/30 rounded p-2 text-danger">
-                    <div className="font-medium mb-1">{t(locale, "skills.importWizard.importsAsBroken")}</div>
-                    <div className="font-mono text-[10px] text-danger/80">{c.validationError}</div>
-                  </div>
-                )}
-
-                {c.conflict && (
-                  <div className="text-xs bg-warning-dim border border-warning/30 rounded p-2 text-warning">
-                    <div className="font-medium mb-1">{t(locale, "skills.importWizard.conflictTitle")}</div>
-                    <div className="font-mono text-[10px] text-warning/80">
-                      {c.conflict.canonicalPath}
-                    </div>
-                    <div className="mt-1">{c.conflict.diffSummary}</div>
-                  </div>
-                )}
-
-                <div className="flex items-center gap-3 flex-wrap text-xs">
-                  {(c.conflict
-                    ? (["skip", "overwriteCanonical", "rename"] as const)
-                    : (["overwriteCanonical", "skip", "rename"] as const)
-                  ).map((kind) => (
-                    <label key={kind} className="inline-flex items-center gap-1 cursor-pointer">
-                      <input
-                        type="radio"
-                        name={`resolution-${idx}`}
-                        checked={row.resolution.kind === kind}
-                        onChange={() =>
-                          setRows((prev) =>
-                            prev.map((r, i) =>
-                              i === idx
-                                ? {
-                                    ...r,
-                                    resolution:
-                                      kind === "rename"
-                                        ? { kind: "rename", newName: r.renameTo || c.skillName }
-                                        : { kind },
-                                  }
-                                : r,
-                            ),
-                          )
-                        }
-                      />
-                      {kind === "overwriteCanonical" && (c.conflict ? t(locale, "skills.importWizard.overwriteCanonical") : t(locale, "skills.importWizard.import"))}
-                      {kind === "skip" && t(locale, "skills.importWizard.skip")}
-                      {kind === "rename" && t(locale, "skills.importWizard.rename")}
-                    </label>
-                  ))}
-                  {row.resolution.kind === "rename" && (
-                    <input
-                      type="text"
-                      value={row.renameTo}
-                      onChange={(e) =>
-                        setRows((prev) =>
-                          prev.map((r, i) =>
-                            i === idx
-                              ? {
-                                  ...r,
-                                  renameTo: e.target.value,
-                                  resolution: { kind: "rename", newName: e.target.value },
-                                }
-                              : r,
-                          ),
-                        )
-                      }
-                      placeholder={t(locale, "skills.importWizard.renamePlaceholder")}
-                      className="px-2 py-0.5 rounded bg-bg-primary border border-border text-xs"
-                    />
+                    </>
                   )}
                 </div>
-              </div>
-            );
+              );
+            }
           })}
         </div>
 

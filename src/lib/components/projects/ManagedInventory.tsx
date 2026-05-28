@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router";
-import { ArrowRight, Download } from "lucide-react";
+import { ArrowRight, ChevronDown, ChevronRight, Download } from "lucide-react";
 import { api } from "$lib/tauri/commands";
 import type { AgentId, KnownProject } from "$lib/types";
 import ConfirmDialog from "$lib/components/shared/ConfirmDialog";
@@ -32,6 +32,8 @@ export default function ManagedInventory({ project, onChanged }: Props) {
   // before a per-row import silently overwrites one.
   const [globalNames, setGlobalNames] = useState<Set<string>>(new Set());
   const [pendingImport, setPendingImport] = useState<InventoryRow | null>(null);
+  const [expandedMulti, setExpandedMulti] = useState<Record<string, boolean>>({});
+  const [selectedSource, setSelectedSource] = useState<Record<string, number>>({});
 
   const projectPath = project?.path ?? null;
   const projectExists = project?.exists ?? false;
@@ -99,6 +101,25 @@ export default function ManagedInventory({ project, onChanged }: Props) {
     }
   }
 
+  async function performMultiSourceImport(row: InventoryRow, sourceIndex: number) {
+    if (!row.candidate?.deferred || !projectPath) return;
+    const source = row.candidate.deferred.candidates[sourceIndex];
+    if (!source) return;
+    setImporting(row.skillName);
+    try {
+      await api.skillImport.apply(
+        [{ candidate: row.candidate, resolution: { kind: "selectSource", sourceIndex } }],
+        projectPath,
+      );
+      await load();
+      onChanged();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setImporting(null);
+    }
+  }
+
   function openSkill(name: string) {
     navigate(`/skills?select=${encodeURIComponent(name)}`);
   }
@@ -147,9 +168,12 @@ export default function ManagedInventory({ project, onChanged }: Props) {
             {rows.map((row) => {
               const clickable = row.managed || row.canonicalExists;
               const navTarget = row.canonicalId ?? row.skillName;
+              const multiExpanded = row.deferred && row.candidate?.deferred && expandedMulti[row.skillName];
+              const multiSources = row.candidate?.deferred?.candidates ?? [];
+              const chosenSource = selectedSource[row.skillName];
               return (
+              <Fragment key={row.skillName}>
               <tr
-                key={row.skillName}
                 className={`border-b border-border/40 ${
                   clickable ? "cursor-pointer hover:bg-bg-secondary" : ""
                 }`}
@@ -192,10 +216,18 @@ export default function ManagedInventory({ project, onChanged }: Props) {
                     <span className="inline-flex items-center gap-1 text-text-muted">
                       {t(locale, "projects.inventory.edit")} <ArrowRight size={12} />
                     </span>
-                  ) : row.deferred ? (
-                    <span className="text-text-muted italic" title={t(locale, "projects.inventory.multiSourceTitle")}>
+                  ) : row.deferred && row.candidate?.deferred ? (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setExpandedMulti((prev) => ({ ...prev, [row.skillName]: !prev[row.skillName] }));
+                      }}
+                      className="inline-flex items-center gap-1 text-accent hover:text-accent-hover"
+                    >
+                      {expandedMulti[row.skillName] ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
                       {t(locale, "projects.inventory.multiSource")}
-                    </span>
+                    </button>
                   ) : (
                     <button
                       type="button"
@@ -214,6 +246,50 @@ export default function ManagedInventory({ project, onChanged }: Props) {
                   )}
                 </td>
               </tr>
+              {multiExpanded && (
+                <tr className="border-b border-border/40 bg-bg-secondary">
+                  <td colSpan={4} className="px-3 py-2">
+                    <div className="flex flex-wrap gap-2 items-center">
+                      {multiSources.map((source, si) => (
+                        <label
+                          key={`${source.sourcePath}-${si}`}
+                          className={`inline-flex items-center gap-1.5 text-xs px-2 py-1 rounded border cursor-pointer ${
+                            chosenSource === si
+                              ? "border-accent bg-accent/10 text-accent"
+                              : "border-border bg-bg-primary text-text-secondary hover:border-accent/60"
+                          }`}
+                        >
+                          <input
+                            type="radio"
+                            name={`ms-${row.skillName}`}
+                            checked={chosenSource === si}
+                            onChange={() => setSelectedSource((prev) => ({ ...prev, [row.skillName]: si }))}
+                          />
+                          {AGENT_CHIP_LABEL[source.sourceAgent] ?? source.sourceAgent}
+                          <span className="font-mono text-[10px] text-text-muted truncate max-w-[12rem]" title={source.sourcePath}>
+                            {source.sourcePath}
+                          </span>
+                        </label>
+                      ))}
+                      <button
+                        type="button"
+                        disabled={chosenSource === undefined || importing === row.skillName}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (chosenSource !== undefined) void performMultiSourceImport(row, chosenSource);
+                        }}
+                        className="inline-flex items-center gap-1 px-2 py-1 rounded bg-accent text-white hover:bg-accent-hover disabled:opacity-60 text-xs"
+                      >
+                        <Download size={12} />
+                        {importing === row.skillName
+                          ? t(locale, "projects.inventory.importing")
+                          : t(locale, "projects.inventory.importToGlobal")}
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              )}
+              </Fragment>
               );
             })}
           </tbody>
