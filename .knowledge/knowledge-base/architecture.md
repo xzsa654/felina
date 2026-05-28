@@ -1,4 +1,4 @@
-﻿# 架構
+# 架構
 
 Felina 的高層架構原則。用途是協助未來 agent 做出正確技術判斷，而不是複製完整 spec 或 README 內容。
 
@@ -48,9 +48,26 @@ Felina 的高層架構原則。用途是協助未來 agent 做出正確技術判
 **Lesson:**
 - `~/.felina/skills/` 底下的 canonical skill master files 是使用者編輯的 source of truth。
 - `.claude/skills/`、`.agents/skills/`、`.gemini/skills/` 這類 agent-native directories 是 fan-out outputs，不是 canonical stores。
-- 在改變 skill identity、destination paths 或 sync behavior 的假設前，先到 active backend skill modules 驗證目前 schema 與 routing behavior。
+- 讀取資料或偵測 drift 時，必須以 `~/.felina/skills/` 為比對基準。
+- 修復或推播行為是單向的：從 canonical (`~/.felina/skills/`) 同步到 target (fan-out directories)；不要嘗試從 target 反向合併變更回 canonical。
 **Keywords:** architecture, skills, canonical skills, source of truth, fan-out, agent-native, routing, sync
-**Related:** kb-frontend-identity-migration-display-vs-storage
+**Related:** kb-architecture-local-agent-control-plane-direction; AGENTS.md
+
+## Felina 設定與 Claude 設定的邊界分離
+**ID:** kb-architecture-felina-settings-boundary
+**Date:** 2026-05-28
+**Updated:** 2026-05-28
+**Status:** active
+**Confidence:** confirmed
+**Source:** 2026-05-28 討論；src-tauri/src/paths.rs
+**Context:** 曾誤將 Felina 內部的 Quota TTL 設定規劃存放至 `~/.claude/settings.json`。
+**Applies when:** 重構、新增設定項目，或設計跨 Agent 組態儲存位置時。
+**Lesson:**
+- Felina 是一個「管理」各家 Agent 的獨立控制平面，它擁有自己專屬的配置檔。
+- `~/.claude/settings.json` (`global_settings_path()`) 是 Claude Code 的專屬設定檔，Felina 只能用來管理 Claude 本身的配置，**絕對不可**將 Felina 內部的狀態或設定寫入其中，以免污染外部工具。
+- Felina 自身的設定（如 Token Quota TTL、系統主題等）應統一儲存至 `~/.felina/settings.json` (`felina_global_settings_path()`)。如果現有的設定儲存機制（如 `settings.rs`）缺少對應的 scope，應擴充實作，而非圖方便借用其他 Agent 的配置空間。
+**Keywords:** architecture, settings, felina, claude, namespace pollution, control plane, configuration
+**Related:** kb-architecture-local-agent-control-plane-direction
 
 ## Active surface 由 registration 定義
 **ID:** kb-architecture-active-surface-registration

@@ -91,19 +91,11 @@ Resolved scopes (addressed by prior implementation):
 
 | Field | Value |
 |---|---|
-| type | suggestion |
-| status | not-committed |
+| type | planned-change |
+| status | parked (Spectra change, 0/12) |
 | flagged | 2026-05-20 |
 | last-seen | 2026-05-28 |
-| description | App 開啟時掃描 agent skill 目錄與 canonical 的差異，提供三向 diff + 覆蓋/拉回/解綁三種解決動作。 |
-
-Scope (2026-05-27 討論補充):
-- **批次 drift scan API**：一次 IPC 呼叫遍歷所有 enabled tracked target，讀 agent 端 SKILL.md 算 hash 比對 `lastSync.pushed_hash`，回傳 `Map<targetKey, DriftStatus>`。純讀取，不 render、不 write。
-- **觸發時機**：app 啟動、window refocus、手動 reload。不做 file watcher。
-- **前端消費**：矩陣（CoverageMatrix）和 sync info 面板增加 `drifted` 狀態顯示。
-- **與 preview 的關係**：`build_preview_for_skill` 裡的 hash 比對邏輯抽成共用 `check_drift` 函式，preview 和 drift scan 都呼叫。Preview 額外做 render + operation 分類，drift scan 只回傳 hash 是否一致。
-- Push 時的 preview API 不變，仍走完整 render + operation 流程。
-- 2026-05-28 再確認：使用者稱為「target 端 drift 自動偵測」，核心是 target 端實體檔被外部改動 / 刪除 / 與最後 push hash 不一致時，UI 應自動或半自動揭露 drift 狀態，避免錯誤覆蓋或誤判 synced。
+| description | Target 端 drift 自動偵測：batch scan API + check_drift 共用函式 + CoverageMatrix/TargetEditor drifted 狀態 + app 啟動/refocus/reload 觸發。 |
 
 ### forked-target-overlay
 
