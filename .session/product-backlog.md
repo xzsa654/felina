@@ -62,27 +62,6 @@ Architecture note:
 `skill-target-lifecycle-safety` completed and archived (2026-05-26).
 `skill-identity-namespace-strategy` completed and archived (2026-05-26).
 
-### resolve-multi-source-skill-import
-
-| Field | Value |
-|---|---|
-| type | planned-change |
-| status | planned |
-| flagged | 2026-05-22 |
-| last-seen | 2026-05-28 |
-| description | Multi-source import 解決、Project page inline 選源、Skills page browse project import、Import Wizard UI 精簡。 |
-
-Scope (2026-05-28 discuss 定案):
-- **Project page multi-source inline 選源匯入**: deferred row 從灰色文字改為可展開選源並匯入至 Felina。
-- **按鈕標籤修正**: 「匯入至 Global」→「匯入至 Felina」/ "Import to Felina"（en + zh-TW）。
-- **Skills page Browse project import**: Skills page 新增 Browse 入口，從已知 project list 選 project，複用 Project page 的 ManagedInventory import 邏輯，不維護兩套。
-- **Skills page Import Wizard UI 精簡**: 預設摺疊 body preview / diff，排序按決策優先級（多來源 → 有衝突單來源 → validation error → 無衝突單來源，同類別內字母排序）。
-
-Resolved scopes (addressed by prior implementation):
-- ~~Multi-source import resolution~~: `group_by_name` + `SelectSource` + wizard multi-source UI 已實作。
-- ~~Import-all + rename 批次衝突~~: wizard 逐一 per-conflict overwrite/skip/rename 已實作。
-- ~~Arbitrary-folder import~~: 移至 `skill-import-entrypoint-ux`。
-
 ---
 
 ## Phase 2 — Skill Sync Advanced
@@ -92,7 +71,7 @@ Resolved scopes (addressed by prior implementation):
 | Field | Value |
 |---|---|
 | type | planned-change |
-| status | parked (Spectra change, 0/12) |
+| status | active (Spectra change, 4/16) |
 | flagged | 2026-05-20 |
 | last-seen | 2026-05-28 |
 | description | Target 端 drift 自動偵測：batch scan API + check_drift 共用函式 + CoverageMatrix/TargetEditor drifted 狀態 + app 啟動/refocus/reload 觸發。 |
@@ -104,14 +83,14 @@ Resolved scopes (addressed by prior implementation):
 | type | suggestion |
 | status | not-committed |
 | flagged | 2026-05-20 |
-| last-seen | 2026-05-22 |
-| description | Per-target 客製化：canonical 推到某 project 後，使用者手改的部分以 overlay 檔保留，canonical 更新時自動套新 base + 舊 overlay。 |
+| last-seen | 2026-05-28 |
+| description | Per-target 客製化：canonical 推到某 project 後，使用者手改的部分自動與未來主檔更新進行 3-way merge 保留。 |
 
-Design route (2026-05-22 discuss 定案 Route 2 overlay):
-- Overlay 以獨立 `.patch.md` 存於 canonical sidecar `overlays/` 下。
-- MVP 用整段替換格式；未來可延伸 unified diff。
-- Render flow: `fan_out(canonical) → apply overlay(target) → write SKILL.md`。
-- Phase 1 已預留鉤子：sync-meta `targets[].mode` 含 `forked` placeholder、`last_sync[target].base_snapshot` 欄位。
+Design route (2026-05-28 discuss 定案):
+- 採用行級字串合併 (Git-style Diff)，廢棄「整段替換格式」的 MVP 構想。
+- 底層使用 Rust `git2` (libgit2) crate 進行 `git2::Merge::merge_file`。
+- 若發生合併衝突，由 `git2` 產生標準 `<<<<<<<` 標記，並在前端實作 Conflict Resolution UI 供使用者決策。
+- 依賴 `local-versioning-and-snapshot-layer` 提供的 Base Snapshot 作為 3-way merge 的基礎。
 
 ### local-versioning-and-snapshot-layer
 
@@ -120,8 +99,14 @@ Design route (2026-05-22 discuss 定案 Route 2 overlay):
 | type | suggestion |
 | status | not-committed |
 | flagged | 2026-05-22 |
-| last-seen | 2026-05-22 |
-| description | Phase 2 compare/overwrite/delete/conflict/overlay 的共用安全層：file snapshot + content hash + optional Git adapter + rollback。 |
+| last-seen | 2026-05-28 |
+| description | Phase 2 compare/overwrite/delete/conflict/overlay 的共用安全層，直接基於內建 `git2` 管理的本地隱藏 repo 實作。 |
+
+Design route (2026-05-28 discuss 定案):
+- 系統不再手動管理 `.snapshots` 資料夾或 JSON 內的長字串。
+- 引入 Rust `git2` crate，將 `~/.felina/skills/` 自動初始化為隱藏的 Git Repo。
+- Canonical 的每次變更自動轉換為 git commit，`last_sync[target].base_snapshot` 直接儲存 commit hash。
+- 達成零外部相依性（不需系統安裝 Git），直接享受原生的 Snapshot 與 Rollback 能力。
 
 ### sync-info-bar-scalability
 
@@ -152,22 +137,18 @@ Notes:
 
 | Field | Value |
 |---|---|
-| type | suggestion |
-| status | not-committed |
+| type | planned-change |
+| status | planned |
 | flagged | 2026-05-28 |
 | last-seen | 2026-05-28 |
-| description | Create new skill flow 需要明確處理 Workspace / Global / Shared 目的地模型，讓使用者建立 skill 時能理解 canonical source 與各 agent-native destination 的關係。 |
+| description | Create new skill 時跳出簡化版 Dialog，要求輸入名稱與選擇初始同步目標 (Target)，避免新手忘記設定。 |
 
-Scope:
-- 釐清「Create new skills」時可選或可見的目的地類型，例如 Workspace、Global、Shared。
-- 以使用者可理解的 label 呈現實際落點，例如 project workspace skill path、agent global skill path、shared/global skill path。
-- 不得破壞 Felina 既有 canonical source-of-truth + fan-out 邊界；若支援多目的地，需明確定義哪些是 canonical 寫入、哪些是 target / fan-out output。
-
-Notes:
-- Todo source examples:
-  - Workspace: `C:/projects/agy-test/.agents/skills/{skill_name}/SKILL.md`
-  - Global: `~/.gemini/antigravity-cli/skills/{skill_name}/SKILL.md`
-  - Shared: `~/.gemini/skills/{skill_name}/SKILL.md`
+Design route (2026-05-28 discuss 定案):
+- 點擊「新增 Skill」時跳出精簡的 Create Dialog。
+- 包含「Skill Name」輸入框 (自動對應到 `skill.name`)。
+- 包含「Initial Target」選單 (直接複用現有的 Add Target 元件，可選 Global、特定 Project 或 None)。
+- 建立完成後，自動在背景綁定 Target 並轉導至編輯器畫面。
+- 取代原本在對話框內嘗試解釋 Workspace/Global 落點的複雜化做法。
 
 ### third-party-agent-path-configuration
 
@@ -196,8 +177,21 @@ Scope:
 | type | suggestion |
 | status | not-committed |
 | flagged | 2026-05-20 |
-| last-seen | 2026-05-20 |
-| description | 公司內部 skill 分享 marketplace。使用者可發佈/訂閱他人 skill。Server stack 初步討論 Vercel + Supabase。會影響 skill schema（需加唯一識別、版本、作者欄位）。 |
+| last-seen | 2026-05-28 |
+| blocked-by | resolve-multi-source-skill-import; drift-detection-and-conflict-ui; skill-creation-destination-model; local-versioning-and-snapshot-layer |
+| description | 公司內部 Skill 社群化 marketplace。使用者可將 Felina canonical Skill 發佈到內網 Market，同仁可搜尋、查看版本、安裝回自己的 Felina canonical storage，再透過既有 fan-out 同步到各 agent target。 |
+
+Scope:
+- Market package 應以 Felina canonical model 為核心：`~/.felina/skills/<skill-name>/SKILL.md` + `.felina-sync-meta.json` + marketplace manifest。
+- Install 應寫回 Felina canonical storage，不直接寫入 `.claude/skills/`、`.agents/skills/`、`.gemini/skills/` 等 agent-native output。
+- 未來可接公司內網 server：metadata DB + artifact storage + Microsoft Entra ID 身份驗證。
+- 正式開發前需先定義 package identity、versioning、install conflict、rollback/snapshot、安全驗證與 server adapter contract。
+
+Notes:
+- 目前不適合開成實作型 Spectra change，因為 Skills page / import / target / drift / creation destination model 仍在 Phase 1.5 與 Phase 2 收斂。
+- 不採用獨立 `skill.json` 作為 Felina marketplace 的核心 source；若需要額外 metadata，應放在 marketplace manifest，並以 canonical Skill 為 source of truth。
+- 舊的 Vercel + Supabase stack 註記已不作為方向；公司內網與無網際網路部署較適合自管內網 server，例如 Node.js/Fastify + PostgreSQL + MinIO 或公司既有等價服務。
+- 詳細調查文件：`.session/agent-skill-market-complete.md`。
 
 ---
 
