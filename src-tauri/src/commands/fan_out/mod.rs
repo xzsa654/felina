@@ -26,6 +26,16 @@ pub mod anthropic;
 pub mod codex;
 pub mod gemini;
 
+fn try_snapshot(skill_name: &str) -> Option<String> {
+    match super::snapshot::commit_skill_changes(skill_name) {
+        Ok(hash) => Some(hash),
+        Err(e) => {
+            eprintln!("[snapshot] warning: {e}");
+            None
+        }
+    }
+}
+
 /// Per-target push outcome. Wire format matches `SyncResult` in
 /// `src/lib/types/skills.ts`.
 ///
@@ -328,11 +338,12 @@ pub fn skill_sync_one(name: String) -> Result<Vec<SyncResult>, String> {
                 let rendered =
                     fs::read_to_string(target_skill_dir.join("SKILL.md")).unwrap_or_default();
                 let key = target_key(&target);
+                let snapshot = try_snapshot(&name);
                 meta.last_sync.insert(
                     key.clone(),
                     LastSyncEntry {
                         pushed_hash: semantic_hash(&rendered),
-                        base_snapshot: None,
+                        base_snapshot: snapshot,
                         at: attempted_at.clone(),
                     },
                 );
@@ -602,11 +613,12 @@ pub fn skill_sync_commit(request: SkillSyncCommitRequest) -> Result<Vec<SyncResu
                     .as_deref()
                     .or(item.current_hash.as_deref())
                 {
+                    let snapshot = try_snapshot(&skill.name);
                     meta.last_sync.insert(
                         item.target_key.clone(),
                         LastSyncEntry {
                             pushed_hash: hash.to_string(),
-                            base_snapshot: None,
+                            base_snapshot: snapshot,
                             at: attempted_at.clone(),
                         },
                     );
@@ -697,11 +709,12 @@ fn write_target(
         Ok(()) => {
             let rendered =
                 fs::read_to_string(target_skill_dir.join("SKILL.md")).unwrap_or_default();
+            let snapshot = try_snapshot(&skill.name);
             meta.last_sync.insert(
                 target_key(target),
                 LastSyncEntry {
                     pushed_hash: semantic_hash(&rendered),
-                    base_snapshot: None,
+                    base_snapshot: snapshot,
                     at: attempted_at.to_string(),
                 },
             );

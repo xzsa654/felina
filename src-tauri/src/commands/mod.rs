@@ -27,3 +27,4 @@ pub mod fan_out;
 pub mod known_projects;
 pub mod skill_fields;
 pub mod skill_import;
+pub mod snapshot;
