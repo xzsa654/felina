@@ -710,7 +710,7 @@ code:
 
 Project-scope target existence SHALL be determined by actual filesystem existence of the target's project path, NOT by Known Projects list membership (an explicitly-saved L3 entry persists in `known-projects.json` after its folder is renamed or deleted, so list membership cannot detect on-disk removal). The `known_projects_list` command SHALL annotate each returned project with an `exists` boolean computed via a filesystem stat (`Path::exists()`), without adding a new command. This stat SHALL be evaluated whenever the list is loaded — on Skills page mount, on manual Reload, on window focus regain, and after target/push operations change the skill entries — and SHALL NOT use a file watcher or polling.
 
-A project-scope target SHALL be shown with a "project not found" indicator (instead of "Not synced") in the Sync info bar, the per-skill Target editor row, and the Coverage matrix when its project path is present in the list with `exists` false, OR is absent from the list. The Target editor indicator SHALL carry guidance that the user can either restore the folder or remove the target and re-point it. When a target's destination project path no longer exists, the system SHALL NOT automatically delete the target row or modify the target's `enabled` state; the target row SHALL remain editable. Fan-out push SHALL skip an unresolvable target and produce a `SyncResult` with `success: false`.
+A project-scope target SHALL be shown with a "project not found" indicator (instead of "Not synced") in the Sync info bar, the per-skill Target editor row, and the Coverage matrix when the backend has an explicit filesystem-stat result for that project path and `exists` is false. Absence from the Known Projects list SHALL NOT by itself mark the target missing, because users can remove a custom project path from that management list while existing targets still legitimately point at the folder. The Target editor indicator SHALL carry guidance that the user can either restore the folder or remove the target and re-point it. When a target's destination project path no longer exists, the system SHALL NOT automatically delete the target row or modify the target's `enabled` state; the target row SHALL remain editable. Fan-out push SHALL skip an unresolvable target and produce a `SyncResult` with `success: false`.
 
 #### Scenario: Destination project folder renamed or deleted
 
@@ -729,6 +729,14 @@ A project-scope target SHALL be shown with a "project not found" indicator (inst
 - **GIVEN** a target previously showed "project not found" because `D:/work/old-project` was missing
 - **WHEN** the folder `D:/work/old-project` is recreated and the Known Projects list is reloaded
 - **THEN** `known_projects_list` reports that project with `exists` true and the indicator returns to its normal sync state
+
+#### Scenario: Custom project path removed while target folder still exists
+
+- **GIVEN** skill "shared-util" has a project target pointing to `D:/work/custom-project`
+- **AND** `D:/work/custom-project` exists on disk
+- **WHEN** the user removes `D:/work/custom-project` from the Felina Settings Custom Project Paths list
+- **THEN** the target SHALL NOT display "project not found" solely because the path is absent from Known Projects
+- **AND** fan-out push SHALL continue to resolve and write to the target project path
 
 <!-- @trace
 source: cross-project-push-and-coverage
@@ -866,7 +874,7 @@ Removing a target row from a skill's target list SHALL require the user to choos
 ---
 ### Requirement: Missing Project Target Repoint
 
-When a project-scope target's project path is missing or absent from Known Projects, the Target editor SHALL provide an in-place Repoint action. Repoint SHALL let the user select a replacement project root path and SHALL update only that target's `project` field while preserving `agent`, `scope`, `enabled`, and `mode`. Repoint SHALL prune the old target key's `last_sync` entry, mark the skill dirty, and allow the new target to be previewed and pushed like any other tracked target. Repoint SHALL NOT delete files from the old project path.
+When a project-scope target's project path is missing on disk, the Target editor SHALL provide an in-place Repoint action. Absence from Known Projects SHALL NOT by itself make a target eligible for missing-project repoint. Repoint SHALL let the user select a replacement project root path and SHALL update only that target's `project` field while preserving `agent`, `scope`, `enabled`, and `mode`. Repoint SHALL prune the old target key's `last_sync` entry, mark the skill dirty, and allow the new target to be previewed and pushed like any other tracked target. Repoint SHALL NOT delete files from the old project path.
 
 #### Scenario: Repoint missing project target to a new path
 

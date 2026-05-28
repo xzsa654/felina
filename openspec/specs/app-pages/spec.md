@@ -828,11 +828,11 @@ code:
 ---
 ### Requirement: Settings Page Agent Paths Section
 
-The Settings page SHALL provide a section that lets the user view and override the skill directory paths for each supported agent. The section SHALL expose, for each of the three supported agents (Anthropic, Codex, Gemini), a global path field and a project-relative path field, for six fields total. Each field SHALL default to the value defined by the agent-skills-schema reference. The system SHALL persist overrides and SHALL use the configured paths both for fan-out target locations and for import detection scope. The system SHALL reject a path that contains a parent-directory traversal segment or that escapes the user home or project root, falling back to the previous valid value and surfacing a warning. The section SHALL NOT expose configuration for any fourth agent.
+The Settings page SHALL NOT render the Agent Paths section. The Agent Paths section SHALL be rendered exclusively within the Felina Settings page at `/felina-settings`. All other Settings page behavior (Claude global/project/local settings read/write, Budget, Maintenance/Storage) SHALL remain unchanged.
 
 #### Scenario: Default agent paths shown
 
-- **WHEN** a user opens the Settings page Agent Paths section without having set overrides
+- **WHEN** a user opens the Felina Settings page Agent Paths section without having set overrides
 - **THEN** the system SHALL display the schema-reference default paths for Anthropic, Codex, and Gemini
 - **AND** the section SHALL show exactly six path fields (global and project for each of the three agents)
 
@@ -854,52 +854,10 @@ The Settings page SHALL provide a section that lets the user view and override t
 - **THEN** the system SHALL show configuration only for Anthropic, Codex, and Gemini
 - **AND** the section SHALL NOT present fields for any other agent
 
-<!-- @trace
-source: multi-agent-skills-foundation
-updated: 2026-05-22
-code:
-  - src/lib/types/index.ts
-  - package.json
-  - src-tauri/src/lib.rs
-  - src-tauri/Cargo.toml
-  - src/lib/components/shared/OnboardingWelcome.tsx
-  - src/lib/stores/locale.ts
-  - .knowledge/knowledge-base/_index.json
-  - src-tauri/tauri.conf.json
-  - src/lib/components/layout/UpdateBanner.tsx
-  - src/lib/components/settings/SettingsPage.tsx
-  - index.html
-  - src/lib/components/shared/PageScaffold.tsx
-  - .knowledge/experience/_index.json
-  - src-tauri/src/commands/fan_out/mod.rs
-  - src/lib/components/skills/SkillList.tsx
-  - src/lib/tauri/commands.ts
-  - src/lib/components/skills/SkillImportWizard.tsx
-  - src/lib/types/skills.ts
-  - src-tauri/src/commands/fan_out/codex.rs
-  - src-tauri/src/commands/skills.rs
-  - src-tauri/src/commands/fan_out/gemini.rs
-  - src/lib/components/skills/SkillImportBanner.tsx
-  - src-tauri/src/paths.rs
-  - src-tauri/src/commands/canonical_skills.rs
-  - src-tauri/src/main.rs
-  - src/lib/components/layout/Sidebar.tsx
-  - .session/design-backlog.md
-  - src/lib/components/skills/PendingPushBar.tsx
-  - src/lib/components/skills/SkillsPage.tsx
-  - src/router.tsx
-  - src/lib/components/settings/AgentPathsSection.tsx
-  - src-tauri/src/commands/fan_out/anthropic.rs
-  - src-tauri/src/commands/agent_paths.rs
-  - src/lib/components/skills/SkillEditor.tsx
-  - src-tauri/src/commands/skill_import.rs
-  - src/lib/stores/skills-store.ts
-  - src/lib/stores/theme.ts
-  - .session/product-backlog.md
-  - .knowledge/_catalog.json
-  - .knowledge/knowledge-base/dev-docs.md
-  - src-tauri/src/commands/mod.rs
--->
+#### Scenario: Agent Paths absent from Settings page
+
+- **WHEN** the user opens the Settings page at `/settings`
+- **THEN** the Agent Paths section SHALL NOT be rendered on that page
 
 ---
 ### Requirement: Page-Level i18n Coverage

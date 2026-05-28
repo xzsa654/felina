@@ -185,6 +185,8 @@ export const api = {
   knownProjects: {
     list: (currentProject?: string) =>
       invoke<KnownProject[]>("known_projects_list", { currentProject }),
+    savedList: () =>
+      invoke<KnownProject[]>("known_projects_saved_list"),
     add: (path: string) =>
       invoke<void>("known_projects_add", { path }),
     remove: (path: string) =>

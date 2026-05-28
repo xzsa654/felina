@@ -64,7 +64,7 @@ code:
 ---
 ### Requirement: Known Projects Mutation
 
-The system SHALL allow adding and removing explicit (saved-source) projects, mutating only the JSON store. Adding a project SHALL append its path to the `projects` array unless an entry with the same normalized path already exists, in which case the operation SHALL be a no-op. Removing a project SHALL delete the entry whose normalized path matches the argument and SHALL leave other entries untouched. Add and remove SHALL NOT affect the `cwd` or `detected` sources.
+The system SHALL allow adding and removing explicit (saved-source) projects, mutating only the JSON store. Adding a project SHALL append its path to the `projects` array unless an entry with the same normalized path already exists, in which case the operation SHALL be a no-op. Removing a project SHALL delete the entry whose normalized path matches the argument and SHALL leave other entries untouched. Add and remove SHALL NOT affect the `cwd` or `detected` sources, existing `SkillTarget` rows, or fan-out routing for targets that already store the project path.
 
 #### Scenario: Adding an existing project is idempotent
 
@@ -75,6 +75,7 @@ The system SHALL allow adding and removing explicit (saved-source) projects, mut
 
 - **WHEN** the JSON store lists `C:/proj/foo` and `C:/proj/bar` and the system is asked to remove `C:/proj/foo`
 - **THEN** the store SHALL list only `C:/proj/bar`
+- **AND** existing skill targets pointing to `C:/proj/foo` SHALL remain unchanged
 
 <!-- @trace
 source: known-projects-and-multi-target
@@ -137,3 +138,24 @@ code:
   - .session/product-backlog.md
   - src-tauri/gen/schemas/windows-schema.json
 -->
+
+---
+### Requirement: Saved-Only Known Projects Listing
+
+The backend SHALL provide a Tauri command named `known_projects_saved_list` that reads `~/.felina/known-projects.json` directly and returns only the saved entries as `Vec<KnownProject>`. Each returned entry SHALL have `sources` containing `saved` and `exists` determined by filesystem stat. The command SHALL return an empty array when the store file is missing or malformed, consistent with the tolerant-read behavior of other known-projects commands. The existing `known_projects_list` three-source merge contract SHALL remain unchanged.
+
+#### Scenario: Saved-only list returns only saved entries
+
+- **WHEN** `~/.felina/known-projects.json` contains `C:/proj/alpha` and the auto-detected source also contains `C:/proj/alpha` and `D:/proj/beta`
+- **THEN** `known_projects_saved_list` SHALL return only `C:/proj/alpha` (with `sources` containing `saved`)
+- **AND** `D:/proj/beta` SHALL NOT appear in the result
+
+#### Scenario: Saved-only list with missing store
+
+- **WHEN** `~/.felina/known-projects.json` does not exist on disk
+- **THEN** `known_projects_saved_list` SHALL return an empty array without error
+
+#### Scenario: Existing three-source merge unaffected
+
+- **WHEN** `known_projects_saved_list` is added to the backend
+- **THEN** `known_projects_list` SHALL continue to return the merged L1/L2/L3 result with the same contract as before

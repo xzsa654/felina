@@ -62,6 +62,27 @@ fn write_store(store: &KnownProjectsStore) -> Result<(), String> {
     fs::write(&path, json).map_err(|e| format!("failed to write store: {e}"))
 }
 
+fn saved_projects_from_store(store: &KnownProjectsStore) -> Vec<KnownProject> {
+    let mut out: Vec<KnownProject> = store
+        .projects
+        .iter()
+        .filter_map(|p| {
+            let path = normalize_path(p);
+            if path.is_empty() {
+                return None;
+            }
+            let exists = std::path::Path::new(&path).exists();
+            Some(KnownProject {
+                path,
+                exists,
+                sources: vec![ProjectSource::Saved],
+            })
+        })
+        .collect();
+    out.sort_by(|a, b| a.path.cmp(&b.path));
+    out
+}
+
 #[tauri::command]
 pub fn known_projects_list(current_project: Option<String>) -> Result<Vec<KnownProject>, String> {
     let mut map: std::collections::HashMap<String, Vec<ProjectSource>> =
@@ -116,6 +137,11 @@ pub fn known_projects_list(current_project: Option<String>) -> Result<Vec<KnownP
         .collect();
     out.sort_by(|a, b| a.path.cmp(&b.path));
     Ok(out)
+}
+
+#[tauri::command]
+pub fn known_projects_saved_list() -> Result<Vec<KnownProject>, String> {
+    Ok(saved_projects_from_store(&read_store()))
 }
 
 #[tauri::command]
@@ -308,6 +334,56 @@ mod tests {
         );
     }
 
+    #[test]
+    fn saved_list_missing_store_returns_empty() {
+        let tmp = tempdir();
+        let store_file = tmp.join("missing-known-projects.json");
+
+        let result = saved_list_with_store(&store_file);
+
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn saved_list_reports_existing_and_missing_paths() {
+        let tmp = tempdir();
+        let existing = tempdir();
+        let missing = tmp.join("gone-project");
+        let store_file = tmp.join("known-projects.json");
+        fs::write(
+            &store_file,
+            format!(
+                r#"{{"projects":["{}","{}"]}}"#,
+                existing.to_string_lossy().replace('\\', "/"),
+                missing.to_string_lossy().replace('\\', "/")
+            ),
+        )
+        .unwrap();
+
+        let result = saved_list_with_store(&store_file);
+
+        assert_eq!(result.len(), 2);
+        let existing_key = normalize_path(&existing.to_string_lossy());
+        let missing_key = normalize_path(&missing.to_string_lossy());
+        let existing_entry = result.iter().find(|p| p.path == existing_key).unwrap();
+        let missing_entry = result.iter().find(|p| p.path == missing_key).unwrap();
+        assert_eq!(existing_entry.sources, vec![ProjectSource::Saved]);
+        assert_eq!(missing_entry.sources, vec![ProjectSource::Saved]);
+        assert!(existing_entry.exists);
+        assert!(!missing_entry.exists);
+    }
+
+    #[test]
+    fn saved_list_malformed_store_returns_empty() {
+        let tmp = tempdir();
+        let store_file = tmp.join("known-projects.json");
+        fs::write(&store_file, "not json").unwrap();
+
+        let result = saved_list_with_store(&store_file);
+
+        assert!(result.is_empty());
+    }
+
     fn read_store_at(path: &std::path::Path) -> KnownProjectsStore {
         let raw = fs::read_to_string(path).unwrap_or_default();
         serde_json::from_str(&raw).unwrap_or_default()
@@ -373,6 +449,11 @@ mod tests {
             .collect();
         out.sort_by(|a, b| a.path.cmp(&b.path));
         out
+    }
+
+    fn saved_list_with_store(store_file: &std::path::Path) -> Vec<KnownProject> {
+        let store = read_store_at(store_file);
+        saved_projects_from_store(&store)
     }
 
     fn add_with_store(path: &str, store_file: &std::path::Path) -> Result<(), String> {
