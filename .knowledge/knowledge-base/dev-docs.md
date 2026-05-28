@@ -92,3 +92,22 @@ Conventions, workflows, UI consistency rules, and reusable design-time checklist
 - `any_failure` 應僅用於真正的系統錯誤（寫入失敗、路徑解析失敗），不用於使用者有意識的跳過。
 **Keywords:** fan-out, dirty flag, drift, cancel, any_failure, skill_sync_commit, push, resolution
 **Related:** kb-architecture-skill-source-of-truth
+
+---
+
+## Hash 演算法變更必須同步遷移 sidecar
+**ID:** kb-dev-docs-hash-migration-sidecar
+**Date:** 2026-05-29
+**Updated:** 2026-05-29
+**Status:** active
+**Confidence:** confirmed
+**Source:** drift-detection-and-conflict-ui session — semantic-hash false positive 根因定位
+**Context:** `semantic-hash-refactor` 將 `pushed_hash` 從 raw `sha256_hex` 改為 `semantic_hash`，但未遷移既有 sidecar，導致 drift scan 全部 false positive。
+**Applies when:** 修改任何用於比對/drift 偵測的 hash 演算法、序列化格式、或正規化邏輯時
+**Lesson:**
+- 改變 hash 計算方式後，既有 sidecar（`.felina-sync-meta.json`）裡的 `pushed_hash` 仍是舊格式，新舊不匹配 → 所有比對結果都是 Drifted
+- Push preview 不受影響（兩邊都用新演算法即時計算），但任何「拿存儲值比對即時值」的路徑都會壞
+- 解法：要嘛在 change 中加遷移邏輯（讀取時偵測舊格式並升級），要嘛接受一次性 Push All + Override 重寫全部 sidecar
+- 不加 legacy 兼容是合理選擇（使用者量小、一次性操作成本低），但必須在 change 文件中明確記載遷移步驟
+**Keywords:** hash, migration, sidecar, pushed_hash, semantic_hash, drift, false positive, sync-meta
+**Related:** kb-dev-docs-dirty-flag-cancel-drift
