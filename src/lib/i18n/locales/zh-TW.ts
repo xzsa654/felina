@@ -226,6 +226,14 @@ const zhTW: TranslationDict = {
       pushing: "推送中…",
       pushTitle: "將此 skill 推送到它的同步目標",
       hasUnpushed: "有尚未推送的變更",
+      drifted: "部分目標已在外部被修改",
+    },
+    pull: {
+      button: "拉回",
+      confirmTitle: "從目標拉回",
+      confirmMessage: "此操作會以 agent 目標端的內容覆寫 canonical skill，且無法復原。",
+      success: "拉回成功",
+      failed: "拉回失敗：{{error}}",
     },
     editor: {
       creatingNew: "建立新 skill",

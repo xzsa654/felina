@@ -171,6 +171,11 @@ export const api = {
       invoke<Record<string, Record<string, DriftStatus>>>("skill_drift_scan"),
   },
 
+  skillPull: {
+    fromTarget: (canonicalId: string, targetKey: string) =>
+      invoke<void>("skill_pull_from_target", { canonicalId, targetKey }),
+  },
+
   // Skill field catalog.
   skillFields: {
     list: () => invoke<SkillFieldDefinition[]>("list_skill_field_catalog"),

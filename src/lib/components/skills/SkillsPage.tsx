@@ -56,6 +56,7 @@ export default function SkillsPage() {
     error,
     bannerDismissed,
     detectedImportCount,
+    driftMap,
     loadEntries,
     refreshImportCount,
     refreshDriftScan,
@@ -408,6 +409,7 @@ export default function SkillsPage() {
                   }}
                   onPush={(name) => void handlePushOne(name)}
                   pushingNames={localPushingNames}
+                  driftMap={driftMap}
                 />
               ) : (
                 <div className="text-sm text-text-secondary p-4">{t(locale, "skills.loading")}</div>

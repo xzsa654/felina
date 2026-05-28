@@ -13,8 +13,9 @@
 //!     gemini.rs     — SKILL.md (name + description only)
 
 use crate::commands::canonical_skills::{
-    canonical_skills_dir, parse_skill_md, read_sync_meta_v2, target_key, write_sync_meta_v2,
-    AgentId, CanonicalSkill, LastSyncEntry, SkillScope, TargetMode,
+    canonical_skills_dir, parse_skill_md, read_sync_meta_v2, read_sync_meta_v2_no_backfill,
+    target_key, write_sync_meta_v2, AgentId, CanonicalSkill, LastSyncEntry, SkillScope,
+    SkillTarget, TargetMode,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -1044,6 +1045,66 @@ pub fn skill_drift_scan() -> Result<std::collections::BTreeMap<String, std::coll
     }
 
     Ok(result)
+}
+
+/// Pull: read agent-side SKILL.md and overwrite canonical, then update sidecar.
+#[tauri::command]
+pub fn skill_pull_from_target(canonical_id: String, target_key: String) -> Result<(), String> {
+    use crate::commands::canonical_skills::{
+        split_frontmatter, target_key as make_target_key,
+    };
+
+    let canonical_dir = canonical_skills_dir();
+    let skill_dir = canonical_dir.join(&canonical_id);
+    if !skill_dir.is_dir() {
+        return Err(format!("canonical skill directory not found: {}", skill_dir.display()));
+    }
+
+    let mut meta = read_sync_meta_v2_no_backfill(&skill_dir);
+    let tgt = meta
+        .targets
+        .iter()
+        .find(|t| make_target_key(t) == target_key)
+        .ok_or_else(|| format!("target not found: {target_key}"))?
+        .clone();
+
+    let cfg = super::agent_paths::agent_paths_get()?;
+    let pair = pair_for(&cfg, tgt.agent);
+    let target_dir = resolve_pair(tgt.scope, tgt.project.as_deref(), pair)?;
+    let agent_side = target_dir.join(&canonical_id).join("SKILL.md");
+
+    let agent_content = fs::read_to_string(&agent_side)
+        .map_err(|e| format!("cannot read target file {}: {e}", agent_side.display()))?;
+    let (_, agent_body) = split_frontmatter(&agent_content);
+
+    let canonical_path = skill_dir.join("SKILL.md");
+    let canonical_raw = fs::read_to_string(&canonical_path)
+        .map_err(|e| format!("cannot read canonical SKILL.md: {e}"))?;
+    let (canonical_fm, _) = split_frontmatter(&canonical_raw);
+
+    let body = if agent_body.ends_with('\n') || agent_body.is_empty() {
+        agent_body
+    } else {
+        format!("{agent_body}\n")
+    };
+    let merged = format!("---\n{canonical_fm}\n---\n{body}");
+
+    fs::write(&canonical_path, &merged)
+        .map_err(|e| format!("cannot write canonical SKILL.md: {e}"))?;
+
+    let hash = semantic_hash(&agent_content);
+    meta.last_sync.insert(
+        target_key,
+        LastSyncEntry {
+            pushed_hash: hash,
+            base_snapshot: None,
+            at: current_iso8601(),
+        },
+    );
+    meta.dirty = false;
+    write_sync_meta_v2(&skill_dir, &meta)?;
+
+    Ok(())
 }
 
 /// Best-effort ISO-8601 UTC timestamp without pulling chrono. Format:
@@ -2519,5 +2580,15 @@ mod tests {
             Some(DriftStatus::Drifted),
             "scan-b target should be drifted"
         );
+    }
+
+    #[test]
+    fn pull_from_target_errors_on_missing_canonical_dir() {
+        let result = skill_pull_from_target(
+            "nonexistent-skill-12345".to_string(),
+            "anthropic:global".to_string(),
+        );
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("not found"));
     }
 }
