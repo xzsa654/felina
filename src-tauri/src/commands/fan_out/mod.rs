@@ -499,16 +499,9 @@ pub fn skill_sync_commit(request: SkillSyncCommitRequest) -> Result<Vec<SyncResu
                         results.push(commit_result_from_item(&item, true, None, &attempted_at));
                     }
                     Some(SkillSyncDriftResolution::Cancel) | None => {
-                        any_failure = true;
-                        results.push(commit_result_from_item(
-                            &item,
-                            false,
-                            Some(
-                                "drift or overwrite-unknown target requires override or detach"
-                                    .into(),
-                            ),
-                            &attempted_at,
-                        ));
+                        // User chose not to write this target — not a failure.
+                        // dirty is determined by unsynced targets, not by cancel.
+                        results.push(commit_result_from_item(&item, true, None, &attempted_at));
                     }
                 }
             }
@@ -1804,12 +1797,12 @@ mod tests {
         )
         .unwrap();
 
-        let blocked = skill_sync_commit(SkillSyncCommitRequest {
+        let cancelled = skill_sync_commit(SkillSyncCommitRequest {
             skill_name: "commit-skill".into(),
             resolutions: vec![],
         })
-        .expect("blocked commit returns per-target results");
-        assert!(blocked.iter().all(|r| !r.success), "{blocked:#?}");
+        .expect("cancelled commit returns per-target results");
+        assert!(cancelled.iter().all(|r| r.success), "{cancelled:#?}");
         assert_eq!(
             fs::read_to_string(anthropic_dir.join("SKILL.md")).unwrap(),
             "anthropic drift\n",
