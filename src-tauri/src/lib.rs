@@ -139,6 +139,7 @@ pub fn run() {
             commands::agent_paths::agent_paths_set,
             // Known Projects.
             commands::known_projects::known_projects_list,
+            commands::known_projects::known_projects_saved_list,
             commands::known_projects::known_projects_add,
             commands::known_projects::known_projects_remove,
             // Maintenance

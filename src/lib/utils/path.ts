@@ -12,16 +12,16 @@ export function normalizeProjectPath(p: string): string {
   return IS_WINDOWS ? s.toLowerCase() : s;
 }
 
-// A project-scope target's destination counts as "missing" when its path is
-// absent from the Known Projects list, OR present but flagged exists:false
-// (folder renamed/deleted/unmounted — detected by the backend filesystem stat).
-// Both surface as the "project not found" indicator. List membership alone is
-// insufficient: an L3 saved entry persists after its folder is removed.
+// A project-scope target's destination counts as "missing" only when the
+// backend has an explicit filesystem-stat result for that path and it is
+// `exists:false`. Absence from Known Projects is not a missing signal: users
+// can remove a custom project path from that management list while existing
+// skill targets still legitimately point at the folder.
 export function isProjectMissing(
   knownProjects: { path: string; exists: boolean }[],
   projectPath: string,
 ): boolean {
   const want = normalizeProjectPath(projectPath);
   const hit = knownProjects.find((p) => normalizeProjectPath(p.path) === want);
-  return !hit || !hit.exists;
+  return hit?.exists === false;
 }
