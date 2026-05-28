@@ -55,12 +55,6 @@ impl FanOutRenderer for AnthropicRenderer {
     }
 }
 
-/// Convert a snake_case identifier to kebab-case. Other characters
-/// (digits, hyphens already present) pass through unchanged.
-fn snake_to_kebab(s: &str) -> String {
-    s.replace('_', "-")
-}
-
 /// Shared SKILL.md writer: serialise frontmatter, fence with `---`, append
 /// body with a trailing newline. Used by every renderer that emits a single
 /// SKILL.md file.
