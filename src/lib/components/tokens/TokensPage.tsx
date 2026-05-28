@@ -33,7 +33,7 @@ import {
 } from "./token-insights";
 
 type Tab = "overview" | "daily" | "models";
-type DatePreset = "today" | "days7" | "days30" | "days90";
+type DatePreset = "all" | "today" | "days7" | "days30" | "days90";
 
 // ── Module-level cache ────────────────────────────────────────────────────────
 // Survives route changes so the page feels instant when revisiting.
@@ -47,7 +47,8 @@ interface PageCache {
 }
 let _cache: PageCache | null = null;
 
-const DATE_PRESETS: { key: DatePreset; days: number }[] = [
+const DATE_PRESETS: { key: DatePreset; days: number | null }[] = [
+  { key: "all", days: null },
   { key: "today", days: 1 },
   { key: "days7", days: 7 },
   { key: "days30", days: 30 },
@@ -88,8 +89,8 @@ export default function TokensPage() {
     () => parseTab(searchParams.get("tab")) ?? (parseDate(searchParams.get("date")) ? "daily" : "overview"),
   );
   const [selectedDailyDate, setSelectedDailyDate] = useState<string | null>(() => parseDate(searchParams.get("date")));
-  const [datePreset, setDatePreset] = useState<DatePreset>("today");
-  const [dailyPreset, setDailyPreset] = useState<DatePreset>("days90");
+  const [datePreset, setDatePreset] = useState<DatePreset>("all");
+  const [dailyPreset, setDailyPreset] = useState<DatePreset>("all");
 
   const [analytics, setAnalytics] = useState<TokenAnalytics | null>(null);
   const [analyticsDaily, setAnalyticsDaily] = useState<TokenAnalytics | null>(null);
@@ -99,7 +100,8 @@ export default function TokensPage() {
   // Prevents StrictMode's double-invocation of effects from firing 2× fetches.
   const isFetchingRef = useRef(false);
 
-  function getDateBounds(days: number): { dateStart: number; dateEnd: number } {
+  function getDateBounds(days: number | null): { dateStart?: number; dateEnd?: number } {
+    if (days === null) return {};
     const dateEnd = Math.floor(Date.now() / 1000);
     return { dateStart: dateEnd - days * 86400, dateEnd };
   }
@@ -158,7 +160,7 @@ export default function TokensPage() {
     const dailyBounds = getDateBounds(DATE_PRESETS.find((p) => p.key === nextDailyPreset)!.days);
     const [monthly, ad] = await Promise.all([
       api.tokenAnalytics.get({ granularity: "monthly", ...bounds,
-        sourceOverride: nextDatePreset !== "days90" ? "auto_dated" : undefined }),
+        sourceOverride: nextDatePreset === "all" ? undefined : "auto_dated" }),
       api.tokenAnalytics.get({ granularity: "daily", ...dailyBounds,
         sourceOverride: "auto_dated" }),
     ]);
@@ -313,7 +315,7 @@ export default function TokensPage() {
             const setter = isDaily ? setDailyPreset : setDatePreset;
             return (
               <div key={preset.key} className="flex items-center gap-1">
-                {preset.key === "today" && (
+                {preset.key === "all" && (
                   <button
                     type="button"
                     onClick={handleRefresh}

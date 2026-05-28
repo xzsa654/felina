@@ -23,6 +23,7 @@ function projectName(raw: string | null, locale: Locale): string {
 export default function TopSessionsCard({ data, locale }: TopSessionsCardProps) {
   const navigate = useNavigate();
   const rows = data.slice(0, 5);
+  const hasLinkedSession = rows.some((session) => session.transcript_available);
 
   if (rows.length === 0) return null;
 
@@ -56,9 +57,11 @@ export default function TopSessionsCard({ data, locale }: TopSessionsCardProps) 
               <th className="px-3 py-2 text-left font-medium">Model</th>
               <th className="px-3 py-2 text-right font-medium">Tokens</th>
               <th className="px-3 py-2 text-right font-medium">Cost</th>
-              <th className="px-4 py-2 text-right font-medium">
-                {t(locale, "tokens.dayDetail.colAction" as never)}
-              </th>
+              {hasLinkedSession && (
+                <th className="px-4 py-2 text-right font-medium">
+                  {t(locale, "tokens.dayDetail.colAction" as never)}
+                </th>
+              )}
             </tr>
           </thead>
           <tbody>
@@ -87,18 +90,22 @@ export default function TopSessionsCard({ data, locale }: TopSessionsCardProps) 
                 <td className="px-3 py-2.5 text-right text-text-primary font-medium">
                   {formatCostFull(session.cost_usd, locale)}
                 </td>
-                <td className="px-4 py-2.5">
-                  <div className="flex justify-end">
-                    <button
-                      type="button"
-                      onClick={() => openHistory(session)}
-                      title={t(locale, "tokens.topSessions.viewSession" as never)}
-                      className="h-7 w-7 inline-flex items-center justify-center rounded border border-border text-text-muted hover:text-text-primary hover:bg-bg-secondary"
-                    >
-                      <LinkIcon className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-                </td>
+                {hasLinkedSession && (
+                  <td className="px-4 py-2.5">
+                    <div className="flex justify-end">
+                      {session.transcript_available && (
+                        <button
+                          type="button"
+                          onClick={() => openHistory(session)}
+                          title={t(locale, "tokens.topSessions.viewSession" as never)}
+                          className="h-7 w-7 inline-flex items-center justify-center rounded border border-border text-text-muted hover:text-text-primary hover:bg-bg-secondary"
+                        >
+                          <LinkIcon className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  </td>
+                )}
               </tr>
             ))}
           </tbody>

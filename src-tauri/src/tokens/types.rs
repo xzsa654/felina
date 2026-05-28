@@ -145,6 +145,7 @@ pub struct DaySessionBreakdown {
     pub tokens: u64,
     pub messages: u64,
     pub cost_usd: f64,
+    pub transcript_available: bool,
 }
 
 /// Resolved source file for a session transcript.

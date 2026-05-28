@@ -25,7 +25,9 @@ pub struct TokscaleIngestionOutput {
 pub fn ingest_with_default_adapter(
     storage: &TokenStorage,
 ) -> Result<TokscaleIngestionOutput, String> {
-    let bin = std::env::var_os("GLYPHIC_TOKSCALE_BIN").map(std::path::PathBuf::from);
+    let bin = std::env::var_os("FELINA_TOKSCALE_BIN")
+        .or_else(|| std::env::var_os("GLYPHIC_TOKSCALE_BIN"))
+        .map(std::path::PathBuf::from);
     ingest_with_adapter(storage, &TokscaleCommandAdapter::new(bin))
 }
 

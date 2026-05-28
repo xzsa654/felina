@@ -32,6 +32,7 @@ const en = {
       agents: "Agents",
     },
     dateRange: {
+      all: "All",
       today: "Today",
       days7: "7d",
       days30: "30d",

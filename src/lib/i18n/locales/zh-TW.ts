@@ -34,6 +34,7 @@ const zhTW: TranslationDict = {
       agents: "Agents",
     },
     dateRange: {
+      all: "全部",
       today: "今天",
       days7: "7天",
       days30: "30天",
