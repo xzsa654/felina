@@ -57,6 +57,7 @@ interface Props {
 export default function TargetEditor({ skillName, projectPath, targets, onTargetsChange, knownProjects }: Props) {
   const locale = useLocaleStore((s) => s.locale);
   const loadEntries = useSkillsStore((s) => s.loadEntries);
+  const driftMap = useSkillsStore((s) => s.driftMap);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [pruneOrphans, setPruneOrphans] = useState<OrphanFile[] | null>(null);
   const [pruneMessage, setPruneMessage] = useState<string | null>(null);
@@ -291,6 +292,14 @@ export default function TargetEditor({ skillName, projectPath, targets, onTarget
                     title={t(locale, "skills.targets.projectNotFoundTooltip")}
                   >
                     <AlertTriangle size={12} /> {t(locale, "skills.projectNotFound")}
+                  </span>
+                )}
+                {driftMap[skillName]?.[targetKey(tgt)] === "drifted" && (
+                  <span
+                    className="inline-flex items-center gap-1 text-warning shrink-0"
+                    title={t(locale, "skills.drift.driftBadgeTooltip")}
+                  >
+                    <AlertTriangle size={12} /> {t(locale, "skills.drift.drifted")}
                   </span>
                 )}
 
