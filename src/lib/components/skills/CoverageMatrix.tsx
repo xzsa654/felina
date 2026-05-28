@@ -1,20 +1,34 @@
 import { Fragment, useMemo } from "react";
-import type { CanonicalSkill, KnownProject, SkillListEntry } from "$lib/types";
+import type {
+  CanonicalSkill,
+  DriftStatus,
+  KnownProject,
+  SkillListEntry,
+} from "$lib/types";
 import { isProjectMissing } from "$lib/utils/path";
 import { useLocaleStore } from "$lib/stores/locale";
+import { useSkillsStore } from "$lib/stores/skills-store";
 import { t, type Locale } from "$lib/i18n";
 
-type SyncState = "synced" | "dirty" | "not-synced" | "disabled" | "no-target";
+type SyncState =
+  | "synced"
+  | "dirty"
+  | "not-synced"
+  | "disabled"
+  | "no-target"
+  | "drifted";
 type StateTranslationKey =
   | "skills.coverageMatrix.state.synced"
   | "skills.coverageMatrix.state.dirty"
   | "skills.coverageMatrix.state.notSynced"
   | "skills.coverageMatrix.state.disabled"
-  | "skills.coverageMatrix.state.noTarget";
+  | "skills.coverageMatrix.state.noTarget"
+  | "skills.drift.drifted";
 
 function cellSyncState(
   skill: CanonicalSkill,
   targetKey: string,
+  driftMap: Record<string, Record<string, DriftStatus>>,
 ): SyncState {
   const target = skill.targets.find((tgt) => {
     const k =
@@ -27,6 +41,8 @@ function cellSyncState(
   if (!target.enabled) return "disabled";
   const entry = skill.lastSync[targetKey];
   if (!entry) return "not-synced";
+  const drift = driftMap[skill.canonicalId]?.[targetKey];
+  if (drift === "drifted") return "drifted";
   if (skill.dirty) return "dirty";
   return "synced";
 }
@@ -37,6 +53,7 @@ const STATE_ICON: Record<SyncState, string> = {
   "not-synced": "—",
   disabled: "⦸",
   "no-target": "",
+  drifted: "⚠",
 };
 
 const STATE_CLASS: Record<SyncState, string> = {
@@ -45,6 +62,7 @@ const STATE_CLASS: Record<SyncState, string> = {
   "not-synced": "text-text-secondary",
   disabled: "text-text-secondary opacity-50",
   "no-target": "",
+  drifted: "text-warning",
 };
 
 const STATE_TITLE: Record<SyncState, StateTranslationKey> = {
@@ -53,6 +71,7 @@ const STATE_TITLE: Record<SyncState, StateTranslationKey> = {
   "not-synced": "skills.coverageMatrix.state.notSynced",
   disabled: "skills.coverageMatrix.state.disabled",
   "no-target": "skills.coverageMatrix.state.noTarget",
+  drifted: "skills.drift.drifted",
 };
 
 interface ColumnDef {
@@ -92,6 +111,7 @@ interface Props {
 
 export default function CoverageMatrix({ entries, knownProjects }: Props) {
   const locale = useLocaleStore((s) => s.locale);
+  const driftMap = useSkillsStore((s) => s.driftMap);
   const skills = useMemo(
     () =>
       entries
@@ -143,7 +163,7 @@ export default function CoverageMatrix({ entries, knownProjects }: Props) {
               {skill.name}
             </div>
             {columns.map((col) => {
-              const state = cellSyncState(skill, col.key);
+              const state = cellSyncState(skill, col.key, driftMap);
               const isProjectNotFound =
                 state !== "no-target" &&
                 col.key.includes(":project:") &&

@@ -57,6 +57,7 @@ export default function SkillsPage() {
     detectedImportCount,
     loadEntries,
     refreshImportCount,
+    refreshDriftScan,
     resetBannerDismissed,
     removeEntry,
   } = useSkillsStore();
@@ -97,6 +98,7 @@ export default function SkillsPage() {
     setReloading(true);
     try {
       await Promise.all([loadEntries(), refreshImportCount()]);
+      void refreshDriftScan();
     } finally {
       // Brief residual delay so users see the spinner spin at least once,
       // even when the underlying calls return in <50ms.
@@ -108,9 +110,9 @@ export default function SkillsPage() {
   // projectPath=null, so the import banner counts global agent-dir skills).
   // Per-project import lives in the Projects view, not here.
   useEffect(() => {
-    void loadEntries();
+    void loadEntries().then(() => void refreshDriftScan());
     void refreshImportCount();
-  }, [loadEntries, refreshImportCount]);
+  }, [loadEntries, refreshImportCount, refreshDriftScan]);
 
   // Deep-link selection: the Projects view navigates here with
   // `?select=<skill-name>` to open a managed skill for editing. Consume the
@@ -145,7 +147,10 @@ export default function SkillsPage() {
   useEffect(() => {
     const onFocus = () => refreshKnownProjects();
     const onVisible = () => {
-      if (document.visibilityState === "visible") refreshKnownProjects();
+      if (document.visibilityState === "visible") {
+        refreshKnownProjects();
+        void refreshDriftScan();
+      }
     };
     window.addEventListener("focus", onFocus);
     document.addEventListener("visibilitychange", onVisible);
@@ -153,7 +158,7 @@ export default function SkillsPage() {
       window.removeEventListener("focus", onFocus);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [refreshKnownProjects]);
+  }, [refreshKnownProjects, refreshDriftScan]);
 
   // When the selected name changes, fetch the full skill. A broken entry
   // can't parse, so route it into raw repair mode (load the raw SKILL.md);
@@ -277,6 +282,7 @@ export default function SkillsPage() {
         resolutions: resolutionsBySkill[preview.skillName] ?? [],
       });
       await loadEntries();
+      void refreshDriftScan();
       setPushPreview(null);
     } catch (e) {
       window.alert(String(e));
@@ -293,7 +299,7 @@ export default function SkillsPage() {
         icon={Sparkles}
         actions={
           <>
-            <ViewModeToggle value={viewMode} onChange={setViewMode} locale={locale} />
+            <ViewModeToggle value={viewMode} onChange={(v) => { setViewMode(v); if (v === "summary") void refreshDriftScan(); }} locale={locale} />
             {bannerDismissed && (
               <button
                 type="button"

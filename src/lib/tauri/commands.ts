@@ -35,6 +35,7 @@ import type {
   SkillTargetRemovalResult,
   SkillTargetRepointResult,
   TargetRemovalPolicy,
+  DriftStatus,
 } from "$lib/types";
 import type {
   AgentId as TokenAgentId,
@@ -163,6 +164,11 @@ export const api = {
         scope,
         project,
       }),
+  },
+
+  driftScan: {
+    scan: () =>
+      invoke<Record<string, Record<string, DriftStatus>>>("skill_drift_scan"),
   },
 
   // Skill field catalog.

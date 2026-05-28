@@ -465,6 +465,12 @@ const en = {
       list: "List view",
       summary: "Summary view",
     },
+    drift: {
+      drifted: "Drifted",
+      missing: "Missing",
+      synced: "Synced",
+      driftBadgeTooltip: "Agent-side file has been modified externally since last push",
+    },
   },
   projects: {
     title: "Projects",

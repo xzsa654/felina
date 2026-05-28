@@ -168,6 +168,18 @@
       "file": "knowledge-base/platform.md",
       "anchor": "windows-rust-commandnew-cannot-execute-npm-cmd-shim",
       "updated": "2026-05-28"
+    },
+    {
+      "id": "kb-fan-out-drift-cancel-not-failure",
+      "title": "Drift cancel 不是 failure：dirty flag 語意",
+      "type": "knowledge",
+      "status": "active",
+      "confidence": "confirmed",
+      "keywords": ["fan-out", "dirty flag", "drift", "cancel", "any_failure", "skill_sync_commit", "push", "resolution"],
+      "appliesWhen": "修改 fan-out push/commit 邏輯中 dirty flag 判定，或新增 resolution 類型時",
+      "file": "knowledge-base/dev-docs.md",
+      "anchor": "drift-cancel-not-failure-dirty-flag-semantics",
+      "updated": "2026-05-28"
     }
   ]
 }

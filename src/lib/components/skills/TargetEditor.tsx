@@ -57,6 +57,7 @@ interface Props {
 export default function TargetEditor({ skillName, projectPath, targets, onTargetsChange, knownProjects }: Props) {
   const locale = useLocaleStore((s) => s.locale);
   const loadEntries = useSkillsStore((s) => s.loadEntries);
+  const driftMap = useSkillsStore((s) => s.driftMap);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [pruneOrphans, setPruneOrphans] = useState<OrphanFile[] | null>(null);
   const [pruneMessage, setPruneMessage] = useState<string | null>(null);
@@ -293,6 +294,14 @@ export default function TargetEditor({ skillName, projectPath, targets, onTarget
                     <AlertTriangle size={12} /> {t(locale, "skills.projectNotFound")}
                   </span>
                 )}
+                {driftMap[skillName]?.[targetKey(tgt)] === "drifted" && (
+                  <span
+                    className="inline-flex items-center gap-1 text-warning shrink-0"
+                    title={t(locale, "skills.drift.driftBadgeTooltip")}
+                  >
+                    <AlertTriangle size={12} /> {t(locale, "skills.drift.drifted")}
+                  </span>
+                )}
 
                 <div className="ml-auto flex items-center gap-0.5">
                   <div className="inline-flex rounded border border-border overflow-hidden">
@@ -412,6 +421,7 @@ export default function TargetEditor({ skillName, projectPath, targets, onTarget
         open={pendingRemove !== null}
         target={pendingRemove}
         busy={removing}
+        targetDirExists={pendingRemove ? (dirInfo[`${pendingRemove.agent}-${pendingRemove.scope}-${pendingRemove.project ?? ""}`]?.exists ?? false) : false}
         onchoose={(policy) => void handleRemovePolicy(policy)}
         oncancel={() => setPendingRemove(null)}
       />
@@ -529,12 +539,14 @@ function TargetRemovalDialog({
   open,
   target,
   busy,
+  targetDirExists,
   onchoose,
   oncancel,
 }: {
   open: boolean;
   target: SkillTarget | null;
   busy: boolean;
+  targetDirExists: boolean;
   onchoose: (policy: TargetRemovalPolicy) => void;
   oncancel: () => void;
 }) {
@@ -572,7 +584,7 @@ function TargetRemovalDialog({
           </button>
           <button
             type="button"
-            disabled={busy}
+            disabled={busy || !targetDirExists}
             onClick={() => onchoose("removeTargetAndDeleteFile")}
             className="rounded border border-danger/40 bg-danger/10 px-3 py-2 text-xs text-danger hover:bg-danger/20 disabled:opacity-50"
           >
