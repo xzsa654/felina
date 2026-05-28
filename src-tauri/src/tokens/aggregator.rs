@@ -992,7 +992,17 @@ impl TokenAggregator {
         source_override: Option<String>,
     ) -> Result<Vec<ModelBreakdown>, String> {
         let source = match source_override.as_deref() {
-            Some("auto_dated") => self.pick_dated_source()?,
+            Some("auto_dated") => {
+                let tokscale_count = self
+                    .storage
+                    .count_events_for_source(SOURCE_TOKSCALE_EXPORT)
+                    .unwrap_or(0);
+                if tokscale_count > 0 {
+                    SOURCE_TOKSCALE_EXPORT.to_string()
+                } else {
+                    self.pick_dated_source()?
+                }
+            }
             Some(s) => s.to_string(),
             None => self
                 .storage
@@ -1092,7 +1102,7 @@ impl TokenAggregator {
     /// ingestion source so rollback and parser-only setups still behave as before.
     fn default_analytics_source(&self, granularity: &TimeGranularity) -> Result<String, String> {
         match granularity {
-            TimeGranularity::Hourly | TimeGranularity::Weekly | TimeGranularity::Monthly => {
+            TimeGranularity::Weekly | TimeGranularity::Monthly => {
                 let tokscale_count = self
                     .storage
                     .count_events_for_source(SOURCE_TOKSCALE_EXPORT)
@@ -1114,6 +1124,17 @@ impl TokenAggregator {
                     );
                     Ok(source)
                 }
+            }
+            TimeGranularity::Hourly => {
+                let source = self
+                    .storage
+                    .active_source()
+                    .map_err(|e| format!("active_source error: {}", e))?;
+                eprintln!(
+                    "tokens: default analytics source {:?} -> active_source {}",
+                    granularity, source
+                );
+                Ok(source)
             }
             TimeGranularity::Daily => {
                 let tokscale_count = self
@@ -1155,19 +1176,7 @@ impl TokenAggregator {
             }
         }
 
-        // Prefer tokscale_export when it has timestamped events.
-        let tokscale_count = self
-            .storage
-            .count_events_for_source(SOURCE_TOKSCALE_EXPORT)
-            .unwrap_or(0);
-        if tokscale_count > 0 {
-            if let Ok(mut cache) = self.dated_source_cache.lock() {
-                *cache = Some(SOURCE_TOKSCALE_EXPORT.to_string());
-            }
-            return Ok(SOURCE_TOKSCALE_EXPORT.to_string());
-        }
-
-        // Fall back to the source with the most timestamped events.
+        // Query DB (scope conn lock so it's released before active_source).
         let dated_source = {
             let conn = self
                 .storage
