@@ -59,3 +59,81 @@ code:
   - .session/product-backlog.md
   - src-tauri/gen/schemas/windows-schema.json
 -->
+
+---
+### Requirement: CoverageMatrix Drifted State
+
+The CoverageMatrix SHALL display a `drifted` state for cells where the drift scan reports that the agent-side file has been modified externally since the last push. The `drifted` state SHALL be visually distinct from `synced`, `dirty`, `not-synced`, `disabled`, and `no-target` states. The `drifted` indicator SHALL use a semantic warning color.
+
+#### Scenario: Cell shows drifted when scan reports drift
+
+- **WHEN** the drift scan result contains `drifted` status for a skill's target
+- **AND** the target is enabled and tracked
+- **THEN** the CoverageMatrix cell for that skill-target pair SHALL display the `drifted` indicator
+
+#### Scenario: Drifted state is visually distinct
+
+- **WHEN** a CoverageMatrix cell is in `drifted` state
+- **THEN** the cell SHALL use a warning-class semantic color distinct from synced (success), dirty (info), and not-synced (muted)
+
+
+<!-- @trace
+source: drift-detection-and-conflict-ui
+updated: 2026-05-29
+code:
+  - src/lib/components/skills/SkillsPage.tsx
+  - src-tauri/src/lib.rs
+  - src/lib/stores/skills-store.ts
+  - src-tauri/src/commands/fan_out/mod.rs
+  - src/lib/components/skills/TargetEditor.tsx
+  - src/lib/tauri/commands.ts
+  - src/lib/components/skills/CoverageMatrix.tsx
+  - src/lib/components/projects/ManagedInventory.tsx
+  - src/lib/types/skills.ts
+  - .knowledge/knowledge-base/dev-docs.md
+  - src/lib/components/skills/PendingPushBar.tsx
+  - .session/product-backlog.md
+  - src/lib/i18n/locales/en.ts
+  - .knowledge/_catalog.json
+  - .knowledge/knowledge-base/architecture.md
+  - src/lib/i18n/locales/zh-TW.ts
+  - .session/agent-skill-market-complete.md
+  - src/lib/types/index.ts
+  - src/lib/components/skills/SkillImportWizard.tsx
+-->
+
+---
+### Requirement: TargetEditor Drift Indicator
+
+The TargetEditor SHALL display a per-target drift status indicator when the drift scan reports that a target's agent-side file has drifted. The indicator SHALL be visible in the target row without requiring the user to expand or hover.
+
+#### Scenario: Target row shows drift badge
+
+- **WHEN** the drift scan result contains `drifted` status for a specific target
+- **THEN** the TargetEditor row for that target SHALL display a drift indicator badge
+- **AND** the badge SHALL use a semantic warning color
+
+<!-- @trace
+source: drift-detection-and-conflict-ui
+updated: 2026-05-29
+code:
+  - src/lib/components/skills/SkillsPage.tsx
+  - src-tauri/src/lib.rs
+  - src/lib/stores/skills-store.ts
+  - src-tauri/src/commands/fan_out/mod.rs
+  - src/lib/components/skills/TargetEditor.tsx
+  - src/lib/tauri/commands.ts
+  - src/lib/components/skills/CoverageMatrix.tsx
+  - src/lib/components/projects/ManagedInventory.tsx
+  - src/lib/types/skills.ts
+  - .knowledge/knowledge-base/dev-docs.md
+  - src/lib/components/skills/PendingPushBar.tsx
+  - .session/product-backlog.md
+  - src/lib/i18n/locales/en.ts
+  - .knowledge/_catalog.json
+  - .knowledge/knowledge-base/architecture.md
+  - src/lib/i18n/locales/zh-TW.ts
+  - .session/agent-skill-market-complete.md
+  - src/lib/types/index.ts
+  - src/lib/components/skills/SkillImportWizard.tsx
+-->

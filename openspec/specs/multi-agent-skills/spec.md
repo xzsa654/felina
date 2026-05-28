@@ -1399,3 +1399,40 @@ code:
   - src/lib/components/projects/ManagedInventory.tsx
   - src/lib/i18n/locales/zh-TW.ts
 -->
+
+---
+### Requirement: Push Preview Reuses Shared Drift Check
+
+The push preview flow SHALL use the shared `check_drift` function for its initial hash comparison step instead of inline hash logic. The preview SHALL continue to perform full rendering and operation classification after drift check. Observable push behavior SHALL remain unchanged.
+
+#### Scenario: Preview uses check_drift then renders
+
+- **WHEN** the user triggers a push preview for a skill
+- **THEN** the preview SHALL call `check_drift` for each enabled tracked target
+- **AND** the preview SHALL proceed to render canonical content and classify operations as before
+- **AND** the resulting preview items SHALL have the same operations as before this change
+
+<!-- @trace
+source: drift-detection-and-conflict-ui
+updated: 2026-05-29
+code:
+  - src/lib/components/skills/SkillsPage.tsx
+  - src-tauri/src/lib.rs
+  - src/lib/stores/skills-store.ts
+  - src-tauri/src/commands/fan_out/mod.rs
+  - src/lib/components/skills/TargetEditor.tsx
+  - src/lib/tauri/commands.ts
+  - src/lib/components/skills/CoverageMatrix.tsx
+  - src/lib/components/projects/ManagedInventory.tsx
+  - src/lib/types/skills.ts
+  - .knowledge/knowledge-base/dev-docs.md
+  - src/lib/components/skills/PendingPushBar.tsx
+  - .session/product-backlog.md
+  - src/lib/i18n/locales/en.ts
+  - .knowledge/_catalog.json
+  - .knowledge/knowledge-base/architecture.md
+  - src/lib/i18n/locales/zh-TW.ts
+  - .session/agent-skill-market-complete.md
+  - src/lib/types/index.ts
+  - src/lib/components/skills/SkillImportWizard.tsx
+-->
