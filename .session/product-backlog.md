@@ -105,16 +105,6 @@ Scope (2026-05-27 討論補充):
 - Push 時的 preview API 不變，仍走完整 render + operation 流程。
 - 2026-05-28 再確認：使用者稱為「target 端 drift 自動偵測」，核心是 target 端實體檔被外部改動 / 刪除 / 與最後 push hash 不一致時，UI 應自動或半自動揭露 drift 狀態，避免錯誤覆蓋或誤判 synced。
 
-### cross-agent-field-normalize
-
-| Field | Value |
-|---|---|
-| type | suggestion |
-| status | not-committed |
-| flagged | 2026-05-20 |
-| last-seen | 2026-05-20 |
-| description | 同步前比對 target agent schema，主檔有 target 不認識的欄位時提示過濾/保留/mapping，選擇持久化為 per-skill per-agent mapping rule。 |
-
 ### forked-target-overlay
 
 | Field | Value |
