@@ -154,17 +154,31 @@ Design route (2026-05-28 discuss 定案):
 
 | Field | Value |
 |---|---|
+| type | planned-change |
+| status | planned |
+| flagged | 2026-05-28 |
+| last-seen | 2026-05-28 |
+| description | 使用者可透過 Felina Settings 手動新增無限多組第三方 agent 的路徑 (Global / Project)，使其成為動態 Map 支援。 |
+
+Design route (2026-05-28 discuss 定案):
+- 將後端的 `AgentPathsConfig` 從寫死三家改為動態 HashMap。
+- 這些手動新增的第三方 Agent 預設採用標準 YAML 結構匯出，不帶有特定代理的專屬欄位。
+- 實作極輕量化：單純負責將 Canonical 檔案轉存到指定的路徑。
+
+### dynamic-agent-field-catalog
+
+| Field | Value |
+|---|---|
 | type | suggestion |
 | status | not-committed |
 | flagged | 2026-05-28 |
 | last-seen | 2026-05-28 |
-| description | 使用者可手動新增第三方 agent 的 project path 與 global path，讓 Felina 能管理內建三家之外或變體 agent 的 skill 位置。 |
+| description | 將各家 Agent 的特有 YAML 欄位定義下放至 Felina Settings，讓進階使用者能自行擴充，不再寫死於程式碼。 |
 
 Scope:
-- 支援手動新增第三方 agent project path。
-- 支援手動新增第三方 agent global path。
-- 需要決定第三方 agent 是否只是路徑 alias，或需要完整 agent definition（id、display name、project/global path template、skill schema、validation command）。
-- 需與 existing Agent Paths / Custom Project Paths / agent-scoped field catalog 分清責任邊界。
+- 取代爬蟲或靜態程式碼定義，將 Custom Field Mapping 的權限交給使用者。
+- 讓第三方 Agent（如 OpenCode）也能透過 UI 設定獲得專屬欄位的支援。
+- 作為 `third-party-agent-path-configuration` 之後的進階客製化功能。
 
 ---
 
