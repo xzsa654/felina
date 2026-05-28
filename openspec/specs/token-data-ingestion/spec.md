@@ -625,7 +625,7 @@ code:
 ---
 ### Requirement: SQLite storage for token events
 
-The system SHALL maintain a SQLite database at `~/.glyphic/tokens.db` to cache parsed token events. The database SHALL include a `token_events` table with columns for all `TokenEvent` fields plus a `cost_usd` column. A unique constraint on `(agent, session_id, timestamp, model)` SHALL prevent duplicate events.
+The system SHALL maintain a SQLite database at `~/.felina/tokens.db` to cache parsed token events. The database SHALL include a `token_events` table with columns for all `TokenEvent` fields plus a `cost_usd` column. A unique constraint on `(agent, session_id, timestamp, model)` SHALL prevent duplicate events.
 
 #### Scenario: Events are persisted across app restarts
 

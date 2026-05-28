@@ -55,7 +55,7 @@ Windows / git / toolchain platform-specific gotchas for Felina.
 **Lesson:**
 - Windows 上 `CreateProcess` 無法執行 `.cmd` / `.bat` 檔案，只認 `.exe`。
 - 解法一：用 `cmd /c <binary>` 包裝，讓 `cmd.exe` 來執行 `.cmd` shim。
-- 解法二：用環境變數（如 `FELINA_TOKSCALE_BIN`）指定絕對路徑，直接指向 `.exe` 或 `.cmd`。
+- 解法二：用環境變數（如 `PATH`）指定絕對路徑，直接指向 `.exe` 或 `.cmd`。
 - `npx` 也是 `.cmd` shim，同樣受影響——fallback 到 npx 也會失敗。
 - GUI app（Tauri）的 PATH 可能和使用者的 shell 環境不同，進一步加劇找不到 binary 的問題。
 **Keywords:** windows, createprocess, cmd shim, npm global, rust command, tokscale, npx, tauri, gui path

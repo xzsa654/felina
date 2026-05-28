@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use felina_lib::tokens::reconciliation::{
-    count_storage_state, reconcile, render_markdown_report, ReconcileOptions,
+    ReconcileOptions, count_storage_state, reconcile, render_markdown_report,
 };
 
 fn main() {
@@ -20,6 +20,8 @@ fn main() {
             "--end" => options.date_end = args.next().and_then(|v| parse_time_arg(&v)),
             "--agent" => options.filter_agent = args.next(),
             "--model" => options.filter_model = args.next(),
+            "--tokscale-subcommand" => options.tokscale_subcommand = args.next(),
+            "--tokscale-group-by" => options.tokscale_group_by = args.next(),
             "--db" => {
                 let path = args.next().map(PathBuf::from);
                 before_after_db = path.clone();
@@ -91,6 +93,6 @@ fn parse_time_arg(value: &str) -> Option<i64> {
 
 fn print_help() {
     eprintln!(
-        "Usage: glyphic_token_reconcile [--start EPOCH_OR_ISO] [--end EPOCH_OR_ISO] [--agent AGENT] [--model MODEL] [--db PATH] [--tokscale-bin PATH] [--skip-tokscale] [--json] [--write-report PATH]"
+        "Usage: glyphic_token_reconcile [--start EPOCH_OR_ISO] [--end EPOCH_OR_ISO] [--agent AGENT] [--model MODEL] [--db PATH] [--tokscale-bin PATH] [--tokscale-subcommand COMMAND] [--tokscale-group-by KEY] [--skip-tokscale] [--json] [--write-report PATH]"
     );
 }

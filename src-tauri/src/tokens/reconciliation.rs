@@ -19,6 +19,8 @@ pub struct ReconcileOptions {
     pub filter_agent: Option<String>,
     pub filter_model: Option<String>,
     pub include_tokscale: bool,
+    pub tokscale_subcommand: Option<String>,
+    pub tokscale_group_by: Option<String>,
     pub tokscale_bin: Option<PathBuf>,
     pub db_path: Option<PathBuf>,
 }

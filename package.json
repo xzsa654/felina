@@ -61,6 +61,7 @@
     "@types/react-dom": "^19.1.5",
     "@vitejs/plugin-react": "^4.5.2",
     "tailwindcss": "^4",
+    "tokscale": "^3.0.0",
     "typescript": "^5.7",
     "vite": "^6"
   }

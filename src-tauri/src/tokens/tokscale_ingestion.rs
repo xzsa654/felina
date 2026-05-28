@@ -3,7 +3,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use crate::tokens::reconciliation::{
     ReconcileOptions, ReconciliationRecord, SourceCollection, SourceStatus,
 };
-use crate::tokens::storage::{TokenStorage, SOURCE_TOKSCALE_EXPORT};
+use crate::tokens::storage::{SOURCE_TOKSCALE_EXPORT, TokenStorage};
 use crate::tokens::tokscale::{TokscaleAdapter, TokscaleCommandAdapter};
 use crate::tokens::types::{AgentId, ScanError, TokenEvent};
 
@@ -25,9 +25,7 @@ pub struct TokscaleIngestionOutput {
 pub fn ingest_with_default_adapter(
     storage: &TokenStorage,
 ) -> Result<TokscaleIngestionOutput, String> {
-    let bin = std::env::var_os("FELINA_TOKSCALE_BIN")
-        .or_else(|| std::env::var_os("GLYPHIC_TOKSCALE_BIN"))
-        .map(std::path::PathBuf::from);
+    let bin = std::env::var_os("FELINA_TOKSCALE_BIN").map(std::path::PathBuf::from);
     ingest_with_adapter(storage, &TokscaleCommandAdapter::new(bin))
 }
 
@@ -37,6 +35,7 @@ pub fn ingest_with_adapter(
 ) -> Result<TokscaleIngestionOutput, String> {
     let collection = adapter.collect(&ReconcileOptions {
         include_tokscale: true,
+        tokscale_subcommand: Some("graph".to_string()),
         ..Default::default()
     });
     let output = output_from_collection(collection)?;
@@ -337,6 +336,23 @@ mod tests {
         .expect("output");
 
         assert_eq!(output.events[0].timestamp, 0);
+    }
+
+    #[test]
+    fn dated_records_store_real_bucket_timestamp() {
+        let mut dated = record("codex-cli", "gpt-5", 42, 2);
+        dated.timestamp_bucket = "2026-01-27".into();
+
+        let output = output_from_collection(SourceCollection {
+            source: TokenSource::TokscaleExport,
+            status: SourceStatus::Ok,
+            message: None,
+            version: None,
+            records: vec![dated],
+        })
+        .expect("output");
+
+        assert_eq!(output.events[0].timestamp, 1_769_472_000);
     }
 
     struct StaticAdapter(SourceCollection);

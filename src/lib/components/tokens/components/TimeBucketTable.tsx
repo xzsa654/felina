@@ -1,4 +1,4 @@
-import { useEffect, useState, startTransition, useMemo } from "react";
+import { useEffect, useState, startTransition, useMemo, useRef } from "react";
 import type { TokenBucket } from "$lib/types";
 import type { Locale } from "$lib/i18n";
 import { t } from "$lib/i18n";
@@ -38,6 +38,7 @@ export default function TimeBucketTable({
   const [sortAsc, setSortAsc] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const lastScrolledDateRef = useRef<string | null>(null);
 
   const dated = useMemo(
     () => data.filter((b) => /^\d{4}-\d{2}-\d{2}/.test(b.label)),
@@ -80,8 +81,11 @@ export default function TimeBucketTable({
     if (!selectedDate || !dated.some((bucket) => bucket.label === selectedDate)) return;
 
     const selectedIndex = sorted.findIndex((bucket) => bucket.label === selectedDate);
-    if (selectedIndex >= 0 && selectedIndex >= visibleCount) {
-      setVisibleCount(Math.ceil((selectedIndex + 1) / PAGE_SIZE) * PAGE_SIZE);
+    if (selectedIndex >= 0) {
+      setVisibleCount((current) => {
+        if (selectedIndex < current) return current;
+        return Math.ceil((selectedIndex + 1) / PAGE_SIZE) * PAGE_SIZE;
+      });
     }
 
     setExpanded((prev) => {
@@ -91,6 +95,9 @@ export default function TimeBucketTable({
       return next;
     });
 
+    if (lastScrolledDateRef.current === selectedDate) return;
+    lastScrolledDateRef.current = selectedDate;
+
     const timer = setTimeout(() => {
       document
         .getElementById(`tokens-day-${selectedDate}`)
@@ -98,7 +105,7 @@ export default function TimeBucketTable({
     }, 0);
 
     return () => clearTimeout(timer);
-  }, [dated, selectedDate, sorted, visibleCount]);
+  }, [dated, selectedDate, sorted]);
 
   const arrow = (f: SortField) => sortField === f ? (sortAsc ? " ↑" : " ↓") : "";
 

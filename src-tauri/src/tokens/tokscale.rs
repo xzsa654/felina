@@ -5,8 +5,8 @@ use std::process::Command;
 use serde_json::Value;
 
 use crate::tokens::reconciliation::{
-    aggregate_records, ReconcileOptions, ReconciliationRecord, SourceCollection, SourceStatus,
-    TokenSource,
+    ReconcileOptions, ReconciliationRecord, SourceCollection, SourceStatus, TokenSource,
+    aggregate_records,
 };
 use crate::tokens::types::AgentId;
 
@@ -35,7 +35,7 @@ impl TokscaleCommandAdapter {
             base_args: Vec::new(),
             fallback: Some((
                 PathBuf::from("npx"),
-                vec!["--yes".to_string(), "tokscale@2.1.3".to_string()],
+                vec!["--yes".to_string(), "tokscale@latest".to_string()],
             )),
         }
     }
@@ -65,7 +65,7 @@ impl TokscaleAdapter for TokscaleCommandAdapter {
                                 source: TokenSource::TokscaleExport,
                                 status: SourceStatus::MissingBinary,
                                 message: Some(format!(
-                                    "{} not found and pinned npx fallback is unavailable",
+                                    "{} not found and npx fallback is unavailable",
                                     self.bin.display()
                                 )),
                                 version: None,
@@ -142,7 +142,15 @@ fn run_tokscale_command(
 }
 
 pub fn tokscale_report_args(options: &ReconcileOptions) -> Vec<String> {
-    let mut args = vec!["--json".to_string(), "--no-spinner".to_string()];
+    let mut args = Vec::new();
+    let subcommand = options.tokscale_subcommand.as_deref();
+    if let Some(command) = subcommand {
+        args.push(command.to_string());
+    }
+    if subcommand != Some("graph") {
+        args.push("--json".to_string());
+    }
+    args.push("--no-spinner".to_string());
     if let Some(start) = options.date_start {
         args.push("--since".to_string());
         args.push(epoch_to_date(start));
@@ -151,7 +159,128 @@ pub fn tokscale_report_args(options: &ReconcileOptions) -> Vec<String> {
         args.push("--until".to_string());
         args.push(epoch_to_date(end));
     }
+    if subcommand != Some("graph") {
+        if let Some(group_by) = &options.tokscale_group_by {
+            args.push("--group-by".to_string());
+            args.push(group_by.clone());
+        }
+    }
     args
+}
+
+fn record_from_object(
+    map: &serde_json::Map<String, Value>,
+    inherited_bucket: Option<&str>,
+) -> Result<Option<ReconciliationRecord>, String> {
+    if !is_usage_candidate(map) {
+        return Ok(None);
+    }
+
+    let input = required_token_number_any(
+        map,
+        &["input_tokens", "prompt_tokens", "input", "totalInput"],
+        "input",
+    )?;
+    let output = required_token_number_any(
+        map,
+        &[
+            "output_tokens",
+            "completion_tokens",
+            "output",
+            "totalOutput",
+        ],
+        "output",
+    )?;
+    let cache_read = required_token_number_any(
+        map,
+        &[
+            "cache_read_tokens",
+            "cached_input_tokens",
+            "cache_read_input_tokens",
+            "cacheRead",
+            "totalCacheRead",
+        ],
+        "cacheRead",
+    )?;
+    let cache_write = required_token_number_any(
+        map,
+        &[
+            "cache_write_tokens",
+            "cache_creation_input_tokens",
+            "cacheWrite",
+            "totalCacheWrite",
+        ],
+        "cacheWrite",
+    )?;
+    let reasoning = token_number_any(
+        map,
+        &["reasoning_tokens", "reasoning_output_tokens", "reasoning"],
+    );
+    if input + output + cache_read + cache_write + reasoning == 0 {
+        return Ok(None);
+    }
+
+    let model = string_any(map, &["model", "model_name", "modelId"])
+        .ok_or_else(|| "tokscale usage row missing model".to_string())?;
+    let agent = parse_agent(
+        string_any(map, &["agent", "client", "tool"])
+            .ok_or_else(|| format!("tokscale usage row for {} missing client", model))?,
+    )
+    .ok_or_else(|| format!("tokscale usage row for {} has unsupported client", model))?
+    .to_string();
+    let provider = string_any(map, &["provider", "model_provider", "providerId"])
+        .ok_or_else(|| format!("tokscale usage row for {} missing provider", model))?;
+    let timestamp = number_any(map, &["timestamp", "created_at", "time"]) as i64;
+    let timestamp_bucket = date_bucket_any(
+        map,
+        &[
+            "timestamp_bucket",
+            "date",
+            "day",
+            "bucket",
+            "period",
+            "month",
+        ],
+    )
+    .or_else(|| inherited_bucket.map(ToString::to_string))
+    .unwrap_or_else(|| {
+        if timestamp > 0 {
+            epoch_to_date(timestamp)
+        } else {
+            "all".to_string()
+        }
+    });
+    let session_id = string_any(map, &["session_id", "session", "conversation_id"]);
+    let event_count = required_token_number_any(
+        map,
+        &["event_count", "messageCount", "totalMessages", "messages"],
+        "messageCount",
+    )?
+    .max(1);
+    let mut source_metadata =
+        BTreeMap::from([("source_schema".to_string(), "tokscale_json".to_string())]);
+    if let Some(client) = string_any(map, &["client"]) {
+        source_metadata.insert("client".to_string(), client);
+    }
+    if let Some(cost) = number_or_float_string_any(map, &["cost", "totalCost"]) {
+        source_metadata.insert("cost".to_string(), cost);
+    }
+
+    Ok(Some(ReconciliationRecord {
+        source: TokenSource::TokscaleExport,
+        provider,
+        agent,
+        model,
+        timestamp_bucket,
+        session_id,
+        input_tokens: input,
+        output_tokens: output,
+        cache_read_tokens: cache_read,
+        cache_write_tokens: cache_write,
+        reasoning_tokens: reasoning,
+        event_count,
+        source_metadata,
+    }))
 }
 
 pub fn parse_tokscale_json(raw: &str, options: &ReconcileOptions) -> SourceCollection {
@@ -229,134 +358,62 @@ fn collect_records_from_value(
     out: &mut Vec<ReconciliationRecord>,
     schema_errors: &mut Vec<String>,
 ) {
+    collect_records_from_value_with_bucket(value, None, out, schema_errors);
+}
+
+fn collect_records_from_value_with_bucket(
+    value: &Value,
+    inherited_bucket: Option<&str>,
+    out: &mut Vec<ReconciliationRecord>,
+    schema_errors: &mut Vec<String>,
+) {
     match value {
         Value::Array(items) => {
             for item in items {
-                collect_records_from_value(item, out, schema_errors);
+                collect_records_from_value_with_bucket(item, inherited_bucket, out, schema_errors);
             }
         }
         Value::Object(map) => {
-            match record_from_object(map) {
+            let bucket = date_bucket_any(
+                map,
+                &[
+                    "timestamp_bucket",
+                    "date",
+                    "day",
+                    "bucket",
+                    "period",
+                    "month",
+                ],
+            )
+            .or_else(|| inherited_bucket.map(ToString::to_string));
+            match record_from_object(map, bucket.as_deref()) {
                 Ok(Some(record)) => out.push(record),
                 Ok(None) => {}
                 Err(err) => schema_errors.push(err),
             }
             for child in map.values() {
-                collect_records_from_value(child, out, schema_errors);
+                collect_records_from_value_with_bucket(
+                    child,
+                    bucket.as_deref(),
+                    out,
+                    schema_errors,
+                );
             }
         }
         _ => {}
     }
 }
 
-fn record_from_object(
-    map: &serde_json::Map<String, Value>,
-) -> Result<Option<ReconciliationRecord>, String> {
-    if !is_usage_candidate(map) {
-        return Ok(None);
-    }
-
-    let input = required_number_any(
-        map,
-        &["input_tokens", "prompt_tokens", "input", "totalInput"],
-        "input",
-    )?;
-    let output = required_number_any(
-        map,
-        &[
-            "output_tokens",
-            "completion_tokens",
-            "output",
-            "totalOutput",
-        ],
-        "output",
-    )?;
-    let cache_read = required_number_any(
-        map,
-        &[
-            "cache_read_tokens",
-            "cached_input_tokens",
-            "cache_read_input_tokens",
-            "cacheRead",
-            "totalCacheRead",
-        ],
-        "cacheRead",
-    )?;
-    let cache_write = required_number_any(
-        map,
-        &[
-            "cache_write_tokens",
-            "cache_creation_input_tokens",
-            "cacheWrite",
-            "totalCacheWrite",
-        ],
-        "cacheWrite",
-    )?;
-    let reasoning = number_any(
-        map,
-        &["reasoning_tokens", "reasoning_output_tokens", "reasoning"],
-    );
-    if input + output + cache_read + cache_write + reasoning == 0 {
-        return Ok(None);
-    }
-
-    let model = string_any(map, &["model", "model_name"])
-        .ok_or_else(|| "tokscale usage row missing model".to_string())?;
-    let agent = parse_agent(
-        string_any(map, &["agent", "client", "tool"])
-            .ok_or_else(|| format!("tokscale usage row for {} missing client", model))?,
-    )
-    .ok_or_else(|| format!("tokscale usage row for {} has unsupported client", model))?
-    .to_string();
-    let provider = string_any(map, &["provider", "model_provider"])
-        .ok_or_else(|| format!("tokscale usage row for {} missing provider", model))?;
-    let timestamp = number_any(map, &["timestamp", "created_at", "time"]) as i64;
-    let session_id = string_any(map, &["session_id", "session", "conversation_id"]);
-    let event_count = required_number_any(
-        map,
-        &["event_count", "messageCount", "totalMessages"],
-        "messageCount",
-    )?
-    .max(1);
-    let mut source_metadata =
-        BTreeMap::from([("source_schema".to_string(), "tokscale_json".to_string())]);
-    if let Some(client) = string_any(map, &["client"]) {
-        source_metadata.insert("client".to_string(), client);
-    }
-    if let Some(cost) = number_or_float_string_any(map, &["cost", "totalCost"]) {
-        source_metadata.insert("cost".to_string(), cost);
-    }
-
-    Ok(Some(ReconciliationRecord {
-        source: TokenSource::TokscaleExport,
-        provider,
-        agent,
-        model,
-        timestamp_bucket: if timestamp > 0 {
-            epoch_to_date(timestamp)
-        } else {
-            "all".to_string()
-        },
-        session_id,
-        input_tokens: input,
-        output_tokens: output,
-        cache_read_tokens: cache_read,
-        cache_write_tokens: cache_write,
-        reasoning_tokens: reasoning,
-        event_count,
-        source_metadata,
-    }))
-}
-
 fn is_usage_candidate(map: &serde_json::Map<String, Value>) -> bool {
     map.contains_key("model")
         || map.contains_key("model_name")
+        || map.contains_key("modelId")
         || map.contains_key("client")
         || map.contains_key("agent")
         || map.contains_key("tool")
 }
 
-fn required_number_any(
+fn required_token_number_any(
     map: &serde_json::Map<String, Value>,
     keys: &[&str],
     label: &str,
@@ -367,7 +424,26 @@ fn required_number_any(
                 .ok_or_else(|| format!("tokscale usage row has invalid {} field", label));
         }
     }
+    if let Some(tokens) = map.get("tokens").and_then(|value| value.as_object()) {
+        for key in keys {
+            if let Some(value) = tokens.get(*key) {
+                return parse_non_negative_u64(value)
+                    .ok_or_else(|| format!("tokscale usage row has invalid {} field", label));
+            }
+        }
+    }
     Err(format!("tokscale usage row missing {} field", label))
+}
+
+fn token_number_any(map: &serde_json::Map<String, Value>, keys: &[&str]) -> u64 {
+    let direct = number_any(map, keys);
+    if direct > 0 {
+        return direct;
+    }
+    if let Some(tokens) = map.get("tokens").and_then(|value| value.as_object()) {
+        return number_any(tokens, keys);
+    }
+    0
 }
 
 fn number_any(map: &serde_json::Map<String, Value>, keys: &[&str]) -> u64 {
@@ -400,6 +476,32 @@ fn string_any(map: &serde_json::Map<String, Value>, keys: &[&str]) -> Option<Str
         }
     }
     None
+}
+
+fn date_bucket_any(map: &serde_json::Map<String, Value>, keys: &[&str]) -> Option<String> {
+    for key in keys {
+        if let Some(value) = map.get(*key).and_then(|value| value.as_str()) {
+            let trimmed = value.trim();
+            if trimmed.len() >= 10 {
+                let day = &trimmed[..10];
+                if is_yyyy_mm_dd(day) {
+                    return Some(day.to_string());
+                }
+            }
+        }
+    }
+    None
+}
+
+fn is_yyyy_mm_dd(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    value.len() == 10
+        && bytes[4] == b'-'
+        && bytes[7] == b'-'
+        && bytes
+            .iter()
+            .enumerate()
+            .all(|(idx, byte)| idx == 4 || idx == 7 || byte.is_ascii_digit())
 }
 
 fn number_or_float_string_any(
@@ -553,6 +655,105 @@ mod tests {
     }
 
     #[test]
+    fn parses_tokscale_dated_entries_into_day_buckets() {
+        let raw = r#"{
+          "groupBy": "day,client,model",
+          "entries": [
+            {
+              "day": "2026-01-27",
+              "client": "codex",
+              "model": "gpt-5",
+              "provider": "openai",
+              "input": 100,
+              "output": 20,
+              "cacheRead": 3,
+              "cacheWrite": 4,
+              "messageCount": 2
+            },
+            {
+              "date": "2026-02-03T00:00:00Z",
+              "client": "claude",
+              "model": "claude-sonnet-4-6",
+              "provider": "anthropic",
+              "input": 200,
+              "output": 30,
+              "cacheRead": 5,
+              "cacheWrite": 6,
+              "messageCount": 3
+            }
+          ]
+        }"#;
+        let collection = parse_tokscale_json(
+            raw,
+            &ReconcileOptions {
+                include_tokscale: true,
+                tokscale_group_by: Some("day".into()),
+                ..Default::default()
+            },
+        );
+
+        assert_eq!(collection.status, SourceStatus::Ok);
+        assert_eq!(collection.records.len(), 2);
+        assert!(
+            collection
+                .records
+                .iter()
+                .any(|record| record.timestamp_bucket == "2026-01-27")
+        );
+        assert!(
+            collection
+                .records
+                .iter()
+                .any(|record| record.timestamp_bucket == "2026-02-03")
+        );
+    }
+
+    #[test]
+    fn parses_tokscale_graph_contributions_into_day_buckets() {
+        let raw = r#"{
+          "contributions": [
+            {
+              "date": "2026-03-03",
+              "clients": [
+                {
+                  "client": "codex",
+                  "modelId": "gpt-5",
+                  "providerId": "openai",
+                  "tokens": {
+                    "input": 100,
+                    "output": 20,
+                    "cacheRead": 3,
+                    "cacheWrite": 4,
+                    "reasoning": 5
+                  },
+                  "messages": 2
+                }
+              ]
+            }
+          ]
+        }"#;
+        let collection = parse_tokscale_json(
+            raw,
+            &ReconcileOptions {
+                include_tokscale: true,
+                tokscale_subcommand: Some("graph".into()),
+                ..Default::default()
+            },
+        );
+
+        assert_eq!(collection.status, SourceStatus::Ok);
+        assert_eq!(collection.records.len(), 1);
+        let record = &collection.records[0];
+        assert_eq!(record.agent, "codex-cli");
+        assert_eq!(record.provider, "openai");
+        assert_eq!(record.model, "gpt-5");
+        assert_eq!(record.timestamp_bucket, "2026-03-03");
+        assert_eq!(record.input_tokens, 100);
+        assert_eq!(record.reasoning_tokens, 5);
+        assert_eq!(record.event_count, 2);
+    }
+
+    #[test]
     fn unsupported_schema_when_no_usage_records_exist() {
         let collection = parse_tokscale_json(
             r#"{"version":"x","summary":[]}"#,
@@ -608,11 +809,13 @@ mod tests {
             },
         );
         assert_eq!(collection.status, SourceStatus::UnsupportedSchema);
-        assert!(collection
-            .message
-            .as_deref()
-            .unwrap_or_default()
-            .contains("cacheRead"));
+        assert!(
+            collection
+                .message
+                .as_deref()
+                .unwrap_or_default()
+                .contains("cacheRead")
+        );
         assert!(collection.records.is_empty());
     }
 
@@ -622,6 +825,7 @@ mod tests {
             date_start: Some(1_769_472_000),
             date_end: Some(1_769_558_399),
             include_tokscale: true,
+            tokscale_group_by: Some("day".into()),
             ..Default::default()
         });
 
@@ -629,13 +833,28 @@ mod tests {
         assert!(args.contains(&"--no-spinner".to_string()));
         assert!(args.contains(&"--since".to_string()));
         assert!(args.contains(&"--until".to_string()));
-        assert!(!args
-            .iter()
-            .any(|arg| matches!(arg.as_str(), "submit" | "login" | "tui" | "wrapped")));
+        assert!(args.contains(&"--group-by".to_string()));
+        assert!(args.contains(&"day".to_string()));
+        assert!(
+            !args
+                .iter()
+                .any(|arg| matches!(arg.as_str(), "submit" | "login" | "tui" | "wrapped"))
+        );
     }
 
     #[test]
-    fn default_tokscale_command_prefers_local_binary_with_pinned_npx_fallback() {
+    fn tokscale_graph_report_args_use_graph_subcommand_without_json_flag() {
+        let args = tokscale_report_args(&ReconcileOptions {
+            include_tokscale: true,
+            tokscale_subcommand: Some("graph".into()),
+            ..Default::default()
+        });
+
+        assert_eq!(args, vec!["graph".to_string(), "--no-spinner".to_string()]);
+    }
+
+    #[test]
+    fn default_tokscale_command_prefers_local_binary_with_npx_latest_fallback() {
         let adapter = TokscaleCommandAdapter::new(None);
 
         assert_eq!(adapter.bin, PathBuf::from("tokscale"));
@@ -644,7 +863,7 @@ mod tests {
             adapter.fallback,
             Some((
                 PathBuf::from("npx"),
-                vec!["--yes".to_string(), "tokscale@2.1.3".to_string()]
+                vec!["--yes".to_string(), "tokscale@latest".to_string()]
             ))
         );
     }

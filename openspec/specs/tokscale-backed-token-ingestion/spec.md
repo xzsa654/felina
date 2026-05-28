@@ -273,7 +273,7 @@ The system SHALL distinguish missing binary, command failed, unsupported schema,
 ##### Example: missing executable
 
 - **GIVEN** no `tokscale` executable exists on `PATH`
-- **AND** `GLYPHIC_TOKSCALE_BIN` is unset
+- **AND** `FELINA_TOKSCALE_BIN` is unset
 - **WHEN** `refresh_token_data` runs
 - **THEN** the refresh result reports `status=missing_binary`
 - **THEN** `fallback_used=false`

@@ -6,7 +6,7 @@ Token refresh now treats `tokscale_export` as the production ingestion source. A
 
 Legacy Felina parser rows are retained with `source = 'felina_parser'` and `source_generation = 'legacy'`. Analytics queries read only the active source, so legacy parser totals and tokscale totals are not added together after migration.
 
-By default, Glyphic first invokes an installed `tokscale` binary with `--json --no-spinner`. If no local binary is available and no override is configured, it falls back to the pinned npm command `npx --yes tokscale@2.1.3 --json --no-spinner`. It never executes floating `tokscale@latest` during refresh. Set `GLYPHIC_TOKSCALE_BIN=/path/to/tokscale` to force a local pinned binary and disable the npm fallback.
+By default, Felina first invokes an installed `tokscale` binary with `graph --no-spinner` so production refreshes preserve dated buckets for daily and monthly analytics. If no local binary is available and no override is configured, it falls back to `npx --yes tokscale@latest graph --no-spinner` so refresh totals match the current tokscale CLI behavior. Set `PATH=/path/to/tokscale` to force a specific local binary and disable the npm fallback.
 
 Tokscale rows are accepted only when required machine-readable fields are present and valid: client/agent, provider, model, input, output, cache read, cache write, and message count. Reasoning is preserved when present and treated as `0` when tokscale omits it. Missing or invalid required fields return `unsupported_schema` instead of writing partial zero-filled production records.
 
@@ -19,13 +19,13 @@ Parser fallback is explicit. The default `refresh_token_data` path attempts toks
 Because legacy rows are retained, rollback is an active-source switch rather than a destructive restore. To read pre-migration parser-backed analytics again, set the active source back to `felina_parser`:
 
 ```bash
-sqlite3 ~/.glyphic/tokens.db "INSERT OR REPLACE INTO token_ingestion_state (key, value) VALUES ('active_source', 'felina_parser');"
+sqlite3 ~/.felina/tokens.db "INSERT OR REPLACE INTO token_ingestion_state (key, value) VALUES ('active_source', 'felina_parser');"
 ```
 
 To return to tokscale-backed analytics after a successful refresh:
 
 ```bash
-sqlite3 ~/.glyphic/tokens.db "INSERT OR REPLACE INTO token_ingestion_state (key, value) VALUES ('active_source', 'tokscale_export');"
+sqlite3 ~/.felina/tokens.db "INSERT OR REPLACE INTO token_ingestion_state (key, value) VALUES ('active_source', 'tokscale_export');"
 ```
 
 If a tokscale refresh fails, the storage replacement transaction is not committed and the previous active source remains readable.

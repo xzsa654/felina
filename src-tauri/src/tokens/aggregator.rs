@@ -1116,15 +1116,27 @@ impl TokenAggregator {
                 }
             }
             TimeGranularity::Daily => {
-                let source = self
+                let tokscale_count = self
                     .storage
-                    .active_source()
-                    .map_err(|e| format!("active_source error: {}", e))?;
-                eprintln!(
-                    "tokens: default analytics source Daily -> active_source {}",
-                    source
-                );
-                Ok(source)
+                    .count_events_for_source(SOURCE_TOKSCALE_EXPORT)
+                    .unwrap_or(0);
+                if tokscale_count > 0 {
+                    eprintln!(
+                        "tokens: default analytics source {:?} -> {} ({} events)",
+                        granularity, SOURCE_TOKSCALE_EXPORT, tokscale_count
+                    );
+                    Ok(SOURCE_TOKSCALE_EXPORT.to_string())
+                } else {
+                    let source = self
+                        .storage
+                        .active_source()
+                        .map_err(|e| format!("active_source error: {}", e))?;
+                    eprintln!(
+                        "tokens: default analytics source {:?} -> active_source {} (tokscale_export missing)",
+                        granularity, source
+                    );
+                    Ok(source)
+                }
             }
         }
     }
@@ -1143,7 +1155,19 @@ impl TokenAggregator {
             }
         }
 
-        // Query DB (scope conn lock so it's released before active_source).
+        // Prefer tokscale_export when it has timestamped events.
+        let tokscale_count = self
+            .storage
+            .count_events_for_source(SOURCE_TOKSCALE_EXPORT)
+            .unwrap_or(0);
+        if tokscale_count > 0 {
+            if let Ok(mut cache) = self.dated_source_cache.lock() {
+                *cache = Some(SOURCE_TOKSCALE_EXPORT.to_string());
+            }
+            return Ok(SOURCE_TOKSCALE_EXPORT.to_string());
+        }
+
+        // Fall back to the source with the most timestamped events.
         let dated_source = {
             let conn = self
                 .storage

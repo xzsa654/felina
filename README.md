@@ -101,6 +101,60 @@ npm run tauri dev
 
 `npm run tauri dev` 會啟動完整 Tauri App。只執行 `npm run dev` 只會啟動 Vite，呼叫 Tauri commands 的頁面無法完整運作。
 
+#### Token Analytics 環境變數
+
+Token 儀表板需要 `tokscale` 來擷取使用數據。Felina 依照以下順序尋找 `tokscale`：
+
+1. `FELINA_TOKSCALE_BIN` 環境變數指定的絕對路徑
+2. `PATH` 中的 `tokscale` 指令
+3. `npx --yes tokscale@latest` 作為 fallback
+
+專案已將 `tokscale` 列為 devDependency，`npm install` 後會安裝在 `node_modules/.bin/tokscale`。
+
+**設定方式（二選一）：**
+
+**方案 A — 設定 `FELINA_TOKSCALE_BIN`（推薦）**
+
+macOS / Linux：
+
+```bash
+export FELINA_TOKSCALE_BIN="$PWD/node_modules/.bin/tokscale"
+```
+
+Windows (PowerShell)：
+
+```powershell
+$env:FELINA_TOKSCALE_BIN = "$PWD\node_modules\.bin\tokscale.cmd"
+```
+
+Windows (Command Prompt)：
+
+```cmd
+set FELINA_TOKSCALE_BIN=%CD%\node_modules\.bin\tokscale.cmd
+```
+
+**方案 B — 將 `node_modules/.bin` 加入 `PATH`**
+
+macOS / Linux：
+
+```bash
+export PATH="$PWD/node_modules/.bin:$PATH"
+```
+
+Windows (PowerShell)：
+
+```powershell
+$env:PATH = "$PWD\node_modules\.bin;$env:PATH"
+```
+
+Windows (Command Prompt)：
+
+```cmd
+set PATH=%CD%\node_modules\.bin;%PATH%
+```
+
+> 建議將環境變數寫入 shell profile（`~/.zshrc`、`~/.bashrc` 或 Windows 的系統環境變數），避免每次重開 terminal 都要重設。
+
 ### Useful Commands
 
 ```bash
