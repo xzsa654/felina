@@ -44,36 +44,48 @@ impl TokscaleCommandAdapter {
 impl TokscaleAdapter for TokscaleCommandAdapter {
     fn collect(&self, options: &ReconcileOptions) -> SourceCollection {
         let report_args = tokscale_report_args(options);
+        eprintln!("tokscale: running {} {:?}", self.bin.display(), report_args);
         let output = match run_tokscale_command(&self.bin, &self.base_args, &report_args) {
             Ok(output) => output,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => match &self.fallback {
-                Some((bin, args)) => match run_tokscale_command(bin, args, &report_args) {
-                    Ok(output) => output,
-                    Err(fallback_error)
-                        if fallback_error.kind() == std::io::ErrorKind::NotFound =>
-                    {
-                        return SourceCollection {
-                            source: TokenSource::TokscaleExport,
-                            status: SourceStatus::MissingBinary,
-                            message: Some(format!(
-                                "{} not found and pinned npx fallback is unavailable",
-                                self.bin.display()
-                            )),
-                            version: None,
-                            records: Vec::new(),
-                        };
+                Some((bin, args)) => {
+                    eprintln!(
+                        "tokscale: primary binary {} not found, trying fallback {} {:?}",
+                        self.bin.display(),
+                        bin.display(),
+                        args
+                    );
+                    match run_tokscale_command(bin, args, &report_args) {
+                        Ok(output) => output,
+                        Err(fallback_error)
+                            if fallback_error.kind() == std::io::ErrorKind::NotFound =>
+                        {
+                            eprintln!("tokscale: fallback binary {} not found", bin.display());
+                            return SourceCollection {
+                                source: TokenSource::TokscaleExport,
+                                status: SourceStatus::MissingBinary,
+                                message: Some(format!(
+                                    "{} not found and pinned npx fallback is unavailable",
+                                    self.bin.display()
+                                )),
+                                version: None,
+                                records: Vec::new(),
+                            };
+                        }
+                        Err(fallback_error) => {
+                            eprintln!("tokscale: fallback command failed: {}", fallback_error);
+                            return SourceCollection {
+                                source: TokenSource::TokscaleExport,
+                                status: SourceStatus::CommandFailed,
+                                message: Some(fallback_error.to_string()),
+                                version: None,
+                                records: Vec::new(),
+                            };
+                        }
                     }
-                    Err(fallback_error) => {
-                        return SourceCollection {
-                            source: TokenSource::TokscaleExport,
-                            status: SourceStatus::CommandFailed,
-                            message: Some(fallback_error.to_string()),
-                            version: None,
-                            records: Vec::new(),
-                        };
-                    }
-                },
+                }
                 None => {
+                    eprintln!("tokscale: primary binary {} not found", self.bin.display());
                     return SourceCollection {
                         source: TokenSource::TokscaleExport,
                         status: SourceStatus::MissingBinary,
@@ -84,6 +96,7 @@ impl TokscaleAdapter for TokscaleCommandAdapter {
                 }
             },
             Err(e) => {
+                eprintln!("tokscale: primary command failed: {}", e);
                 return SourceCollection {
                     source: TokenSource::TokscaleExport,
                     status: SourceStatus::CommandFailed,
@@ -95,6 +108,11 @@ impl TokscaleAdapter for TokscaleCommandAdapter {
         };
 
         if !output.status.success() {
+            eprintln!(
+                "tokscale: command exited with status {:?}, stderr={}",
+                output.status.code(),
+                String::from_utf8_lossy(&output.stderr).trim()
+            );
             return SourceCollection {
                 source: TokenSource::TokscaleExport,
                 status: SourceStatus::CommandFailed,
@@ -140,6 +158,7 @@ pub fn parse_tokscale_json(raw: &str, options: &ReconcileOptions) -> SourceColle
     let value: Value = match serde_json::from_str(raw) {
         Ok(value) => value,
         Err(e) => {
+            eprintln!("tokscale: JSON parse failed: {}", e);
             return SourceCollection {
                 source: TokenSource::TokscaleExport,
                 status: SourceStatus::ParseFailed,
@@ -159,6 +178,7 @@ pub fn parse_tokscale_json(raw: &str, options: &ReconcileOptions) -> SourceColle
     let mut schema_errors = Vec::new();
     collect_records_from_value(&value, &mut records, &mut schema_errors);
     if !schema_errors.is_empty() {
+        eprintln!("tokscale: unsupported schema: {}", schema_errors.join("; "));
         return SourceCollection {
             source: TokenSource::TokscaleExport,
             status: SourceStatus::UnsupportedSchema,
@@ -185,6 +205,7 @@ pub fn parse_tokscale_json(raw: &str, options: &ReconcileOptions) -> SourceColle
         .collect::<Vec<_>>();
 
     if filtered.is_empty() {
+        eprintln!("tokscale: no token usage records found after filtering");
         return SourceCollection {
             source: TokenSource::TokscaleExport,
             status: SourceStatus::UnsupportedSchema,
