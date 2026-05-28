@@ -131,6 +131,7 @@ pub fn run() {
             commands::fan_out::skill_sync_all_commit,
             commands::fan_out::skill_target_dir_resolve,
             commands::fan_out::skill_drift_scan,
+            commands::fan_out::skill_pull_from_target,
             // Skill field catalog.
             commands::skill_fields::list_skill_field_catalog,
             // Initial skill import.

@@ -90,7 +90,7 @@ export default function SkillEditor({ skill, brokenRaw, onSaved, onCancel, onDel
     setAgentFields(skill?.agentFields ?? {});
     setAdvancedOpen(false);
     setError(null);
-  }, [skill?.canonicalId, isNew]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [skill?.canonicalId, skill?.body, isNew]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // When the parent swaps the broken skill being repaired, reload its raw text.
   useEffect(() => {
