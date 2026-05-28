@@ -23,6 +23,7 @@ import type {
   KnownProject,
   SkillTarget,
   OrphanFile,
+  SkillFieldDefinition,
   AgentId,
   SkillScope,
   CanonicalDeletePolicy,
@@ -124,11 +125,13 @@ export const api = {
       name: string,
       frontmatter: Record<string, unknown>,
       body: string,
+      agentFields?: Record<string, unknown>,
     ) =>
       invoke<void>("canonical_skills_write", {
         name,
         frontmatter,
         body,
+        agentFields,
       }),
     writeRaw: (name: string, content: string) =>
       invoke<{ normalizedFrom: string | null }>("canonical_skills_write_raw", { name, content }),
@@ -160,6 +163,11 @@ export const api = {
         scope,
         project,
       }),
+  },
+
+  // Skill field catalog.
+  skillFields: {
+    list: () => invoke<SkillFieldDefinition[]>("list_skill_field_catalog"),
   },
 
   // Initial skill import (passive scan + manual wizard).

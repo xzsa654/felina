@@ -55,6 +55,8 @@ export interface CanonicalSkill {
   targets: SkillTarget[];
   /** Per-target push provenance (sync-meta v2). Keyed by stable per-target id. */
   lastSync: Record<string, LastSyncEntry>;
+  /** Agent-scoped optional fields (`x_felina_agent_fields` in YAML). */
+  agentFields: Record<string, unknown>;
 }
 
 /**
@@ -290,4 +292,23 @@ export interface OrphanFile {
   scope: SkillScope;
   /** Originating project path when `scope === "project"`; absent for global. */
   project?: string;
+}
+
+// ── Skill field catalog ──────────────────────────────────────────
+
+export type OutputLocation = "skillFrontmatter" | "codexOpenaiYaml";
+export type ValueKind = "string" | "boolean" | "enum" | "stringList" | "object" | "objectArray";
+export type FieldAgent = "anthropic" | "codex" | "gemini" | "standard";
+
+export interface SkillFieldDefinition {
+  agent: FieldAgent;
+  canonicalPath: string;
+  outputLocation: OutputLocation;
+  outputKey: string;
+  valueKind: ValueKind;
+  enumValues?: string[];
+  sourceUrl: string;
+  verifiedDate: string;
+  labelKey: string;
+  helpKey: string;
 }

@@ -45,56 +45,34 @@ impl FanOutRenderer for CodexRenderer {
         );
         super::anthropic::write_skill_md(&skill_dir, &serde_yaml::Value::Mapping(fm), &skill.body)?;
 
-        // agents/openai.yaml: optional UI metadata. Sourced from canonical
-        // extras with the keys `display_name`, `short_description`,
-        // `default_prompt`. We only emit the file when at least one of
-        // those is present — empty interface block is noise.
-        let extras = match &skill.frontmatter_extras {
-            serde_yaml::Value::Mapping(m) => m,
+        // agents/openai.yaml: sourced from agent_fields.codex. Dotted keys
+        // (e.g. "interface.display_name") are expanded into nested YAML.
+        let codex_fields = match skill.agent_fields.get("codex") {
+            Some(serde_yaml::Value::Mapping(m)) if !m.is_empty() => m,
             _ => return Ok(()),
         };
-        let display_name = extras
-            .get(serde_yaml::Value::String("display_name".into()))
-            .and_then(|v| v.as_str());
-        let short_description = extras
-            .get(serde_yaml::Value::String("short_description".into()))
-            .and_then(|v| v.as_str());
-        let default_prompt = extras
-            .get(serde_yaml::Value::String("default_prompt".into()))
-            .and_then(|v| v.as_str());
 
-        if display_name.is_none() && short_description.is_none() && default_prompt.is_none() {
-            return Ok(());
+        let mut root = serde_yaml::Mapping::new();
+        for (k, v) in codex_fields {
+            let serde_yaml::Value::String(ref key) = k else { continue; };
+            if let Some((section, field)) = key.split_once('.') {
+                let section_val = root
+                    .entry(serde_yaml::Value::String(section.into()))
+                    .or_insert_with(|| serde_yaml::Value::Mapping(serde_yaml::Mapping::new()));
+                if let serde_yaml::Value::Mapping(ref mut m) = section_val {
+                    m.insert(serde_yaml::Value::String(field.into()), v.clone());
+                }
+            } else {
+                root.insert(k.clone(), v.clone());
+            }
         }
 
+        if root.is_empty() {
+            return Ok(());
+        }
         let agents_dir = skill_dir.join("agents");
         fs::create_dir_all(&agents_dir)
             .map_err(|e| format!("failed to create Codex agents/ dir: {e}"))?;
-
-        let mut interface = serde_yaml::Mapping::new();
-        if let Some(v) = display_name {
-            interface.insert(
-                serde_yaml::Value::String("display_name".into()),
-                serde_yaml::Value::String(v.into()),
-            );
-        }
-        if let Some(v) = short_description {
-            interface.insert(
-                serde_yaml::Value::String("short_description".into()),
-                serde_yaml::Value::String(v.into()),
-            );
-        }
-        if let Some(v) = default_prompt {
-            interface.insert(
-                serde_yaml::Value::String("default_prompt".into()),
-                serde_yaml::Value::String(v.into()),
-            );
-        }
-        let mut root = serde_yaml::Mapping::new();
-        root.insert(
-            serde_yaml::Value::String("interface".into()),
-            serde_yaml::Value::Mapping(interface),
-        );
         let yaml = serde_yaml::to_string(&serde_yaml::Value::Mapping(root))
             .map_err(|e| format!("openai.yaml serialize failed: {e}"))?;
         fs::write(agents_dir.join("openai.yaml"), yaml)
@@ -108,33 +86,37 @@ mod tests {
     use super::*;
 
     fn sample_skill_with_ui_meta() -> CanonicalSkill {
-        let mut extras = serde_yaml::Mapping::new();
-        extras.insert(
-            serde_yaml::Value::String("display_name".into()),
+        let mut codex_fields = serde_yaml::Mapping::new();
+        codex_fields.insert(
+            serde_yaml::Value::String("interface.display_name".into()),
             serde_yaml::Value::String("Demo Skill".into()),
         );
-        extras.insert(
-            serde_yaml::Value::String("short_description".into()),
+        codex_fields.insert(
+            serde_yaml::Value::String("interface.short_description".into()),
             serde_yaml::Value::String("A demo".into()),
         );
-        // No default_prompt — verifies we only emit fields that are present.
-        // Anthropic-only field also present — Codex must ignore it.
-        extras.insert(
+        let mut agent_fields = std::collections::BTreeMap::new();
+        agent_fields.insert("codex".into(), serde_yaml::Value::Mapping(codex_fields));
+        // Anthropic-only field in anthropic namespace — Codex must ignore it.
+        let mut anth_fields = serde_yaml::Mapping::new();
+        anth_fields.insert(
             serde_yaml::Value::String("effort".into()),
             serde_yaml::Value::String("high".into()),
         );
+        agent_fields.insert("anthropic".into(), serde_yaml::Value::Mapping(anth_fields));
 
         CanonicalSkill {
             canonical_id: "demo".into(),
             name: "demo".into(),
             description: "Demo skill".into(),
             agents: vec![AgentId::Codex],
-            frontmatter_extras: serde_yaml::Value::Mapping(extras),
+            frontmatter_extras: serde_yaml::Value::Mapping(serde_yaml::Mapping::new()),
             body: "body".into(),
             dirty: false,
             last_synced: None,
             targets: Vec::new(),
             last_sync: std::collections::BTreeMap::new(),
+            agent_fields,
         }
     }
 
@@ -194,6 +176,7 @@ mod tests {
             last_synced: None,
             targets: Vec::new(),
             last_sync: std::collections::BTreeMap::new(),
+            agent_fields: std::collections::BTreeMap::new(),
         };
         CodexRenderer.render(&skill, &tmp).unwrap();
         assert!(!tmp.join("bare").join("agents").exists());

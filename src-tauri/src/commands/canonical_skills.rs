@@ -59,6 +59,10 @@ pub struct CanonicalSkill {
     /// Optional frontmatter fields preserved verbatim. Per-agent renderers
     /// pick what they need out of here; unknown fields stay round-trippable.
     pub frontmatter_extras: serde_yaml::Value,
+    /// Agent-scoped optional fields (`x_felina_agent_fields` in YAML).
+    /// Keys: "anthropic", "codex", "gemini", "standard".
+    #[serde(default)]
+    pub agent_fields: BTreeMap<String, serde_yaml::Value>,
     /// Raw markdown body, never reparsed.
     pub body: String,
     /// True when canonical content changed since the last successful push.
@@ -152,6 +156,9 @@ pub fn parse_skill_md(raw: &str) -> Result<CanonicalSkill, String> {
     let description = take_required_string(map, "description")?;
     let agents = take_required_agents(map)?;
 
+    let mut agent_fields = extract_agent_fields(map);
+    classify_flat_extras(map, &mut agent_fields);
+
     Ok(CanonicalSkill {
         canonical_id: String::new(),
         name,
@@ -163,6 +170,7 @@ pub fn parse_skill_md(raw: &str) -> Result<CanonicalSkill, String> {
         last_synced: None,
         targets: Vec::new(),
         last_sync: BTreeMap::new(),
+        agent_fields,
     })
 }
 
@@ -214,6 +222,80 @@ fn take_required_agents(map: &mut serde_yaml::Mapping) -> Result<Vec<AgentId>, S
         }
     }
     Ok(out)
+}
+
+const AGENT_FIELDS_KEY: &str = "x_felina_agent_fields";
+
+fn extract_agent_fields(map: &mut serde_yaml::Mapping) -> BTreeMap<String, serde_yaml::Value> {
+    let raw = map.remove(serde_yaml::Value::String(AGENT_FIELDS_KEY.into()));
+    let Some(serde_yaml::Value::Mapping(m)) = raw else {
+        return BTreeMap::new();
+    };
+    let mut out = BTreeMap::new();
+    for (k, v) in m {
+        if let serde_yaml::Value::String(key) = k {
+            out.insert(key, v);
+        }
+    }
+    out
+}
+
+/// Known flat extras that belong to specific agent namespaces.
+/// Format: (flat_key_variants, agent_namespace, canonical_key).
+const FLAT_FIELD_CLASSIFICATIONS: &[(&[&str], &str, &str)] = &[
+    // Anthropic / Claude Code
+    (&["allowed_tools", "allowed-tools"], "anthropic", "allowed-tools"),
+    (&["effort"], "anthropic", "effort"),
+    (&["model"], "anthropic", "model"),
+    (&["when_to_use"], "anthropic", "when_to_use"),
+    (&["argument-hint", "argument_hint"], "anthropic", "argument-hint"),
+    (&["arguments"], "anthropic", "arguments"),
+    (&["disable-model-invocation", "disable_model_invocation"], "anthropic", "disable-model-invocation"),
+    (&["user-invocable", "user_invocable"], "anthropic", "user-invocable"),
+    (&["context"], "anthropic", "context"),
+    (&["agent"], "anthropic", "agent"),
+    (&["hooks"], "anthropic", "hooks"),
+    (&["paths"], "anthropic", "paths"),
+    (&["shell"], "anthropic", "shell"),
+    // Codex (flat keys that might appear from old imports)
+    (&["display_name"], "codex", "interface.display_name"),
+    (&["short_description"], "codex", "interface.short_description"),
+    (&["default_prompt"], "codex", "interface.default_prompt"),
+];
+
+fn classify_flat_extras(
+    map: &mut serde_yaml::Mapping,
+    agent_fields: &mut BTreeMap<String, serde_yaml::Value>,
+) {
+    for &(variants, agent, canonical_key) in FLAT_FIELD_CLASSIFICATIONS {
+        for &variant in variants {
+            let key = serde_yaml::Value::String(variant.into());
+            if let Some(val) = map.remove(&key) {
+                let ns = agent_fields
+                    .entry(agent.to_string())
+                    .or_insert_with(|| serde_yaml::Value::Mapping(serde_yaml::Mapping::new()));
+                if let serde_yaml::Value::Mapping(ref mut m) = ns {
+                    m.entry(serde_yaml::Value::String(canonical_key.into()))
+                        .or_insert(val);
+                }
+                break;
+            }
+        }
+    }
+}
+
+pub(crate) fn inject_agent_fields(map: &mut serde_yaml::Mapping, agent_fields: &BTreeMap<String, serde_yaml::Value>) {
+    if agent_fields.is_empty() {
+        return;
+    }
+    let mut inner = serde_yaml::Mapping::new();
+    for (k, v) in agent_fields {
+        inner.insert(serde_yaml::Value::String(k.clone()), v.clone());
+    }
+    map.insert(
+        serde_yaml::Value::String(AGENT_FIELDS_KEY.into()),
+        serde_yaml::Value::Mapping(inner),
+    );
 }
 
 /// Tagged-union list entry returned by `canonical_skills_list`. A skill
@@ -687,8 +769,15 @@ pub fn canonical_skills_write(
     name: String,
     frontmatter: serde_yaml::Value,
     body: String,
+    agent_fields: Option<BTreeMap<String, serde_yaml::Value>>,
 ) -> Result<(), String> {
     validate_skill_name(&name)?;
+    if let Some(ref af) = agent_fields {
+        let validation_errors = crate::commands::skill_fields::validate_agent_fields(af);
+        if !validation_errors.is_empty() {
+            return Err(validation_errors.join("; "));
+        }
+    }
     let dir = canonical_skills_dir();
     let skill_dir = dir.join(&name);
     fs::create_dir_all(&skill_dir)
@@ -700,6 +789,9 @@ pub fn canonical_skills_write(
             serde_yaml::Value::String("name".into()),
             serde_yaml::Value::String(name.clone()),
         );
+        if let Some(ref af) = agent_fields {
+            inject_agent_fields(map, af);
+        }
     }
 
     let fm_yaml =
@@ -738,10 +830,18 @@ pub fn skill_targets_set(skill_name: String, targets: Vec<SkillTarget>) -> Resul
     };
     meta.last_sync.retain(|k, _| valid_keys.contains(k));
     meta.targets = targets;
-    meta.dirty = meta
-        .targets
-        .iter()
-        .any(|t| t.enabled && !matches!(t.mode, TargetMode::Detached | TargetMode::Forked));
+    // Preserve existing dirty state (set by canonical_skills_write /
+    // mark_sync_meta_dirty). Only additionally mark dirty if a newly enabled
+    // tracked target has never been pushed (no last_sync entry). Re-enabling
+    // a previously synced target does not flip dirty — was_dirty already
+    // reflects whether canonical changed since the last push.
+    let was_dirty = meta.dirty;
+    let has_unsynced_target = meta.targets.iter().any(|t| {
+        t.enabled
+            && !matches!(t.mode, TargetMode::Detached | TargetMode::Forked)
+            && !meta.last_sync.contains_key(&target_key(t))
+    });
+    meta.dirty = was_dirty || has_unsynced_target;
     write_sync_meta_v2(&skill_dir, &meta)
 }
 
@@ -795,12 +895,15 @@ pub fn skill_target_remove_with_policy(
         None
     };
 
+    let was_dirty = meta.dirty;
     meta.targets.retain(|existing| target_key(existing) != key);
     meta.last_sync.remove(&key);
-    meta.dirty = meta
-        .targets
-        .iter()
-        .any(|t| t.enabled && matches!(t.mode, TargetMode::Tracked));
+    let has_unsynced = meta.targets.iter().any(|t| {
+        t.enabled
+            && !matches!(t.mode, TargetMode::Detached | TargetMode::Forked)
+            && !meta.last_sync.contains_key(&target_key(t))
+    });
+    meta.dirty = was_dirty || has_unsynced;
     write_sync_meta_v2(&skill_dir, &meta)?;
 
     Ok(SkillTargetRemovalResult {
@@ -1268,10 +1371,129 @@ Hello.\n";
     fn preserves_extras_passthrough() {
         let s = parse_skill_md(SAMPLE).unwrap();
         let extras = s.frontmatter_extras.as_mapping().unwrap();
-        // `effort` and `custom_field` survive untouched; `name`/`description`/`agents` removed.
-        assert!(extras.contains_key(serde_yaml::Value::String("effort".into())));
+        // `effort` is classified into agent_fields.anthropic; `custom_field` stays in extras.
+        assert!(!extras.contains_key(serde_yaml::Value::String("effort".into())));
         assert!(extras.contains_key(serde_yaml::Value::String("custom_field".into())));
         assert!(!extras.contains_key(serde_yaml::Value::String("name".into())));
+        // effort should be in agent_fields
+        let anth = s.agent_fields.get("anthropic").unwrap().as_mapping().unwrap();
+        assert!(anth.contains_key(serde_yaml::Value::String("effort".into())));
+    }
+
+    #[test]
+    fn parses_agent_fields_from_x_felina_agent_fields() {
+        let raw = "---\nname: test\ndescription: d\nagents:\n  - anthropic\nx_felina_agent_fields:\n  anthropic:\n    allowed-tools: Read Grep\n    effort: high\n  codex:\n    interface:\n      display_name: Test\n---\nbody\n";
+        let s = parse_skill_md(raw).unwrap();
+        assert_eq!(s.agent_fields.len(), 2);
+        assert!(s.agent_fields.contains_key("anthropic"));
+        assert!(s.agent_fields.contains_key("codex"));
+        let anth = s.agent_fields.get("anthropic").unwrap().as_mapping().unwrap();
+        assert_eq!(
+            anth.get(serde_yaml::Value::String("allowed-tools".into()))
+                .unwrap()
+                .as_str()
+                .unwrap(),
+            "Read Grep"
+        );
+        // x_felina_agent_fields should be removed from frontmatter_extras
+        let extras = s.frontmatter_extras.as_mapping().unwrap();
+        assert!(!extras.contains_key(serde_yaml::Value::String("x_felina_agent_fields".into())));
+    }
+
+    #[test]
+    fn agent_fields_round_trip_through_write() {
+        let tmp = tempdir();
+        crate::paths::set_felina_home_override_for_test(Some(tmp.join(".felina")));
+        struct G;
+        impl Drop for G {
+            fn drop(&mut self) {
+                crate::paths::set_felina_home_override_for_test(None);
+            }
+        }
+        let _g = G;
+
+        let mut af = BTreeMap::new();
+        let mut anth = serde_yaml::Mapping::new();
+        anth.insert(
+            serde_yaml::Value::String("allowed-tools".into()),
+            serde_yaml::Value::String("Read Grep".into()),
+        );
+        anth.insert(
+            serde_yaml::Value::String("effort".into()),
+            serde_yaml::Value::String("high".into()),
+        );
+        af.insert("anthropic".into(), serde_yaml::Value::Mapping(anth));
+
+        let mut fm = serde_yaml::Mapping::new();
+        fm.insert(
+            serde_yaml::Value::String("description".into()),
+            serde_yaml::Value::String("test".into()),
+        );
+        fm.insert(
+            serde_yaml::Value::String("agents".into()),
+            serde_yaml::Value::Sequence(vec![serde_yaml::Value::String("anthropic".into())]),
+        );
+
+        canonical_skills_write(
+            "af-test".into(),
+            serde_yaml::Value::Mapping(fm),
+            "body\n".into(),
+            Some(af),
+        )
+        .unwrap();
+
+        let written = std::fs::read_to_string(
+            tmp.join(".felina")
+                .join("skills")
+                .join("af-test")
+                .join("SKILL.md"),
+        )
+        .unwrap();
+        assert!(written.contains("x_felina_agent_fields:"), "got:\n{written}");
+        assert!(written.contains("allowed-tools: Read Grep"), "got:\n{written}");
+        assert!(written.contains("effort: high"), "got:\n{written}");
+
+        let parsed = parse_skill_md(&written).unwrap();
+        assert_eq!(parsed.agent_fields.len(), 1);
+        assert!(parsed.agent_fields.contains_key("anthropic"));
+    }
+
+    #[test]
+    fn classifies_flat_extras_into_agent_fields() {
+        let raw = "---\nname: test\ndescription: d\nagents:\n  - anthropic\nallowed_tools: Read\neffort: high\ndisplay_name: Demo\nunknown_field: keep\n---\nbody\n";
+        let s = parse_skill_md(raw).unwrap();
+        // allowed_tools and effort → anthropic namespace
+        let anth = s.agent_fields.get("anthropic").unwrap().as_mapping().unwrap();
+        assert_eq!(
+            anth.get(serde_yaml::Value::String("allowed-tools".into()))
+                .unwrap()
+                .as_str()
+                .unwrap(),
+            "Read"
+        );
+        assert_eq!(
+            anth.get(serde_yaml::Value::String("effort".into()))
+                .unwrap()
+                .as_str()
+                .unwrap(),
+            "high"
+        );
+        // display_name → codex namespace
+        let codex = s.agent_fields.get("codex").unwrap().as_mapping().unwrap();
+        assert_eq!(
+            codex.get(serde_yaml::Value::String("interface.display_name".into()))
+                .unwrap()
+                .as_str()
+                .unwrap(),
+            "Demo"
+        );
+        // unknown_field stays in frontmatter_extras
+        let extras = s.frontmatter_extras.as_mapping().unwrap();
+        assert!(extras.contains_key(serde_yaml::Value::String("unknown_field".into())));
+        // classified fields removed from extras
+        assert!(!extras.contains_key(serde_yaml::Value::String("allowed_tools".into())));
+        assert!(!extras.contains_key(serde_yaml::Value::String("effort".into())));
+        assert!(!extras.contains_key(serde_yaml::Value::String("display_name".into())));
     }
 
     #[test]
@@ -1460,6 +1682,7 @@ Hello.\n";
             "foo".into(),
             serde_yaml::Value::Mapping(fm),
             "Foo body".into(),
+            None,
         )
         .expect("write");
 
@@ -1477,12 +1700,9 @@ Hello.\n";
         assert_eq!(skill.description, "Foo helper");
         assert_eq!(skill.agents, vec![AgentId::Anthropic]);
         assert!(skill.body.contains("Foo body"));
-        // `effort` survives as an extra.
-        assert!(skill
-            .frontmatter_extras
-            .as_mapping()
-            .unwrap()
-            .contains_key(serde_yaml::Value::String("effort".into())));
+        // `effort` is classified into agent_fields.anthropic.
+        let anth = skill.agent_fields.get("anthropic").unwrap().as_mapping().unwrap();
+        assert!(anth.contains_key(serde_yaml::Value::String("effort".into())));
     }
 
     #[test]
@@ -1502,7 +1722,7 @@ Hello.\n";
             "with;semi",
         ] {
             let err =
-                canonical_skills_write(bad.into(), empty_fm.clone(), String::new()).unwrap_err();
+                canonical_skills_write(bad.into(), empty_fm.clone(), String::new(), None).unwrap_err();
             assert!(
                 err.contains("skill name") || err.contains("disallowed"),
                 "bad={bad:?} err={err}"
@@ -1613,6 +1833,7 @@ Hello.\n";
             last_synced: None,
             targets: Vec::new(),
             last_sync: BTreeMap::new(),
+            agent_fields: BTreeMap::new(),
         }
     }
 
@@ -1803,6 +2024,7 @@ Hello.\n";
             "aligned".into(),
             serde_yaml::Value::Mapping(fm),
             "body".into(),
+            None,
         )
         .unwrap();
 
@@ -1846,6 +2068,7 @@ Hello.\n";
             "aligned".into(),
             serde_yaml::Value::Mapping(fm2),
             "edited".into(),
+            None,
         )
         .unwrap();
 
@@ -1913,6 +2136,7 @@ Hello.\n";
             "brand-new".into(),
             serde_yaml::Value::Mapping(fm),
             "body".into(),
+            None,
         )
         .unwrap();
 
@@ -1987,7 +2211,8 @@ Hello.\n";
         assert_eq!(meta.targets[0].agent, AgentId::Anthropic);
         assert!(meta.last_sync.contains_key(&target_key(&t_anth)));
         assert!(!meta.last_sync.contains_key(&target_key(&t_codex)));
-        assert!(meta.dirty);
+        // Remaining anthropic target has a last_sync entry → not dirty.
+        assert!(!meta.dirty);
     }
 
     // -----------------------------------------------------------------
@@ -2012,6 +2237,7 @@ Hello.\n";
             "prune-me".into(),
             serde_yaml::Value::Mapping(fm),
             "body".into(),
+            None,
         )
         .unwrap();
 
@@ -2088,6 +2314,7 @@ Hello.\n";
             "flag-test".into(),
             serde_yaml::Value::Mapping(fm),
             "body".into(),
+            None,
         )
         .unwrap();
 
@@ -2160,6 +2387,7 @@ Hello.\n";
             "apply-test".into(),
             serde_yaml::Value::Mapping(fm),
             "body".into(),
+            None,
         )
         .unwrap();
 
@@ -2216,6 +2444,7 @@ Hello.\n";
             "no-auto-del".into(),
             serde_yaml::Value::Mapping(fm),
             "body".into(),
+            None,
         )
         .unwrap();
 
@@ -2260,6 +2489,7 @@ Hello.\n";
             "clean".into(),
             serde_yaml::Value::Mapping(fm),
             "body".into(),
+            None,
         )
         .unwrap();
 
@@ -2285,6 +2515,7 @@ Hello.\n";
             "code-review".into(),
             serde_yaml::Value::Mapping(fm),
             "body".into(),
+            None,
         )
         .unwrap();
 
@@ -2333,6 +2564,7 @@ Hello.\n";
             "code-review".into(),
             serde_yaml::Value::Mapping(fm),
             "body".into(),
+            None,
         )
         .unwrap();
 
@@ -2391,6 +2623,7 @@ Hello.\n";
             "fresh".into(),
             serde_yaml::Value::Mapping(fm.clone()),
             "body v1".into(),
+            None,
         )
         .expect("first write");
 
@@ -2430,6 +2663,7 @@ Hello.\n";
             "fresh".into(),
             serde_yaml::Value::Mapping(fm),
             "body v2 edited".into(),
+            None,
         )
         .expect("second write");
 
@@ -2462,6 +2696,7 @@ Hello.\n";
             "dir-name".into(),
             serde_yaml::Value::Mapping(fm),
             "body".into(),
+            None,
         )
         .expect("write");
 
@@ -2601,7 +2836,7 @@ Hello.\n";
                     "gemini".into(),
                 ]),
             );
-            canonical_skills_write(name.into(), serde_yaml::Value::Mapping(fm), "body".into())
+            canonical_skills_write(name.into(), serde_yaml::Value::Mapping(fm), "body".into(), None)
                 .unwrap();
             let project = tmp.to_string_lossy().to_string();
             let disabled_project = tmp.join("disabled-project");
@@ -2751,6 +2986,7 @@ Hello.\n";
             "target-remove".into(),
             serde_yaml::Value::Mapping(fm),
             "body".into(),
+            None,
         )
         .unwrap();
 
@@ -2946,6 +3182,7 @@ Hello.\n";
             "repoint-skill".into(),
             serde_yaml::Value::Mapping(fm),
             "body".into(),
+            None,
         )
         .unwrap();
 

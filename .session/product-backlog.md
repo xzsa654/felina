@@ -8,8 +8,8 @@
 - **`planned-change`** — scope 已明確、可立 Spectra change 的項目。
 
 維護規則:
-- 已立項並進入開發的工作不重複追蹤；以 `spectra list` 為準。
-- 完成的 change 從本文件移除；歷史紀錄在 `openspec/changes/archive/` 下。
+- 已立項但尚未歸檔的工作（active 或 parked Spectra change）可保留在本文件中作為產品脈絡，但狀態必須標明 `active` / `parked` 並以 `spectra list` / `spectra list --parked` 為準。
+- 已歸檔的 change 從本文件移除；歷史紀錄在 `openspec/changes/archive/` 下。
 - 項目需註明 `flagged: YYYY-MM-DD`（首次登錄日）與 `last-seen: YYYY-MM-DD`（最近確認日）。
 
 准入條件:
@@ -60,21 +60,7 @@ Architecture note:
 
 `skill-sync-lifecycle` original umbrella scope was split on 2026-05-25.
 `skill-target-lifecycle-safety` completed and archived (2026-05-26).
-`skill-identity-namespace-strategy` has a parked Spectra change (0/16).
-
-### clarify-skill-import-conflicts
-
-| Field | Value |
-|---|---|
-| type | planned-change |
-| status | planned |
-| flagged | 2026-05-22 |
-| last-seen | 2026-05-25 |
-| description | Clarify single-source import conflict semantics and make target creation explicit. |
-
-Scope:
-- **Import resolution 選項收斂**: wizard 的「保留 canonical」與「跳過」目前對有衝突的 candidate 執行結果完全相同（都 no-op 不寫入），是語意冗餘。應收斂或重新設計衝突解決選項，讓每個選項有明確不同的行為。
-- **Import target 顯式化**: import 時直接寫 sync-meta sidecar（取代現行讀取時隱性 backfill），並讓 overwrite / rename / keep 行為在 UI 與 backend contract 中可區分。
+`skill-identity-namespace-strategy` completed and archived (2026-05-26).
 
 ### resolve-multi-source-skill-import
 
@@ -83,41 +69,19 @@ Scope:
 | type | planned-change |
 | status | planned |
 | flagged | 2026-05-22 |
-| last-seen | 2026-05-25 |
-| description | Resolve imports where the same skill name appears in multiple sources or outside standard agent directories. |
+| last-seen | 2026-05-28 |
+| description | Multi-source import 解決、Project page inline 選源、Skills page browse project import、Import Wizard UI 精簡。 |
 
-Scope:
-- **Multi-source import resolution**: 同名 skill 存在多個 agent dir 時，讓 user 選權威來源。
-- **Import-all + rename 批次衝突**: 批次匯入遇同名衝突時的 per-conflict keep/overwrite/rename 流程。
-- **Arbitrary-folder import**: 從任意資料夾匯入 SKILL.md（不限三家 agent dir）。
+Scope (2026-05-28 discuss 定案):
+- **Project page multi-source inline 選源匯入**: deferred row 從灰色文字改為可展開選源並匯入至 Felina。
+- **按鈕標籤修正**: 「匯入至 Global」→「匯入至 Felina」/ "Import to Felina"（en + zh-TW）。
+- **Skills page Browse project import**: Skills page 新增 Browse 入口，從已知 project list 選 project，複用 Project page 的 ManagedInventory import 邏輯，不維護兩套。
+- **Skills page Import Wizard UI 精簡**: 預設摺疊 body preview / diff，排序按決策優先級（多來源 → 有衝突單來源 → validation error → 無衝突單來源，同類別內字母排序）。
 
-### skill-identity-namespace-strategy
-
-| Field | Value |
-|---|---|
-| type | planned-change |
-| status | parked (Spectra change, 0/16) |
-| flagged | 2026-05-22 |
-| last-seen | 2026-05-26 |
-| description | Product-model decision for same-name skills across projects under Felina's single global canonical store. |
-
-Conclusion (2026-05-25):
-- **維持 single-global-by-name flat namespace**，不引入 project namespace。
-- **同名碰撞在 import 時由使用者選擇一個來源當 canonical 內容**，其餘來源以 disabled target 保留。
-- Import wizard 提供多來源 diff 預覽（歸 #15/#16 scope）。
-- Disabled target 可查看 agent 端現有內容（歸 #14/#15 scope）。
-- 版本差異長期由 Phase 2 forked overlay 處理。
-- Rationale: project namespace 會動到整個 identity model（sync-meta、fan-out、import、UI），成本與現階段需求不匹配。
-
-### skill-content-markdown-preview
-
-| Field | Value |
-|---|---|
-| type | suggestion |
-| status | not-committed |
-| flagged | 2026-05-27 |
-| last-seen | 2026-05-27 |
-| description | Skill review body 與 sync target Eye button 提供 Markdown 預覽模式，將 MD 語法渲染為閱覽 UI。Memory page 已有 md preview 實作可復用。 |
+Resolved scopes (addressed by prior implementation):
+- ~~Multi-source import resolution~~: `group_by_name` + `SelectSource` + wizard multi-source UI 已實作。
+- ~~Import-all + rename 批次衝突~~: wizard 逐一 per-conflict overwrite/skip/rename 已實作。
+- ~~Arbitrary-folder import~~: 移至 `skill-import-entrypoint-ux`。
 
 ---
 
@@ -127,28 +91,11 @@ Conclusion (2026-05-25):
 
 | Field | Value |
 |---|---|
-| type | suggestion |
-| status | not-committed |
+| type | planned-change |
+| status | parked (Spectra change, 0/12) |
 | flagged | 2026-05-20 |
-| last-seen | 2026-05-27 |
-| description | App 開啟時掃描 agent skill 目錄與 canonical 的差異，提供三向 diff + 覆蓋/拉回/解綁三種解決動作。 |
-
-Scope (2026-05-27 討論補充):
-- **批次 drift scan API**：一次 IPC 呼叫遍歷所有 enabled tracked target，讀 agent 端 SKILL.md 算 hash 比對 `lastSync.pushed_hash`，回傳 `Map<targetKey, DriftStatus>`。純讀取，不 render、不 write。
-- **觸發時機**：app 啟動、window refocus、手動 reload。不做 file watcher。
-- **前端消費**：矩陣（CoverageMatrix）和 sync info 面板增加 `drifted` 狀態顯示。
-- **與 preview 的關係**：`build_preview_for_skill` 裡的 hash 比對邏輯抽成共用 `check_drift` 函式，preview 和 drift scan 都呼叫。Preview 額外做 render + operation 分類，drift scan 只回傳 hash 是否一致。
-- Push 時的 preview API 不變，仍走完整 render + operation 流程。
-
-### cross-agent-field-normalize
-
-| Field | Value |
-|---|---|
-| type | suggestion |
-| status | not-committed |
-| flagged | 2026-05-20 |
-| last-seen | 2026-05-20 |
-| description | 同步前比對 target agent schema，主檔有 target 不認識的欄位時提示過濾/保留/mapping，選擇持久化為 per-skill per-agent mapping rule。 |
+| last-seen | 2026-05-28 |
+| description | Target 端 drift 自動偵測：batch scan API + check_drift 共用函式 + CoverageMatrix/TargetEditor drifted 狀態 + app 啟動/refocus/reload 觸發。 |
 
 ### forked-target-overlay
 
@@ -181,9 +128,9 @@ Design route (2026-05-22 discuss 定案 Route 2 overlay):
 | Field | Value |
 |---|---|
 | type | suggestion |
-| status | not-committed |
+| status | parked (Spectra change, 0/6) |
 | flagged | 2026-05-22 |
-| last-seen | 2026-05-22 |
+| last-seen | 2026-05-28 |
 | description | Sync info 面板在 agent 數量擴增時的 UI 縮放：摺疊/摘要視圖或 chip 化，失敗 target 展開、成功摺起。 |
 
 ### skill-export-validation-pipeline
@@ -193,13 +140,50 @@ Design route (2026-05-22 discuss 定案 Route 2 overlay):
 | type | suggestion |
 | status | not-committed |
 | flagged | 2026-05-27 |
-| last-seen | 2026-05-27 |
+| last-seen | 2026-05-28 |
 | description | Fan-out 匯出時搭配各 agent 官方 skill 驗證工具做品質檢查，補強現有 YAML schema 驗證。 |
 
 Notes:
 - Codex 有官方 skill 驗證腳本：`C:/Users/A11410004/.codex/skills/.system/skill-creator/scripts/quick_validate.py`
 - Gemini 有 skill-creator 內建規範：`C:/Users/A11410004/AppData/Roaming/npm/node_modules/@google/gemini-cli/bundle/builtin/skill-creator/SKILL.md`
 - Schema 驗結構，官方腳本驗內容規範，兩者互補。
+
+### skill-creation-destination-model
+
+| Field | Value |
+|---|---|
+| type | suggestion |
+| status | not-committed |
+| flagged | 2026-05-28 |
+| last-seen | 2026-05-28 |
+| description | Create new skill flow 需要明確處理 Workspace / Global / Shared 目的地模型，讓使用者建立 skill 時能理解 canonical source 與各 agent-native destination 的關係。 |
+
+Scope:
+- 釐清「Create new skills」時可選或可見的目的地類型，例如 Workspace、Global、Shared。
+- 以使用者可理解的 label 呈現實際落點，例如 project workspace skill path、agent global skill path、shared/global skill path。
+- 不得破壞 Felina 既有 canonical source-of-truth + fan-out 邊界；若支援多目的地，需明確定義哪些是 canonical 寫入、哪些是 target / fan-out output。
+
+Notes:
+- Todo source examples:
+  - Workspace: `C:/projects/agy-test/.agents/skills/{skill_name}/SKILL.md`
+  - Global: `~/.gemini/antigravity-cli/skills/{skill_name}/SKILL.md`
+  - Shared: `~/.gemini/skills/{skill_name}/SKILL.md`
+
+### third-party-agent-path-configuration
+
+| Field | Value |
+|---|---|
+| type | suggestion |
+| status | not-committed |
+| flagged | 2026-05-28 |
+| last-seen | 2026-05-28 |
+| description | 使用者可手動新增第三方 agent 的 project path 與 global path，讓 Felina 能管理內建三家之外或變體 agent 的 skill 位置。 |
+
+Scope:
+- 支援手動新增第三方 agent project path。
+- 支援手動新增第三方 agent global path。
+- 需要決定第三方 agent 是否只是路徑 alias，或需要完整 agent definition（id、display name、project/global path template、skill schema、validation command）。
+- 需與 existing Agent Paths / Custom Project Paths / agent-scoped field catalog 分清責任邊界。
 
 ---
 
@@ -226,6 +210,65 @@ Notes:
 | type | suggestion |
 | status | not-committed |
 | flagged | 2026-05-27 |
-| last-seen | 2026-05-27 |
+| last-seen | 2026-05-28 |
 | description | 右上角增加說明按鈕，解釋比較無法馬上理解的按鈕含義與操作概念。全站性 UX 改善，不限特定 Phase。 |
 
+### temporary-nav-surface-simplification
+
+| Field | Value |
+|---|---|
+| type | suggestion |
+| status | not-committed |
+| flagged | 2026-05-28 |
+| last-seen | 2026-05-28 |
+| description | 暫時隱藏 Settings / Templates 等尚未成熟或非主線頁面，使前端主導覽只保留 Skills、Projects、Tokens、Session。 |
+
+Scope:
+- 收斂 Sidebar 主導航，降低早期產品表面積。
+- 需保留必要 hidden routes 或 secondary entry points，避免 Felina Settings / Claude Settings 類功能無入口。
+- 需要先定義「隱藏」是從 Sidebar 移除、route 保留，還是完整停用頁面。
+
+### resizable-skills-workspace
+
+| Field | Value |
+|---|---|
+| type | suggestion |
+| status | not-committed |
+| flagged | 2026-05-28 |
+| last-seen | 2026-05-28 |
+| description | Skills page 的 skill list 與 editor/preview 區域應可摺疊或拖曳調整寬度，提升長列表與編輯工作流的可用性。 |
+
+Scope:
+- 支援 skill list collapse。
+- 或支援 list 與 editor pane 之間的 draggable resize。
+- 需保存或重設使用者調整狀態的策略待定。
+
+### customizable-sidebar-order
+
+| Field | Value |
+|---|---|
+| type | suggestion |
+| status | not-committed |
+| flagged | 2026-05-28 |
+| last-seen | 2026-05-28 |
+| description | 左側導覽列項目可拖曳重新排序，讓使用者依自己的工作習慣調整主導航順序。 |
+
+Scope:
+- 支援 Sidebar nav item drag-and-drop ordering。
+- 需定義排序偏好儲存位置（Felina local preferences）與 reset/default 行為。
+- 需避免 hidden routes、non-nav routes、command palette ordering 互相漂移。
+
+### skill-import-entrypoint-ux
+
+| Field | Value |
+|---|---|
+| type | suggestion |
+| status | not-committed |
+| flagged | 2026-05-28 |
+| last-seen | 2026-05-28 |
+| description | 使用者想新增或匯入 project skill 時，直覺會先到 Skills page 的 Import，而不是 Project page 的 Import to global；需要調整入口導引或整合流程。 |
+
+Scope:
+- 檢討 Skills page Import 與 Project page Import to global 的資訊架構。
+- 決定 Skills page Import 是否直接支援 project-skill import，或導引使用者選擇 project/source。
+- 需與 `clarify-skill-import-conflicts`、`resolve-multi-source-skill-import` 的 conflict semantics 分開：本項聚焦入口與流程直覺，不先重設 import conflict model。

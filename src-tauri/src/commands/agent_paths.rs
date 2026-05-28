@@ -43,7 +43,7 @@ impl AgentPathsConfig {
                 project_relative: ".claude/skills".into(),
             },
             codex: AgentPathPair {
-                global: "~/.agents/skills".into(),
+                global: "~/.codex/skills".into(),
                 project_relative: ".agents/skills".into(),
             },
             gemini: AgentPathPair {

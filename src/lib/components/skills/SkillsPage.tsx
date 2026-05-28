@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
-import { Download, Grid2x2, List, Loader2, Plus, RefreshCw, Sparkles, Undo2 } from "lucide-react";
+import { Download, FolderSearch, Grid2x2, List, Loader2, Plus, RefreshCw, Sparkles, Undo2, X } from "lucide-react";
 import { PageBody, PageHeader } from "$lib/components/shared/PageScaffold";
 import { useProjectContextStore } from "$lib/stores/project-context";
 import { useSkillsStore } from "$lib/stores/skills-store";
@@ -26,6 +26,7 @@ import CoverageMatrix from "./CoverageMatrix";
 import SyncPreviewDialog from "./SyncPreviewDialog";
 import DeletePolicyDialog from "./DeletePolicyDialog";
 import { isProjectMissing } from "$lib/utils/path";
+import ManagedInventory from "$lib/components/projects/ManagedInventory";
 
 /**
  * Skills page — manages the single global canonical skill list and its
@@ -80,6 +81,8 @@ export default function SkillsPage() {
   const [pushPreview, setPushPreview] = useState<SkillSyncPreview | null>(null);
   const [pushBusy, setPushBusy] = useState(false);
   const [localPushingNames, setLocalPushingNames] = useState<Set<string>>(new Set());
+  const [browseProject, setBrowseProject] = useState<KnownProject | null>(null);
+  const [browsePickerOpen, setBrowsePickerOpen] = useState(false);
 
   // Reload the Known Projects list (each entry carries a backend `exists`
   // stat). Reused by the entries-driven effect and the window-focus listener.
@@ -324,6 +327,16 @@ export default function SkillsPage() {
             <button
               type="button"
               onClick={() => {
+                refreshKnownProjects();
+                setBrowsePickerOpen(true);
+              }}
+              className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded border border-border text-text-secondary hover:text-text-primary"
+            >
+              <FolderSearch size={12} /> {t(locale, "skills.browseProject")}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
                 setPendingTargets([]);
                 setCreatingNew(true);
                 setSelectedName(null);
@@ -551,6 +564,65 @@ export default function SkillsPage() {
         onconfirm={(resolutionsBySkill) => void confirmPushOne(resolutionsBySkill)}
         oncancel={() => setPushPreview(null)}
       />
+
+      {browsePickerOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div className="bg-bg-primary border border-border rounded-lg shadow-xl max-w-md w-full max-h-[60vh] flex flex-col">
+            <div className="flex items-center justify-between px-5 py-3 border-b border-border">
+              <h2 className="text-sm font-semibold text-text-primary">{t(locale, "skills.browseProject")}</h2>
+              <button type="button" onClick={() => setBrowsePickerOpen(false)} className="p-1 text-text-secondary hover:text-text-primary">
+                <X size={16} />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto px-5 py-3 flex flex-col gap-1">
+              {knownProjects.filter((p) => p.exists).length === 0 ? (
+                <div className="text-sm text-text-secondary py-4 text-center">
+                  {t(locale, "skills.browseProjectEmpty")}
+                </div>
+              ) : (
+                knownProjects.filter((p) => p.exists).map((p) => (
+                  <button
+                    key={p.path}
+                    type="button"
+                    onClick={() => {
+                      setBrowseProject(p);
+                      setBrowsePickerOpen(false);
+                    }}
+                    className="text-left px-3 py-2 rounded hover:bg-bg-secondary text-sm text-text-primary"
+                  >
+                    <div className="font-mono text-xs truncate">{p.path}</div>
+                  </button>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {browseProject && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div className="bg-bg-primary border border-border rounded-lg shadow-xl max-w-4xl w-full max-h-[85vh] flex flex-col">
+            <div className="flex items-center justify-between px-5 py-3 border-b border-border">
+              <div>
+                <h2 className="text-sm font-semibold text-text-primary">{t(locale, "skills.browseProject")}</h2>
+                <p className="text-xs text-text-secondary font-mono truncate">{browseProject.path}</p>
+              </div>
+              <button type="button" onClick={() => setBrowseProject(null)} className="p-1 text-text-secondary hover:text-text-primary">
+                <X size={16} />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto">
+              <ManagedInventory
+                project={browseProject}
+                onChanged={() => {
+                  void loadEntries();
+                  void refreshImportCount();
+                }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }
