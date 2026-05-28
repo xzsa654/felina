@@ -19,6 +19,7 @@ export default function PendingPushBar() {
   const locale = useLocaleStore((s) => s.locale);
   const entries = useSkillsStore((s) => s.entries);
   const loadEntries = useSkillsStore((s) => s.loadEntries);
+  const refreshDriftScan = useSkillsStore((s) => s.refreshDriftScan);
   const [pushing, setPushing] = useState(false);
   const [preview, setPreview] = useState<SkillSyncPreview[] | null>(null);
 
@@ -72,6 +73,7 @@ export default function PendingPushBar() {
           try {
             await api.skillSync.commitAll({ resolutionsBySkill });
             await loadEntries();
+            void refreshDriftScan();
             setPreview(null);
           } finally {
             setPushing(false);

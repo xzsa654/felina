@@ -49,6 +49,81 @@ pub struct SyncResult {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub enum DriftStatus {
+    Synced,
+    Drifted,
+    Missing,
+    NoPushHistory,
+}
+
+/// Compare an agent-side SKILL.md's semantic hash against a stored `pushed_hash`.
+/// Returns the drift status without rendering or writing anything.
+///
+/// When `last_sync_at` is provided (ISO-8601 UTC), the file's mtime is compared
+/// first: if mtime ≤ push timestamp, `Synced` is returned without reading file
+/// content. This avoids hash computation for files untouched since the last push.
+pub fn check_drift(
+    agent_side_path: &Path,
+    pushed_hash: Option<&str>,
+    last_sync_at: Option<&str>,
+) -> DriftStatus {
+    let Some(pushed) = pushed_hash else {
+        return DriftStatus::NoPushHistory;
+    };
+    let metadata = match fs::metadata(agent_side_path) {
+        Ok(m) => m,
+        Err(_) => return DriftStatus::Missing,
+    };
+    if let (Some(at), Ok(mtime)) = (last_sync_at, metadata.modified()) {
+        if let Some(push_time) = parse_iso8601_to_system_time(at) {
+            if mtime <= push_time {
+                return DriftStatus::Synced;
+            }
+        }
+    }
+    let content = match fs::read_to_string(agent_side_path) {
+        Ok(c) => c,
+        Err(_) => return DriftStatus::Missing,
+    };
+    let current_hash = semantic_hash(&content);
+    if current_hash == pushed {
+        DriftStatus::Synced
+    } else {
+        DriftStatus::Drifted
+    }
+}
+
+fn parse_iso8601_to_system_time(s: &str) -> Option<std::time::SystemTime> {
+    // Parse "YYYY-MM-DDTHH:MM:SSZ" format produced by current_iso8601().
+    if s.len() != 20 || !s.ends_with('Z') {
+        return None;
+    }
+    let year: i64 = s[0..4].parse().ok()?;
+    let month: u32 = s[5..7].parse().ok()?;
+    let day: u32 = s[8..10].parse().ok()?;
+    let hour: u64 = s[11..13].parse().ok()?;
+    let min: u64 = s[14..16].parse().ok()?;
+    let sec: u64 = s[17..19].parse().ok()?;
+    let days = days_from_civil(year, month, day)?;
+    let total_secs = days as u64 * 86_400 + hour * 3600 + min * 60 + sec;
+    Some(std::time::UNIX_EPOCH + std::time::Duration::from_secs(total_secs))
+}
+
+fn days_from_civil(y: i64, m: u32, d: u32) -> Option<i64> {
+    if m < 1 || m > 12 || d < 1 || d > 31 {
+        return None;
+    }
+    let y = if m <= 2 { y - 1 } else { y };
+    let era = if y >= 0 { y / 400 } else { (y - 399) / 400 };
+    let yoe = (y - era * 400) as u32;
+    let m_adj = if m > 2 { m - 3 } else { m + 9 };
+    let doy = (153 * m_adj + 2) / 5 + d - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    Some(era * 146_097 + doe as i64 - 719_468)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum SkillSyncPreviewOperation {
     Create,
     Overwrite,
@@ -765,6 +840,8 @@ fn build_preview_for_skill(
             }
         };
 
+        let last_sync_at = meta.last_sync.get(&key).map(|e| e.at.as_str());
+        let drift = check_drift(&skill_md_path, last_sync_hash.as_deref(), last_sync_at);
         let current_hash = if skill_md_path.is_file() {
             let current = fs::read_to_string(&skill_md_path).map_err(|e| {
                 format!(
@@ -777,14 +854,13 @@ fn build_preview_for_skill(
             None
         };
 
-        let operation = match (&current_hash, &last_sync_hash) {
+        let operation = match (&current_hash, drift) {
             (None, _) => SkillSyncPreviewOperation::Create,
             (Some(current), _) if current == &rendered_hash => SkillSyncPreviewOperation::NoOp,
-            (Some(current), Some(last)) if current != last => {
-                SkillSyncPreviewOperation::BlockedDrift
-            }
-            (Some(_), Some(_)) => SkillSyncPreviewOperation::Overwrite,
-            (Some(_), None) => SkillSyncPreviewOperation::OverwriteUnknown,
+            (_, DriftStatus::Drifted) => SkillSyncPreviewOperation::BlockedDrift,
+            (_, DriftStatus::Synced) => SkillSyncPreviewOperation::Overwrite,
+            (_, DriftStatus::NoPushHistory) => SkillSyncPreviewOperation::OverwriteUnknown,
+            (_, DriftStatus::Missing) => SkillSyncPreviewOperation::Create,
         };
 
         items.push(SkillSyncPreviewItem {
@@ -898,6 +974,76 @@ pub fn skill_target_dir_resolve(
         path: dir.to_string_lossy().to_string(),
         exists,
     })
+}
+
+/// Batch drift scan: iterate all canonical skills, check each enabled tracked
+/// target for drift, and return a nested map keyed by skill name → target key.
+#[tauri::command]
+pub fn skill_drift_scan() -> Result<std::collections::BTreeMap<String, std::collections::BTreeMap<String, DriftStatus>>, String> {
+    let entries = super::canonical_skills::canonical_skills_list()?;
+    let cfg = super::agent_paths::agent_paths_get()?;
+    let mut result: std::collections::BTreeMap<String, std::collections::BTreeMap<String, DriftStatus>> = std::collections::BTreeMap::new();
+
+    // Collect (skill_name, target_key, agent_side_path, pushed_hash, last_sync_at)
+    // for targets that need checking. Disabled/detached targets are skipped per spec.
+    let mut checks: Vec<(String, String, PathBuf, Option<String>, Option<String>)> = Vec::new();
+
+    for entry in entries {
+        let super::canonical_skills::SkillListEntry::Ok {
+            canonical_id,
+            skill,
+        } = entry
+        else {
+            continue;
+        };
+        let canonical_skill_dir = canonical_skills_dir().join(&canonical_id);
+        let (meta, _) = read_sync_meta_v2(&canonical_skill_dir, &skill);
+
+        for target in &meta.targets {
+            if !target.enabled || matches!(target.mode, TargetMode::Detached | TargetMode::Forked) {
+                continue;
+            }
+            let key = target_key(target);
+            let last_sync_entry = meta.last_sync.get(&key);
+            let pushed_hash = last_sync_entry.map(|e| e.pushed_hash.clone());
+            let last_sync_at = last_sync_entry.map(|e| e.at.clone());
+
+            let renderer = renderer_for(target.agent);
+            let pair = pair_for(&cfg, target.agent);
+            let target_dir =
+                match renderer.resolve_target_dir(target.scope, target.project.as_deref(), pair) {
+                    Ok(d) => d,
+                    Err(_) => continue,
+                };
+            let skill_md_path = target_dir.join(&canonical_id).join("SKILL.md");
+            checks.push((
+                canonical_id.clone(),
+                key,
+                skill_md_path,
+                pushed_hash,
+                last_sync_at,
+            ));
+        }
+    }
+
+    // Parallel hash computation for targets that pass mtime fast-path
+    use rayon::prelude::*;
+    let statuses: Vec<(String, String, DriftStatus)> = checks
+        .into_par_iter()
+        .map(|(skill_name, tkey, path, pushed, at)| {
+            let status = check_drift(&path, pushed.as_deref(), at.as_deref());
+            (skill_name, tkey, status)
+        })
+        .collect();
+
+    for (skill_name, tkey, status) in statuses {
+        result
+            .entry(skill_name)
+            .or_default()
+            .insert(tkey, status);
+    }
+
+    Ok(result)
 }
 
 /// Best-effort ISO-8601 UTC timestamp without pulling chrono. Format:
@@ -1070,6 +1216,85 @@ pub(crate) fn resolve_pair(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn check_drift_returns_synced_when_hashes_match() {
+        let tmp = std::env::temp_dir().join(format!(
+            "felina-drift-synced-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .subsec_nanos()
+        ));
+        fs::create_dir_all(&tmp).unwrap();
+        let content = "---\nname: test\n---\n# Body\n";
+        let path = tmp.join("SKILL.md");
+        fs::write(&path, content).unwrap();
+        let hash = semantic_hash(content);
+        assert_eq!(check_drift(&path, Some(&hash), None), DriftStatus::Synced);
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn check_drift_returns_drifted_when_hashes_differ() {
+        let tmp = std::env::temp_dir().join(format!(
+            "felina-drift-drifted-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .subsec_nanos()
+        ));
+        fs::create_dir_all(&tmp).unwrap();
+        let path = tmp.join("SKILL.md");
+        fs::write(&path, "---\nname: changed\n---\n# New body\n").unwrap();
+        let old_hash = semantic_hash("---\nname: original\n---\n# Old body\n");
+        assert_eq!(check_drift(&path, Some(&old_hash), None), DriftStatus::Drifted);
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn check_drift_returns_missing_when_file_does_not_exist() {
+        let path = std::env::temp_dir().join("felina-drift-nonexistent-SKILL.md");
+        assert_eq!(
+            check_drift(&path, Some("somehash"), None),
+            DriftStatus::Missing
+        );
+    }
+
+    #[test]
+    fn check_drift_returns_no_push_history_when_no_hash() {
+        let path = std::env::temp_dir().join("felina-drift-nopush-SKILL.md");
+        assert_eq!(check_drift(&path, None, None), DriftStatus::NoPushHistory);
+    }
+
+    #[test]
+    fn check_drift_mtime_fast_path_returns_synced_without_reading_content() {
+        let tmp = std::env::temp_dir().join(format!(
+            "felina-drift-mtime-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .subsec_nanos()
+        ));
+        fs::create_dir_all(&tmp).unwrap();
+        let path = tmp.join("SKILL.md");
+        // Write content whose hash does NOT match the pushed_hash.
+        // If mtime fast-path works, check_drift returns Synced anyway
+        // because mtime ≤ push timestamp — it never reads the file.
+        fs::write(&path, "---\nname: different\n---\n# Changed\n").unwrap();
+        let wrong_hash = semantic_hash("---\nname: original\n---\n# Original\n");
+        // Use a far-future push timestamp so file mtime is definitely ≤.
+        let future_at = "2099-01-01T00:00:00Z";
+        assert_eq!(
+            check_drift(&path, Some(&wrong_hash), Some(future_at)),
+            DriftStatus::Synced,
+            "mtime fast-path should return Synced without hash computation"
+        );
+        let _ = fs::remove_dir_all(&tmp);
+    }
 
     #[test]
     fn semantic_hash_identical_for_reordered_frontmatter() {
@@ -2214,6 +2439,85 @@ mod tests {
                 + result.skills[0].summary.overwrite
                 + result.skills[0].summary.no_op,
             "summary must reflect only included skills"
+        );
+    }
+
+    #[test]
+    fn skill_drift_scan_detects_synced_and_drifted_targets() {
+        let tmp = smoke_tempdir("driftscan");
+        let _g = override_felina_home(&tmp);
+        let project = tmp.to_string_lossy().to_string();
+
+        // Skill A: push to anthropic → target will be synced
+        make_canonical("scan-a", &["anthropic"]);
+        let scan_a_dir = tmp.join(".felina").join("skills").join("scan-a");
+        write_sync_meta_v2(
+            &scan_a_dir,
+            &SyncMetaV2 {
+                version: 2,
+                targets: vec![SkillTarget {
+                    agent: AgentId::Anthropic,
+                    scope: SkillScope::Project,
+                    project: Some(project.clone()),
+                    enabled: true,
+                    mode: TargetMode::Tracked,
+                }],
+                last_sync: std::collections::BTreeMap::new(),
+                dirty: true,
+            },
+        )
+        .unwrap();
+        let results_a = skill_sync_one("scan-a".into()).expect("push scan-a");
+        assert!(results_a[0].success);
+
+        // Skill B: push to gemini, then externally modify → drifted
+        make_canonical("scan-b", &["gemini"]);
+        let scan_b_dir = tmp.join(".felina").join("skills").join("scan-b");
+        write_sync_meta_v2(
+            &scan_b_dir,
+            &SyncMetaV2 {
+                version: 2,
+                targets: vec![SkillTarget {
+                    agent: AgentId::Gemini,
+                    scope: SkillScope::Project,
+                    project: Some(project.clone()),
+                    enabled: true,
+                    mode: TargetMode::Tracked,
+                }],
+                last_sync: std::collections::BTreeMap::new(),
+                dirty: true,
+            },
+        )
+        .unwrap();
+        let results_b = skill_sync_one("scan-b".into()).expect("push scan-b");
+        assert!(results_b[0].success);
+
+        // Externally modify scan-b's gemini target
+        let gemini_skill_md = tmp
+            .join(".gemini")
+            .join("skills")
+            .join("scan-b")
+            .join("SKILL.md");
+        fs::write(&gemini_skill_md, "---\nname: scan-b\n---\n# Externally changed\n").unwrap();
+
+        let scan = skill_drift_scan().expect("drift scan");
+
+        // scan-a → synced
+        let scan_a_map = scan.get("scan-a").expect("scan-a in result");
+        let a_key = format!("anthropic:project:{project}");
+        assert_eq!(
+            scan_a_map.get(&a_key).copied(),
+            Some(DriftStatus::Synced),
+            "scan-a target should be synced"
+        );
+
+        // scan-b → drifted
+        let scan_b_map = scan.get("scan-b").expect("scan-b in result");
+        let b_key = format!("gemini:project:{project}");
+        assert_eq!(
+            scan_b_map.get(&b_key).copied(),
+            Some(DriftStatus::Drifted),
+            "scan-b target should be drifted"
         );
     }
 }

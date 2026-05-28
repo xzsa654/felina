@@ -467,6 +467,12 @@ const zhTW: TranslationDict = {
       list: "清單檢視",
       summary: "摘要檢視",
     },
+    drift: {
+      drifted: "已偏離",
+      missing: "檔案遺失",
+      synced: "已同步",
+      driftBadgeTooltip: "Agent 端檔案在上次推送後被外部修改",
+    },
   },
   projects: {
     title: "Projects",

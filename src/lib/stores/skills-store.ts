@@ -19,6 +19,7 @@ import {
   canonicalSkillId,
   skillListEntryCanonicalId,
   type CanonicalSkill,
+  type DriftStatus,
   type SkillListEntry,
   type SyncResult,
 } from "$lib/types";
@@ -62,6 +63,9 @@ interface SkillsStore {
   pushingNames: Set<string>;
   lastSyncResults: SyncResult[];
 
+  // Drift scan
+  driftMap: Record<string, Record<string, DriftStatus>>;
+
   // Actions
   setProjectPath: (path: string | null) => void;
   loadEntries: () => Promise<void>;
@@ -73,6 +77,7 @@ interface SkillsStore {
   removeEntry: (canonicalId: string) => void;
   syncOne: (canonicalId: string) => Promise<SyncResult[]>;
   syncAll: () => Promise<SyncResult[]>;
+  refreshDriftScan: () => Promise<void>;
 }
 
 export const useSkillsStore = create<SkillsStore>((set, get) => ({
@@ -86,6 +91,7 @@ export const useSkillsStore = create<SkillsStore>((set, get) => ({
 
   pushingNames: new Set(),
   lastSyncResults: [],
+  driftMap: {},
 
   setProjectPath: (path) => {
     set({ projectPath: path, loaded: false });
@@ -185,6 +191,15 @@ export const useSkillsStore = create<SkillsStore>((set, get) => ({
     } catch (e) {
       set({ error: String(e) });
       return [];
+    }
+  },
+
+  refreshDriftScan: async () => {
+    try {
+      const result = await api.driftScan.scan();
+      set({ driftMap: result });
+    } catch {
+      // Drift scan failure is non-fatal; leave driftMap as-is.
     }
   },
 }));

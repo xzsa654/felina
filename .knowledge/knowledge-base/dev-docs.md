@@ -74,3 +74,40 @@ Conventions, workflows, UI consistency rules, and reusable design-time checklist
 - A loud workaround (extra `try { read } catch { setBoth(null) }` in the effect) hides the race instead of fixing it. The fix is reordering the calls so the local-state commit precedes the store mutation.
 **Keywords:** react, zustand, useEffect, async save, race condition, cancelled flag, store mutation, parent-child callback, placeholder bug, loadEntries
 **Related:** kb-react-pagebody-layout
+
+---
+
+## Drift cancel 不是 failure：dirty flag 語意
+**ID:** kb-fan-out-drift-cancel-not-failure
+**Date:** 2026-05-28
+**Updated:** 2026-05-28
+**Status:** active
+**Confidence:** confirmed
+**Source:** Session 8 / commit b9bc2e4
+**Context:** `skill_sync_commit` 對 blockedDrift target 的 Cancel resolution 被錯誤計為 `any_failure=true`，導致部分 push 後 dirty 永遠不清除。
+**Applies when:** 修改 fan-out push/commit 邏輯中 dirty flag 判定，或新增 resolution 類型時。
+**Lesson:**
+- Cancel 是使用者主動決策（「我不想現在處理這個 drift target」），不是系統錯誤。不應計入 `any_failure`。
+- dirty flag 的正確語意 = 「canonical 有改動尚未推出到任何 target」，由 `last_sync` 存在性檢查保證（第 550-556 行）：所有 enabled+tracked targets 都有 `last_sync` 記錄 → dirty=false。
+- `any_failure` 應僅用於真正的系統錯誤（寫入失敗、路徑解析失敗），不用於使用者有意識的跳過。
+**Keywords:** fan-out, dirty flag, drift, cancel, any_failure, skill_sync_commit, push, resolution
+**Related:** kb-architecture-skill-source-of-truth
+
+---
+
+## Hash 演算法變更必須同步遷移 sidecar
+**ID:** kb-dev-docs-hash-migration-sidecar
+**Date:** 2026-05-29
+**Updated:** 2026-05-29
+**Status:** active
+**Confidence:** confirmed
+**Source:** drift-detection-and-conflict-ui session — semantic-hash false positive 根因定位
+**Context:** `semantic-hash-refactor` 將 `pushed_hash` 從 raw `sha256_hex` 改為 `semantic_hash`，但未遷移既有 sidecar，導致 drift scan 全部 false positive。
+**Applies when:** 修改任何用於比對/drift 偵測的 hash 演算法、序列化格式、或正規化邏輯時
+**Lesson:**
+- 改變 hash 計算方式後，既有 sidecar（`.felina-sync-meta.json`）裡的 `pushed_hash` 仍是舊格式，新舊不匹配 → 所有比對結果都是 Drifted
+- Push preview 不受影響（兩邊都用新演算法即時計算），但任何「拿存儲值比對即時值」的路徑都會壞
+- 解法：要嘛在 change 中加遷移邏輯（讀取時偵測舊格式並升級），要嘛接受一次性 Push All + Override 重寫全部 sidecar
+- 不加 legacy 兼容是合理選擇（使用者量小、一次性操作成本低），但必須在 change 文件中明確記載遷移步驟
+**Keywords:** hash, migration, sidecar, pushed_hash, semantic_hash, drift, false positive, sync-meta
+**Related:** kb-dev-docs-dirty-flag-cancel-drift

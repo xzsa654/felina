@@ -29,6 +29,8 @@ export type AgentId = "anthropic" | "codex" | "gemini";
  */
 export type SkillScope = "global" | "project";
 
+export type DriftStatus = "synced" | "drifted" | "missing" | "noPushHistory";
+
 export interface CanonicalSkill {
   /** Stable canonical directory identity used for app actions. */
   canonicalId: string;

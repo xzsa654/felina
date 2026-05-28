@@ -168,6 +168,30 @@
       "file": "knowledge-base/platform.md",
       "anchor": "windows-rust-commandnew-cannot-execute-npm-cmd-shim",
       "updated": "2026-05-28"
+    },
+    {
+      "id": "kb-fan-out-drift-cancel-not-failure",
+      "title": "Drift cancel 不是 failure：dirty flag 語意",
+      "type": "knowledge",
+      "status": "active",
+      "confidence": "confirmed",
+      "keywords": ["fan-out", "dirty flag", "drift", "cancel", "any_failure", "skill_sync_commit", "push", "resolution"],
+      "appliesWhen": "修改 fan-out push/commit 邏輯中 dirty flag 判定，或新增 resolution 類型時",
+      "file": "knowledge-base/dev-docs.md",
+      "anchor": "drift-cancel-not-failure-dirty-flag-semantics",
+      "updated": "2026-05-28"
+    },
+    {
+      "id": "kb-dev-docs-hash-migration-sidecar",
+      "title": "Hash 演算法變更必須同步遷移 sidecar",
+      "type": "knowledge",
+      "status": "active",
+      "confidence": "confirmed",
+      "keywords": ["hash", "migration", "sidecar", "pushed_hash", "semantic_hash", "drift", "false positive", "sync-meta"],
+      "appliesWhen": "修改任何用於比對/drift 偵測的 hash 演算法、序列化格式、或正規化邏輯時",
+      "file": "knowledge-base/dev-docs.md",
+      "anchor": "hash-migration-sidecar",
+      "updated": "2026-05-29"
     }
   ]
 }
