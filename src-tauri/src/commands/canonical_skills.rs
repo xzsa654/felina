@@ -841,7 +841,11 @@ pub fn skill_targets_set(skill_name: String, targets: Vec<SkillTarget>) -> Resul
             && !matches!(t.mode, TargetMode::Detached | TargetMode::Forked)
             && !meta.last_sync.contains_key(&target_key(t))
     });
-    meta.dirty = was_dirty || has_unsynced_target;
+    meta.dirty = if meta.targets.is_empty() {
+        false
+    } else {
+        was_dirty || has_unsynced_target
+    };
     write_sync_meta_v2(&skill_dir, &meta)
 }
 
@@ -903,7 +907,11 @@ pub fn skill_target_remove_with_policy(
             && !matches!(t.mode, TargetMode::Detached | TargetMode::Forked)
             && !meta.last_sync.contains_key(&target_key(t))
     });
-    meta.dirty = was_dirty || has_unsynced;
+    meta.dirty = if meta.targets.is_empty() {
+        false
+    } else {
+        was_dirty || has_unsynced
+    };
     write_sync_meta_v2(&skill_dir, &meta)?;
 
     Ok(SkillTargetRemovalResult {
