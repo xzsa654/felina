@@ -23,9 +23,10 @@ import SkillImportBanner from "./SkillImportBanner";
 import SkillImportWizard from "./SkillImportWizard";
 import TargetEditor from "./TargetEditor";
 import CoverageMatrix from "./CoverageMatrix";
+import SyncInfoBar from "./SyncInfoBar";
 import SyncPreviewDialog from "./SyncPreviewDialog";
 import DeletePolicyDialog from "./DeletePolicyDialog";
-import { isProjectMissing } from "$lib/utils/path";
+
 import ManagedInventory from "$lib/components/projects/ManagedInventory";
 
 /**
@@ -55,6 +56,7 @@ export default function SkillsPage() {
     error,
     bannerDismissed,
     detectedImportCount,
+    driftMap,
     loadEntries,
     refreshImportCount,
     refreshDriftScan,
@@ -379,57 +381,14 @@ export default function SkillsPage() {
         )}
 
         {viewMode === "list" && selectedSkill && selectedSkill.targets.length > 0 && (
-          <div className="mb-4 text-xs rounded border border-border bg-bg-secondary px-3 py-2">
-            <div className="text-text-secondary mb-1.5">
-              {t(locale, "skills.syncInfo")}{" "}
-              <span className="text-text-primary font-mono">
-                {selectedSkill.name}
-              </span>
-            </div>
-            <ul className="flex flex-col gap-1">
-              {selectedSkill.targets.map((tgt, i) => {
-                const key =
-                  tgt.scope === "global"
-                    ? `${tgt.agent}:global`
-                    : `${tgt.agent}:project:${tgt.project ?? ""}`;
-                const entry = selectedSkill.lastSync[key];
-                const projectNotFound =
-                  tgt.scope === "project" &&
-                  isProjectMissing(knownProjects, tgt.project ?? "");
-                return (
-                  <li
-                    key={`${key}-${i}`}
-                    className="grid grid-cols-[1rem_5rem_4rem_1fr] gap-3 items-center"
-                  >
-                    <span
-                      className={
-                        projectNotFound
-                          ? "text-danger"
-                          : entry
-                            ? "text-success"
-                            : "text-text-secondary"
-                      }
-                    >
-                      {projectNotFound ? "!" : entry ? "✓" : "—"}
-                    </span>
-                    <span className="capitalize">{tgt.agent}</span>
-                    <span className="text-text-secondary">{tgt.scope === "project" ? t(locale, "skills.addTargetDialog.scopeProject") : t(locale, "skills.addTargetDialog.scopeGlobal")}</span>
-                    <span
-                      className={
-                        projectNotFound ? "text-danger" : "text-text-secondary"
-                      }
-                    >
-                      {projectNotFound
-                        ? t(locale, "skills.projectNotFound")
-                        : entry
-                          ? formatLocalTime(entry.at)
-                          : t(locale, "skills.notSynced")}
-                    </span>
-                  </li>
-                );
-              })}
-            </ul>
-          </div>
+          <SyncInfoBar
+            key={selectedSkill.name}
+            skillName={selectedSkill.name}
+            targets={selectedSkill.targets}
+            lastSync={selectedSkill.lastSync}
+            knownProjects={knownProjects}
+            locale={locale}
+          />
         )}
 
         {viewMode === "summary" ? (
@@ -450,6 +409,7 @@ export default function SkillsPage() {
                   }}
                   onPush={(name) => void handlePushOne(name)}
                   pushingNames={localPushingNames}
+                  driftMap={driftMap}
                 />
               ) : (
                 <div className="text-sm text-text-secondary p-4">{t(locale, "skills.loading")}</div>
@@ -631,17 +591,6 @@ export default function SkillsPage() {
       )}
     </>
   );
-}
-
-/**
- * Format a UTC ISO-8601 timestamp into the user's local timezone.
- * Output: `YYYY-MM-DD HH:MM` (24h, no seconds — push cadence is human-scale).
- */
-function formatLocalTime(iso: string): string {
-  const d = new Date(iso);
-  if (isNaN(d.getTime())) return iso;
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 function ViewModeToggle({

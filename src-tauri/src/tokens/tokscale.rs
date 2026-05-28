@@ -8,7 +8,6 @@ use crate::tokens::reconciliation::{
     ReconcileOptions, ReconciliationRecord, SourceCollection, SourceStatus, TokenSource,
     aggregate_records,
 };
-use crate::tokens::types::AgentId;
 
 pub trait TokscaleAdapter {
     fn collect(&self, options: &ReconcileOptions) -> SourceCollection;
@@ -131,6 +130,13 @@ fn run_tokscale_command(
     base_args: &[String],
     report_args: &[String],
 ) -> std::io::Result<std::process::Output> {
+    #[cfg(target_os = "windows")]
+    let mut command = {
+        let mut cmd = Command::new("cmd");
+        cmd.arg("/C").arg(bin);
+        cmd
+    };
+    #[cfg(not(target_os = "windows"))]
     let mut command = Command::new(bin);
     for arg in base_args {
         command.arg(arg);
@@ -225,9 +231,7 @@ fn record_from_object(
     let agent = parse_agent(
         string_any(map, &["agent", "client", "tool"])
             .ok_or_else(|| format!("tokscale usage row for {} missing client", model))?,
-    )
-    .ok_or_else(|| format!("tokscale usage row for {} has unsupported client", model))?
-    .to_string();
+    );
     let provider = string_any(map, &["provider", "model_provider", "providerId"])
         .ok_or_else(|| format!("tokscale usage row for {} missing provider", model))?;
     let timestamp = number_any(map, &["timestamp", "created_at", "time"]) as i64;
@@ -521,16 +525,16 @@ fn number_or_float_string_any(
     None
 }
 
-fn parse_agent(agent: String) -> Option<AgentId> {
+fn parse_agent(agent: String) -> String {
     let normalized = agent.to_lowercase();
     if normalized.contains("codex") {
-        Some(AgentId::CodexCli)
+        "codex-cli".to_string()
     } else if normalized.contains("gemini") {
-        Some(AgentId::GeminiCli)
+        "gemini-cli".to_string()
     } else if normalized == "claude" || normalized.contains("claude-code") {
-        Some(AgentId::ClaudeCode)
+        "claude-code".to_string()
     } else {
-        None
+        agent
     }
 }
 
@@ -766,9 +770,23 @@ mod tests {
     }
 
     #[test]
-    fn unsupported_schema_for_unknown_clients_or_zero_token_rows() {
+    fn unknown_client_is_passed_through_as_agent_name() {
+        let raw = r#"{"entries":[{"client":"unknown-agent","model":"mystery","provider":"unknown","input":10,"output":1,"cacheRead":0,"cacheWrite":0,"reasoning":0,"messageCount":1}]}"#;
+        let collection = parse_tokscale_json(
+            raw,
+            &ReconcileOptions {
+                include_tokscale: true,
+                ..Default::default()
+            },
+        );
+        assert_eq!(collection.status, SourceStatus::Ok);
+        assert_eq!(collection.records.len(), 1);
+        assert_eq!(collection.records[0].agent, "unknown-agent");
+    }
+
+    #[test]
+    fn unsupported_schema_for_zero_token_or_incomplete_rows() {
         let cases = [
-            r#"{"entries":[{"client":"unknown-agent","model":"mystery","provider":"unknown","input":10,"output":1,"cacheRead":0,"cacheWrite":0,"reasoning":0,"messageCount":1}]}"#,
             r#"{"entries":[{"client":"claude","model":"claude-sonnet-4-6","provider":"anthropic","input":0,"output":0,"cacheRead":0,"cacheWrite":0,"reasoning":0,"messageCount":0}]}"#,
             r#"{"entries":[{"client":"claude","model":"claude-sonnet-4-6"}]}"#,
         ];

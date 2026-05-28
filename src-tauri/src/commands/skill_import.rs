@@ -548,10 +548,16 @@ fn write_canonical_from_source(
     }
 
     // For Codex imports: read agents/openai.yaml from source and merge into
-    // the canonical file's x_felina_agent_fields.codex.
+    // the canonical file's x_felina_agent_fields.codex, then remove the
+    // copied agents/ dir from canonical (it's an agent-specific output, not
+    // canonical content).
     if candidate.source_agent == AgentId::Codex {
         if let Some(source_skill_dir) = source.parent() {
             import_codex_openai_yaml(source_skill_dir, &target_dir);
+            let agents_dir = target_dir.join("agents");
+            if agents_dir.is_dir() {
+                let _ = fs::remove_dir_all(&agents_dir);
+            }
         }
     }
 

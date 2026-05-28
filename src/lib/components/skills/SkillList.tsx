@@ -1,6 +1,6 @@
 import { useMemo } from "react";
-import { AlertCircle, Send } from "lucide-react";
-import { skillListEntryCanonicalId, type SkillListEntry } from "$lib/types";
+import { AlertCircle, AlertTriangle, Send } from "lucide-react";
+import { skillListEntryCanonicalId, type DriftStatus, type SkillListEntry } from "$lib/types";
 import { useLocaleStore } from "$lib/stores/locale";
 import { t } from "$lib/i18n";
 
@@ -10,6 +10,7 @@ interface Props {
   onSelect: (canonicalId: string) => void;
   onPush: (canonicalId: string) => void;
   pushingNames?: Set<string>;
+  driftMap?: Record<string, Record<string, DriftStatus>>;
 }
 
 /** Sort key: skills that need the user's attention float to the top —
@@ -42,6 +43,7 @@ export default function SkillList({
   onSelect,
   onPush,
   pushingNames = new Set(),
+  driftMap = {},
 }: Props) {
   const locale = useLocaleStore((s) => s.locale);
 
@@ -138,6 +140,14 @@ export default function SkillList({
                   </div>
                 )}
               </div>
+              {(() => {
+                const targets = driftMap[canonicalId];
+                return targets && Object.values(targets).some((s) => s === "drifted");
+              })() && (
+                <span title={t(locale, "skills.list.drifted")}>
+                  <AlertTriangle size={14} className="shrink-0 text-warning" />
+                </span>
+              )}
               {(skill.dirty || isPushing) && (
                 <button
                   type="button"

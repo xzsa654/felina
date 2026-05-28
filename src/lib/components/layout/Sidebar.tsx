@@ -1,10 +1,30 @@
-import { useRef, useState, useEffect } from "react";
+import { useRef, useState, useEffect, useMemo } from "react";
 import { Link, useMatch } from "react-router";
 import { getVersion } from "@tauri-apps/api/app";
-import { NAV_ITEMS } from "$lib/stores/navigation";
+import {
+  getMergedNavItems,
+  useNavigationStore,
+  type NavItem,
+} from "$lib/stores/navigation";
 import QuickSettingsPopover from "./QuickSettingsPopover";
 import { t } from "$lib/i18n";
 import { useLocaleStore } from "$lib/stores/locale";
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import {
   Settings as SettingsIcon,
   Brain,
@@ -16,6 +36,8 @@ import {
   Coins,
   FolderOpen,
   History,
+  ChevronsLeft,
+  ChevronsRight,
 } from "lucide-react";
 import logoUrl from "$lib/assets/logo.png";
 
@@ -29,13 +51,82 @@ const ICON_MAP: Record<string, React.ComponentType<{ size?: number; className?: 
   history: History,
 };
 
+function SortableSidebarItem({ item, collapsed }: { item: NavItem; collapsed: boolean }) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: item.id });
+
+  const isActive = useMatch(`/${item.id}`) !== null;
+  const IconComponent = ICON_MAP[item.icon];
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+  };
+
+  return (
+    <Link
+      ref={setNodeRef}
+      style={style}
+      {...attributes}
+      {...listeners}
+      to={`/${item.id}`}
+      title={collapsed ? item.label : undefined}
+      className={`w-full flex items-center py-2.5 text-sm transition-colors select-none ${
+        collapsed ? "justify-center px-0" : "gap-3 px-4"
+      } ${
+        isDragging
+          ? "opacity-50 bg-bg-hover"
+          : isActive
+            ? "bg-accent-dim text-accent border-r-2 border-accent"
+            : "text-text-secondary hover:bg-bg-hover hover:text-text-primary"
+      }`}
+    >
+      <span className="w-5 h-5 flex items-center justify-center shrink-0">
+        {IconComponent && <IconComponent size={18} />}
+      </span>
+      {!collapsed && <span>{item.label}</span>}
+    </Link>
+  );
+}
+
 export default function Sidebar() {
   const locale = useLocaleStore((s) => s.locale);
+  const customOrder = useNavigationStore((s) => s.customOrder);
+  const setCustomOrder = useNavigationStore((s) => s.setCustomOrder);
+  const collapsed = useNavigationStore((s) => s.collapsed);
+  const toggleCollapsed = useNavigationStore((s) => s.toggleCollapsed);
 
   const [showAbout, setShowAbout] = useState(false);
   const [showQuickSettings, setShowQuickSettings] = useState(false);
   const [appVersion, setAppVersion] = useState("...");
   const quickSettingsButtonRef = useRef<HTMLButtonElement | null>(null);
+
+  const navItems = useMemo(() => getMergedNavItems(customOrder), [customOrder]);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+
+  function handleDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+
+    const oldIndex = navItems.findIndex((item) => item.id === active.id);
+    const newIndex = navItems.findIndex((item) => item.id === over.id);
+    if (oldIndex === -1 || newIndex === -1) return;
+
+    const reordered = [...navItems];
+    const [moved] = reordered.splice(oldIndex, 1);
+    reordered.splice(newIndex, 0, moved);
+    setCustomOrder(reordered.map((item) => item.id));
+  }
 
   useEffect(() => {
     (async () => {
@@ -48,49 +139,46 @@ export default function Sidebar() {
   }, []);
 
   return (
-    <aside className="relative flex flex-col h-full w-60 bg-bg-secondary border-r border-border shrink-0">
+    <aside className={`relative flex flex-col h-full bg-bg-secondary border-r border-border shrink-0 transition-[width] duration-200 ${collapsed ? "w-14" : "w-60"}`}>
       {/* Logo */}
       <button
-        className="flex items-center gap-2 px-4 py-[13.5px] border-b border-border w-full hover:bg-bg-hover transition-colors text-left"
+        className={`flex items-center border-b border-border w-full hover:bg-bg-hover transition-colors ${collapsed ? "justify-center px-0 py-[13.5px]" : "gap-2 px-4 py-[13.5px] text-left"}`}
         onClick={() => setShowAbout(true)}
       >
-        <img src={logoUrl} alt="Felina" className="w-8 h-8 rounded-lg" />
-        <div>
-          <h1 className="text-sm font-semibold text-text-primary">Felina</h1>
-          <p className="text-xs text-text-muted">AI Config Manager</p>
-        </div>
+        <img src={logoUrl} alt="Felina" className="w-8 h-8 rounded-lg shrink-0" />
+        {!collapsed && (
+          <div>
+            <h1 className="text-sm font-semibold text-text-primary">Felina</h1>
+            <p className="text-xs text-text-muted">AI Config Manager</p>
+          </div>
+        )}
       </button>
 
       {/* Navigation */}
       <nav className="flex-1 py-2 overflow-y-auto">
-        {NAV_ITEMS.map((item) => {
-          const IconComponent = ICON_MAP[item.icon];
-          const isActive = useMatch(`/${item.id}`) !== null;
-          return (
-            <Link
-              key={item.id}
-              to={`/${item.id}`}
-              className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm transition-colors ${
-                isActive
-                  ? "bg-accent-dim text-accent border-r-2 border-accent"
-                  : "text-text-secondary hover:bg-bg-hover hover:text-text-primary"
-              }`}
-            >
-              <span className="w-5 h-5 flex items-center justify-center">
-                {IconComponent && <IconComponent size={18} />}
-              </span>
-              <span>{item.label}</span>
-            </Link>
-          );
-        })}
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          onDragEnd={handleDragEnd}
+        >
+          <SortableContext
+            items={navItems.map((item) => item.id)}
+            strategy={verticalListSortingStrategy}
+          >
+            {navItems.map((item) => (
+              <SortableSidebarItem key={item.id} item={item} collapsed={collapsed} />
+            ))}
+          </SortableContext>
+        </DndContext>
       </nav>
 
-      {/* Global UI preferences */}
+      {/* Bottom controls */}
+      <div className={`flex items-center ${collapsed ? "flex-col gap-1 px-1" : "px-4 gap-1"} mb-2 mt-2`}>
         <button
           ref={quickSettingsButtonRef}
-          className={`mx-4 mb-2 mt-2 flex h-9 w-[calc(100%-2rem)] items-center justify-center rounded-md text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary ${
-            showQuickSettings ? "bg-bg-hover text-text-primary" : ""
-          }`}
+          className={`flex h-9 items-center justify-center rounded-md text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary ${
+            collapsed ? "w-full" : "flex-1"
+          } ${showQuickSettings ? "bg-bg-hover text-text-primary" : ""}`}
           onClick={() => setShowQuickSettings((value) => !value)}
           title={t(locale, "quickSettings.open")}
           aria-label={t(locale, "quickSettings.open")}
@@ -98,6 +186,15 @@ export default function Sidebar() {
         >
           <SettingsIcon size={17} />
         </button>
+        <button
+          className={`flex h-9 items-center justify-center rounded-md text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary ${collapsed ? "w-full" : "w-9"}`}
+          onClick={toggleCollapsed}
+          title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+        >
+          {collapsed ? <ChevronsRight size={17} /> : <ChevronsLeft size={17} />}
+        </button>
+      </div>
       <QuickSettingsPopover
         open={showQuickSettings}
         onClose={() => setShowQuickSettings(false)}

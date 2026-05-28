@@ -51,7 +51,7 @@ export default function QuickSettingsPopover({ open, onClose, anchorRef }: Props
   return (
     <div
       ref={popoverRef}
-      className="absolute bottom-12 left-4 right-4 z-30 rounded-lg border border-border bg-bg-secondary shadow-2xl"
+      className="absolute bottom-12 left-2 z-30 w-56 rounded-lg border border-border bg-bg-secondary shadow-2xl"
     >
       <div className="p-3 space-y-4">
         <div>

@@ -11,6 +11,7 @@ import { isProjectMissing, normalizeProjectPath } from "$lib/utils/path";
 import ConfirmDialog from "$lib/components/shared/ConfirmDialog";
 import MarkdownPreview from "$lib/components/shared/MarkdownPreview";
 import AddTargetDialog from "./AddTargetDialog";
+import PullConfirmDialog from "./PullConfirmDialog";
 import type { TargetRemovalPolicy } from "$lib/types";
 
 type UIState = "tracked" | "disabled";
@@ -57,6 +58,7 @@ interface Props {
 export default function TargetEditor({ skillName, projectPath, targets, onTargetsChange, knownProjects }: Props) {
   const locale = useLocaleStore((s) => s.locale);
   const loadEntries = useSkillsStore((s) => s.loadEntries);
+  const refreshDriftScan = useSkillsStore((s) => s.refreshDriftScan);
   const driftMap = useSkillsStore((s) => s.driftMap);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [pruneOrphans, setPruneOrphans] = useState<OrphanFile[] | null>(null);
@@ -73,6 +75,8 @@ export default function TargetEditor({ skillName, projectPath, targets, onTarget
   // existence per target row, keyed by agent-scope-project. Drives the per-row
   // "Open target folder" button (disabled until a push creates the folder).
   const [dirInfo, setDirInfo] = useState<Record<string, { path: string; exists: boolean }>>({});
+  const [pullTarget, setPullTarget] = useState<{ key: string; name: string } | null>(null);
+  const [pullBusy, setPullBusy] = useState(false);
 
   const buffered = !!onTargetsChange;
 
@@ -295,12 +299,21 @@ export default function TargetEditor({ skillName, projectPath, targets, onTarget
                   </span>
                 )}
                 {driftMap[skillName]?.[targetKey(tgt)] === "drifted" && (
-                  <span
-                    className="inline-flex items-center gap-1 text-warning shrink-0"
-                    title={t(locale, "skills.drift.driftBadgeTooltip")}
-                  >
-                    <AlertTriangle size={12} /> {t(locale, "skills.drift.drifted")}
-                  </span>
+                  <>
+                    <span
+                      className="inline-flex items-center gap-1 text-warning shrink-0"
+                      title={t(locale, "skills.drift.driftBadgeTooltip")}
+                    >
+                      <AlertTriangle size={12} /> {t(locale, "skills.drift.drifted")}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setPullTarget({ key: targetKey(tgt), name: skillName })}
+                      className="text-[11px] px-1.5 py-0.5 rounded border border-warning/40 text-warning hover:bg-warning/10"
+                    >
+                      {t(locale, "skills.pull.button")}
+                    </button>
+                  </>
                 )}
 
                 <div className="ml-auto flex items-center gap-0.5">
@@ -428,6 +441,27 @@ export default function TargetEditor({ skillName, projectPath, targets, onTarget
       <TargetContentModal
         state={contentModal}
         onclose={() => setContentModal(null)}
+      />
+      <PullConfirmDialog
+        open={pullTarget !== null}
+        skillName={pullTarget?.name ?? ""}
+        targetKey={pullTarget?.key ?? ""}
+        busy={pullBusy}
+        onConfirm={async () => {
+          if (!pullTarget) return;
+          setPullBusy(true);
+          try {
+            await api.skillPull.fromTarget(pullTarget.name, pullTarget.key);
+            await loadEntries();
+            void refreshDriftScan();
+            setPullTarget(null);
+          } catch (e) {
+            window.alert(t(locale, "skills.pull.failed", { error: String(e) }));
+          } finally {
+            setPullBusy(false);
+          }
+        }}
+        onCancel={() => setPullTarget(null)}
       />
     </div>
   );

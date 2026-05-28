@@ -213,6 +213,11 @@ const zhTW: TranslationDict = {
     syncInfo: "同步資訊：",
     notSynced: "尚未同步",
     projectNotFound: "Project 不存在",
+    syncInfoBar: {
+      synced: "已同步",
+      pending: "待同步",
+      missing: "遺失",
+    },
     list: {
       empty: "還沒有任何 skill。建立一個，或從既有的 agent 目錄匯入。",
       frontmatterBroken: "Frontmatter 解析失敗，請開啟原始檔案修正",
@@ -221,6 +226,14 @@ const zhTW: TranslationDict = {
       pushing: "推送中…",
       pushTitle: "將此 skill 推送到它的同步目標",
       hasUnpushed: "有尚未推送的變更",
+      drifted: "部分目標已在外部被修改",
+    },
+    pull: {
+      button: "拉回",
+      confirmTitle: "從目標拉回",
+      confirmMessage: "此操作會以 agent 目標端的內容覆寫 canonical skill，且無法復原。",
+      success: "拉回成功",
+      failed: "拉回失敗：{{error}}",
     },
     editor: {
       creatingNew: "建立新 skill",

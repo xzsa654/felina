@@ -8,56 +8,33 @@ TBD - created by archiving change 'drift-detection-and-conflict-ui'. Update Purp
 
 ### Requirement: Batch Drift Scan API
 
-The system SHALL provide a `skill_drift_scan` IPC command that scans all canonical skills' enabled tracked targets for drift in a single call. For each target, the command SHALL read the agent-side SKILL.md file, compute its semantic hash, and compare it against the `pushed_hash` stored in the skill's sync-meta sidecar. The command SHALL return a mapping of skill name to per-target drift status. The command SHALL NOT render canonical content, write any files, or modify sync-meta.
+ADD scenario:
 
-#### Scenario: Scan detects drifted target
+#### Scenario: Drift scan results used for SkillList indicator
 
-- **WHEN** a canonical skill has an enabled tracked target whose agent-side SKILL.md semantic hash differs from the stored `pushed_hash`
-- **THEN** the scan SHALL return `drifted` status for that target
-
-##### Example: three targets with mixed drift states
-
-| Skill | Target | Agent-side hash | Pushed hash | Status |
-| ----- | ------ | --------------- | ----------- | ------ |
-| code-review | anthropic:global | abc123 | abc123 | synced |
-| code-review | codex:global | def456 | xyz789 | drifted |
-| helper | gemini:global | (file missing) | ghi012 | missing |
-
-#### Scenario: Scan skips disabled and detached targets
-
-- **WHEN** a skill target has `enabled: false` or `mode: detached`
-- **THEN** the scan SHALL NOT read the agent-side file for that target
-- **AND** the scan SHALL NOT include that target in the result
-
-#### Scenario: Scan handles target with no push history
-
-- **WHEN** a skill target has no `last_sync` entry (never pushed)
-- **THEN** the scan SHALL return `no-push-history` status for that target
+- **GIVEN** the drift scan has completed and returned DriftStatus per skill per target
+- **WHEN** the SkillList is rendered
+- **THEN** each skill entry SHALL reflect whether any of its targets are in Drifted state based on the scan results
 
 
 <!-- @trace
-source: drift-detection-and-conflict-ui
+source: drift-pull-back
 updated: 2026-05-29
 code:
-  - src/lib/components/skills/SkillsPage.tsx
-  - src-tauri/src/lib.rs
-  - src/lib/stores/skills-store.ts
-  - src-tauri/src/commands/fan_out/mod.rs
-  - src/lib/components/skills/TargetEditor.tsx
+  - src/lib/components/skills/SkillEditor.tsx
+  - src/lib/components/skills/SkillList.tsx
   - src/lib/tauri/commands.ts
-  - src/lib/components/skills/CoverageMatrix.tsx
-  - src/lib/components/projects/ManagedInventory.tsx
-  - src/lib/types/skills.ts
-  - .knowledge/knowledge-base/dev-docs.md
-  - src/lib/components/skills/PendingPushBar.tsx
-  - .session/product-backlog.md
-  - src/lib/i18n/locales/en.ts
   - .knowledge/_catalog.json
-  - .knowledge/knowledge-base/architecture.md
+  - src-tauri/src/lib.rs
+  - src/lib/components/skills/TargetEditor.tsx
+  - .session/product-backlog.md
+  - src-tauri/src/commands/skill_import.rs
+  - src/lib/components/skills/PullConfirmDialog.tsx
+  - src/lib/components/skills/SkillsPage.tsx
   - src/lib/i18n/locales/zh-TW.ts
-  - .session/agent-skill-market-complete.md
-  - src/lib/types/index.ts
-  - src/lib/components/skills/SkillImportWizard.tsx
+  - src-tauri/src/commands/fan_out/mod.rs
+  - src/lib/i18n/locales/en.ts
+  - .knowledge/knowledge-base/architecture.md
 -->
 
 ---

@@ -211,6 +211,11 @@ const en = {
     syncInfo: "Sync info:",
     notSynced: "Not synced",
     projectNotFound: "project not found",
+    syncInfoBar: {
+      synced: "Synced",
+      pending: "Pending",
+      missing: "Missing",
+    },
     list: {
       empty: "No canonical skills yet. Create one or import existing skills.",
       frontmatterBroken: "Frontmatter unreadable — open raw file",
@@ -219,6 +224,14 @@ const en = {
       pushing: "Pushing…",
       pushTitle: "Push this skill to its agent targets",
       hasUnpushed: "Has unpushed changes",
+      drifted: "Some targets have been modified externally",
+    },
+    pull: {
+      button: "Pull",
+      confirmTitle: "Pull from target",
+      confirmMessage: "This will overwrite the canonical skill with the content from the agent target. This action cannot be undone.",
+      success: "Pulled successfully",
+      failed: "Pull failed: {{error}}",
     },
     editor: {
       creatingNew: "Creating new canonical skill",
