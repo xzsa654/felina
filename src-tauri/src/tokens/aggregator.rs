@@ -4,7 +4,9 @@ use std::sync::Mutex;
 
 use crate::tokens::pricing::PricingService;
 use crate::tokens::scan_state::ScanState;
-use crate::tokens::storage::{TokenStorage, SOURCE_FELINA_PARSER, SOURCE_PARSER_FALLBACK};
+use crate::tokens::storage::{
+    TokenStorage, SOURCE_FELINA_PARSER, SOURCE_PARSER_FALLBACK, SOURCE_TOKSCALE_EXPORT,
+};
 #[cfg(test)]
 use crate::tokens::tokscale::TokscaleAdapter;
 use crate::tokens::tokscale_ingestion;
@@ -60,9 +62,9 @@ impl TokenAggregator {
     /// Build a complete analytics response.
     ///
     /// `source_override`:
-    ///   - `None`            → use active_source (default behaviour)
+    ///   - `None`             → use the preferred source for the granularity
     ///   - `Some("auto_dated")` → pick the source with the most timestamp > 0 records
-    ///   - `Some("<name>")`  → use that source directly
+    ///   - `Some("<name>")`   → use that source directly
     pub fn build_analytics(
         &self,
         granularity: TimeGranularity,
@@ -75,11 +77,12 @@ impl TokenAggregator {
         let active_source = match source_override.as_deref() {
             Some("auto_dated") => self.pick_dated_source()?,
             Some(s) => s.to_string(),
-            None => self
-                .storage
-                .active_source()
-                .unwrap_or_else(|_| SOURCE_FELINA_PARSER.to_string()),
+            None => self.default_analytics_source(&granularity)?,
         };
+        eprintln!(
+            "tokens: build_analytics granularity={:?} source_override={:?} resolved_source={}",
+            granularity, source_override, active_source
+        );
 
         let conn = self
             .storage
@@ -1080,6 +1083,50 @@ impl TokenAggregator {
         })
     }
 
+    /// Pick the default source for analytics when no explicit override is provided.
+    ///
+    /// Aggregate views prefer `tokscale_export` when it exists because that is the
+    /// source refreshed by `refresh_token_data`. Daily views keep using the active
+    /// ingestion source so rollback and parser-only setups still behave as before.
+    fn default_analytics_source(&self, granularity: &TimeGranularity) -> Result<String, String> {
+        match granularity {
+            TimeGranularity::Hourly | TimeGranularity::Weekly | TimeGranularity::Monthly => {
+                let tokscale_count = self
+                    .storage
+                    .count_events_for_source(SOURCE_TOKSCALE_EXPORT)
+                    .unwrap_or(0);
+                if tokscale_count > 0 {
+                    eprintln!(
+                        "tokens: default analytics source {:?} -> {} ({} events)",
+                        granularity, SOURCE_TOKSCALE_EXPORT, tokscale_count
+                    );
+                    Ok(SOURCE_TOKSCALE_EXPORT.to_string())
+                } else {
+                    let source = self
+                        .storage
+                        .active_source()
+                        .map_err(|e| format!("active_source error: {}", e))?;
+                    eprintln!(
+                        "tokens: default analytics source {:?} -> active_source {} (tokscale_export missing)",
+                        granularity, source
+                    );
+                    Ok(source)
+                }
+            }
+            TimeGranularity::Daily => {
+                let source = self
+                    .storage
+                    .active_source()
+                    .map_err(|e| format!("active_source error: {}", e))?;
+                eprintln!(
+                    "tokens: default analytics source Daily -> active_source {}",
+                    source
+                );
+                Ok(source)
+            }
+        }
+    }
+
     /// Pick the source that has the most events with a real timestamp (> 0).
     /// Result is cached in-memory — one SQL query on first call, free thereafter.
     fn pick_dated_source(&self) -> Result<String, String> {
@@ -1433,7 +1480,9 @@ mod tests {
     use crate::tokens::reconciliation::{
         ReconcileOptions, ReconciliationRecord, SourceCollection, SourceStatus, TokenSource,
     };
-    use crate::tokens::storage::{SOURCE_FELINA_PARSER, SOURCE_TOKSCALE_EXPORT};
+    use crate::tokens::storage::{
+        SOURCE_FELINA_PARSER, SOURCE_PARSER_FALLBACK, SOURCE_TOKSCALE_EXPORT,
+    };
     use std::collections::BTreeMap;
     use std::path::PathBuf;
 
@@ -1582,6 +1631,40 @@ mod tests {
         assert!(json.get("model_breakdown").is_some());
         assert!(json.get("agent_breakdown").is_some());
         assert!(json.get("top_sessions").is_some());
+        cleanup_db(&db);
+    }
+
+    #[test]
+    fn monthly_analytics_prefers_tokscale_export_over_parser_fallback_active_source() {
+        let (aggregator, db) = aggregator("monthly_prefers_tokscale");
+        aggregator
+            .storage
+            .upsert_events(&[event(
+                AgentId::ClaudeCode,
+                "legacy-model",
+                321,
+                123,
+                "legacy",
+            )])
+            .expect("legacy insert");
+        let tokscale_event = event(AgentId::CodexCli, "gpt-5.1-codex", 1_000, 200, "tokscale");
+        aggregator
+            .storage
+            .replace_tokscale_records(&[(&tokscale_event, 7)], "tokscale-test")
+            .expect("tokscale replace");
+        aggregator
+            .storage
+            .set_active_source(SOURCE_PARSER_FALLBACK)
+            .expect("active source");
+
+        let analytics = aggregator
+            .build_analytics(TimeGranularity::Monthly, None, None, None, None, None)
+            .expect("analytics");
+
+        assert_eq!(analytics.total_input_tokens, 1_000);
+        assert_eq!(analytics.total_output_tokens, 200);
+        assert_eq!(analytics.event_count, 7);
+        assert_eq!(analytics.model_breakdown[0].model, "gpt-5.1-codex");
         cleanup_db(&db);
     }
 
