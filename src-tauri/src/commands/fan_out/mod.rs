@@ -420,7 +420,19 @@ pub fn skill_sync_all_preview() -> Result<SkillSyncAllPreview, String> {
     let mut skills = Vec::new();
     let mut summary = SkillSyncPreviewSummary::default();
     for entry in entries {
-        if let super::canonical_skills::SkillListEntry::Ok { canonical_id, .. } = entry {
+        if let super::canonical_skills::SkillListEntry::Ok {
+            canonical_id, skill, ..
+        } = entry
+        {
+            if !skill.dirty {
+                continue;
+            }
+            let has_pushable_target = skill.targets.iter().any(|t| {
+                t.enabled && matches!(t.mode, super::canonical_skills::TargetMode::Tracked)
+            });
+            if !has_pushable_target {
+                continue;
+            }
             let preview = skill_sync_preview(canonical_id)?;
             merge_summary(&mut summary, &preview.summary);
             skills.push(preview);
@@ -2041,5 +2053,174 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn skill_sync_all_preview_includes_dirty_with_pushable_targets() {
+        let tmp = smoke_tempdir("allprev-dirty");
+        let _g = override_felina_home(&tmp);
+        let project = tmp.to_string_lossy().to_string();
+
+        make_canonical("alpha", &["anthropic"]);
+        write_sync_meta_v2(
+            &tmp.join(".felina").join("skills").join("alpha"),
+            &SyncMetaV2 {
+                version: 2,
+                targets: vec![SkillTarget {
+                    agent: AgentId::Anthropic,
+                    scope: SkillScope::Project,
+                    project: Some(project.clone()),
+                    enabled: true,
+                    mode: TargetMode::Tracked,
+                }],
+                last_sync: std::collections::BTreeMap::new(),
+                dirty: true,
+            },
+        )
+        .unwrap();
+
+        let result = skill_sync_all_preview().expect("all preview");
+        assert_eq!(result.skills.len(), 1);
+        assert_eq!(result.skills[0].skill_name, "alpha");
+    }
+
+    #[test]
+    fn skill_sync_all_preview_excludes_clean_skill() {
+        let tmp = smoke_tempdir("allprev-clean");
+        let _g = override_felina_home(&tmp);
+        let project = tmp.to_string_lossy().to_string();
+
+        make_canonical("beta", &["anthropic"]);
+        write_sync_meta_v2(
+            &tmp.join(".felina").join("skills").join("beta"),
+            &SyncMetaV2 {
+                version: 2,
+                targets: vec![SkillTarget {
+                    agent: AgentId::Anthropic,
+                    scope: SkillScope::Project,
+                    project: Some(project.clone()),
+                    enabled: true,
+                    mode: TargetMode::Tracked,
+                }],
+                last_sync: std::collections::BTreeMap::new(),
+                dirty: false,
+            },
+        )
+        .unwrap();
+
+        let result = skill_sync_all_preview().expect("all preview");
+        assert!(
+            result.skills.is_empty(),
+            "clean skill should not appear in Push all preview"
+        );
+    }
+
+    #[test]
+    fn skill_sync_all_preview_excludes_dirty_targetless_skill() {
+        let tmp = smoke_tempdir("allprev-notgt");
+        let _g = override_felina_home(&tmp);
+
+        make_canonical("gamma", &["anthropic"]);
+        write_sync_meta_v2(
+            &tmp.join(".felina").join("skills").join("gamma"),
+            &SyncMetaV2 {
+                version: 2,
+                targets: vec![],
+                last_sync: std::collections::BTreeMap::new(),
+                dirty: true,
+            },
+        )
+        .unwrap();
+
+        let result = skill_sync_all_preview().expect("all preview");
+        assert!(
+            result.skills.is_empty(),
+            "dirty skill with no pushable targets should not appear"
+        );
+    }
+
+    #[test]
+    fn skill_sync_all_preview_excludes_dirty_detached_only() {
+        let tmp = smoke_tempdir("allprev-detach");
+        let _g = override_felina_home(&tmp);
+        let project = tmp.to_string_lossy().to_string();
+
+        make_canonical("delta", &["anthropic"]);
+        write_sync_meta_v2(
+            &tmp.join(".felina").join("skills").join("delta"),
+            &SyncMetaV2 {
+                version: 2,
+                targets: vec![SkillTarget {
+                    agent: AgentId::Anthropic,
+                    scope: SkillScope::Project,
+                    project: Some(project.clone()),
+                    enabled: true,
+                    mode: TargetMode::Detached,
+                }],
+                last_sync: std::collections::BTreeMap::new(),
+                dirty: true,
+            },
+        )
+        .unwrap();
+
+        let result = skill_sync_all_preview().expect("all preview");
+        assert!(
+            result.skills.is_empty(),
+            "dirty skill with only detached targets should not appear"
+        );
+    }
+
+    #[test]
+    fn skill_sync_all_preview_summary_reflects_filtered_only() {
+        let tmp = smoke_tempdir("allprev-sum");
+        let _g = override_felina_home(&tmp);
+        let project = tmp.to_string_lossy().to_string();
+
+        make_canonical("dirty-one", &["anthropic"]);
+        write_sync_meta_v2(
+            &tmp.join(".felina").join("skills").join("dirty-one"),
+            &SyncMetaV2 {
+                version: 2,
+                targets: vec![SkillTarget {
+                    agent: AgentId::Anthropic,
+                    scope: SkillScope::Project,
+                    project: Some(project.clone()),
+                    enabled: true,
+                    mode: TargetMode::Tracked,
+                }],
+                last_sync: std::collections::BTreeMap::new(),
+                dirty: true,
+            },
+        )
+        .unwrap();
+
+        make_canonical("clean-one", &["anthropic"]);
+        write_sync_meta_v2(
+            &tmp.join(".felina").join("skills").join("clean-one"),
+            &SyncMetaV2 {
+                version: 2,
+                targets: vec![SkillTarget {
+                    agent: AgentId::Anthropic,
+                    scope: SkillScope::Project,
+                    project: Some(project.clone()),
+                    enabled: true,
+                    mode: TargetMode::Tracked,
+                }],
+                last_sync: std::collections::BTreeMap::new(),
+                dirty: false,
+            },
+        )
+        .unwrap();
+
+        let result = skill_sync_all_preview().expect("all preview");
+        assert_eq!(result.skills.len(), 1, "only dirty skill included");
+        assert_eq!(result.skills[0].skill_name, "dirty-one");
+        assert_eq!(
+            result.summary.create + result.summary.overwrite + result.summary.no_op,
+            result.skills[0].summary.create
+                + result.skills[0].summary.overwrite
+                + result.skills[0].summary.no_op,
+            "summary must reflect only included skills"
+        );
     }
 }
