@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { api } from "$lib/tauri/commands";
 import type { ProjectInfo, MemoryFile } from "$lib/types";
 import ConfirmDialog from "$lib/components/shared/ConfirmDialog";
-import { marked } from "marked";
+import MarkdownPreview from "$lib/components/shared/MarkdownPreview";
 import { X, Plus, Brain, User, MessageSquare, FolderOpen, BookOpen, Search, Trash2 } from "lucide-react";
 
 const TYPE_COLORS: Record<string, string> = {
@@ -368,10 +368,7 @@ export default function MemoryPage() {
 
             <div className="flex-1 overflow-y-auto p-4">
               {previewMode ? (
-                <div
-                  className="md-preview"
-                  dangerouslySetInnerHTML={{ __html: marked(editContent || "") as string }}
-                />
+                <MarkdownPreview markdown={editContent} />
               ) : (
                 <textarea
                   className="w-full h-full px-3 py-2 text-sm bg-bg-tertiary border border-border rounded-lg text-text-primary font-mono resize-none focus:outline-none focus:border-accent"

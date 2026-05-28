@@ -5,7 +5,6 @@ import type { Settings } from "$lib/types";
 import GeneralSettings from "./GeneralSettings";
 import PermissionsEditor from "./PermissionsEditor";
 import EnvVarsEditor from "./EnvVarsEditor";
-import AgentPathsSection from "./AgentPathsSection";
 import ProjectPicker from "$lib/components/shared/ProjectPicker";
 import { useProjectContextStore } from "$lib/stores/project-context";
 import { Info, CreditCard, HardDrive, Trash2 } from "lucide-react";
@@ -297,10 +296,6 @@ export default function SettingsPage() {
           <GeneralSettings settings={globalSettings} onChange={setGlobalSettings} />
           <PermissionsEditor settings={globalSettings} onChange={setGlobalSettings} />
           <EnvVarsEditor settings={globalSettings} onChange={setGlobalSettings} />
-          {/* Multi-agent-skills-foundation: per-agent skill directory overrides.
-              Global only — paths are persisted to ~/.claude/settings.json. */}
-          <AgentPathsSection />
-
           {diskUsage && (
             <div className="bg-bg-secondary border border-border rounded-lg p-4 space-y-4">
               <div className="flex items-center justify-between">

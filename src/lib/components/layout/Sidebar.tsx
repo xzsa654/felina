@@ -1,16 +1,15 @@
-import { useState, useEffect } from "react";
+import { useRef, useState, useEffect } from "react";
 import { Link, useMatch } from "react-router";
 import { getVersion } from "@tauri-apps/api/app";
 import { NAV_ITEMS } from "$lib/stores/navigation";
-import { useThemeStore } from "$lib/stores/theme";
-import LanguageSwitcher from "$lib/components/shared/LanguageSwitcher";
+import QuickSettingsPopover from "./QuickSettingsPopover";
+import { t } from "$lib/i18n";
+import { useLocaleStore } from "$lib/stores/locale";
 import {
   Settings as SettingsIcon,
   Brain,
   Sparkles,
   LayoutGrid,
-  Sun,
-  Moon,
   ExternalLink,
   GitBranch as GithubIcon,
   X as XIcon,
@@ -31,11 +30,12 @@ const ICON_MAP: Record<string, React.ComponentType<{ size?: number; className?: 
 };
 
 export default function Sidebar() {
-  const theme = useThemeStore((s) => s.theme);
-  const toggleTheme = useThemeStore((s) => s.toggleTheme);
+  const locale = useLocaleStore((s) => s.locale);
 
   const [showAbout, setShowAbout] = useState(false);
+  const [showQuickSettings, setShowQuickSettings] = useState(false);
   const [appVersion, setAppVersion] = useState("...");
+  const quickSettingsButtonRef = useRef<HTMLButtonElement | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -48,7 +48,7 @@ export default function Sidebar() {
   }, []);
 
   return (
-    <aside className="flex flex-col h-full w-60 bg-bg-secondary border-r border-border shrink-0">
+    <aside className="relative flex flex-col h-full w-60 bg-bg-secondary border-r border-border shrink-0">
       {/* Logo */}
       <button
         className="flex items-center gap-2 px-4 py-[13.5px] border-b border-border w-full hover:bg-bg-hover transition-colors text-left"
@@ -86,23 +86,23 @@ export default function Sidebar() {
       </nav>
 
       {/* Global UI preferences */}
-      <div className="px-4 py-2 border-t border-border">
-        <div className="flex items-center gap-2">
-          <LanguageSwitcher />
         <button
-          className="shrink-0 flex items-center justify-center w-8 h-8 text-text-secondary hover:bg-bg-hover hover:text-text-primary rounded-md transition-colors"
-          onClick={toggleTheme}
-          title={theme === "dark" ? "Light Mode" : "Dark Mode"}
-          aria-label={theme === "dark" ? "Light Mode" : "Dark Mode"}
+          ref={quickSettingsButtonRef}
+          className={`mx-4 mb-2 mt-2 flex h-9 w-[calc(100%-2rem)] items-center justify-center rounded-md text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary ${
+            showQuickSettings ? "bg-bg-hover text-text-primary" : ""
+          }`}
+          onClick={() => setShowQuickSettings((value) => !value)}
+          title={t(locale, "quickSettings.open")}
+          aria-label={t(locale, "quickSettings.open")}
+          aria-expanded={showQuickSettings}
         >
-          {theme === "dark" ? (
-            <Sun size={16} />
-          ) : (
-            <Moon size={16} />
-          )}
+          <SettingsIcon size={17} />
         </button>
-        </div>
-      </div>
+      <QuickSettingsPopover
+        open={showQuickSettings}
+        onClose={() => setShowQuickSettings(false)}
+        anchorRef={quickSettingsButtonRef}
+      />
 
       {/* About Dialog */}
       {showAbout && (
