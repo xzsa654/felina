@@ -383,6 +383,14 @@ const en = {
       contentPreview: "Preview",
       contentRaw: "Raw",
       contentClose: "Close",
+      help: {
+        title: "About Targets",
+        auto: "Auto — Automatically pushes to the agent directory whenever the skill is saved.",
+        manual: "Manual — The target is tracked but requires a manual push to sync.",
+        disabled: "Disabled — Keeps the target in the list but stops all syncing. The agent-side file stays unchanged until re-enabled.",
+        pull: "Pull — Appears when the agent-side file differs from the canonical master. Overwrites the master with the agent-side version.",
+        repoint: "Repoint — Change the project folder a target points to. Useful when a project has been moved or renamed on disk.",
+      },
     },
     addTargetDialog: {
       title: "Add Target",
@@ -550,6 +558,10 @@ const en = {
       importing: "Importing…",
       present: "present",
       absent: "absent",
+      help: {
+        title: "About Managed Inventory",
+        multiSource: "Multi-source — This skill was found under more than one agent directory (e.g. both .claude/skills/ and .gemini/skills/). Because the contents may differ, you need to choose which agent's version to import as the canonical master.",
+      },
     },
     importConflictDialog: {
       title: "Global master already exists",
