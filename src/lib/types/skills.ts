@@ -133,6 +133,7 @@ export interface SkillSyncPreview {
   skillName: string;
   items: SkillSyncPreviewItem[];
   summary: SkillSyncPreviewSummary;
+  orphanSiblings: string[];
 }
 
 export interface SkillSyncAllPreview {

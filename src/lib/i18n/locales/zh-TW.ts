@@ -483,6 +483,10 @@ const zhTW: TranslationDict = {
         blockedDrift: "異動",
         overwriteUnknown: "未知覆寫",
       },
+      orphanSiblings: {
+        title: "以下檔案將從目標目錄移除",
+        description: "這些附屬檔案已從 canonical skill 目錄中刪除，推送時將自動從目標清除。",
+      },
     },
     coverageMatrix: {
       empty: "沒有 Skill 可顯示",
