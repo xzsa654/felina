@@ -111,3 +111,21 @@ Conventions, workflows, UI consistency rules, and reusable design-time checklist
 - 不加 legacy 兼容是合理選擇（使用者量小、一次性操作成本低），但必須在 change 文件中明確記載遷移步驟
 **Keywords:** hash, migration, sidecar, pushed_hash, semantic_hash, drift, false positive, sync-meta
 **Related:** kb-dev-docs-dirty-flag-cancel-drift
+
+---
+
+## @dnd-kit + React 19: 需要 skipLibCheck
+**ID:** kb-dev-docs-dndkit-react19-skiplibcheck
+**Date:** 2026-05-29
+**Updated:** 2026-05-29
+**Status:** active
+**Confidence:** confirmed
+**Source:** customizable-sidebar-order 實作 — tsc --noEmit 在 node_modules 報 JSX namespace 錯誤
+**Context:** `@dnd-kit/core` 和 `@dnd-kit/sortable` 的 `.d.ts` 使用 `JSX.Element`（全域 namespace），但 React 19 移到 `React.JSX.Element`，導致 `tsc --noEmit` 報 `Cannot find namespace 'JSX'`。
+**Applies when:** 在 React 19 + TypeScript strict 專案中使用 `@dnd-kit` 或其他未更新 JSX 型別的第三方 React library 時。
+**Lesson:**
+- 這是 library 端的已知問題（@dnd-kit 尚未發布 React 19 相容的型別更新）
+- 解法：在 `tsconfig.json` 加 `"skipLibCheck": true`，跳過 `node_modules` 內 `.d.ts` 的型別檢查
+- `skipLibCheck` 是 React 生態的常見做法，不影響專案自身程式碼的型別安全
+- 不要試圖 patch node_modules 或加 `declare namespace JSX`——等 library 更新即可
+**Keywords:** dnd-kit, react 19, jsx, skipLibCheck, typescript, tsconfig, namespace

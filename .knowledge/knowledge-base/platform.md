@@ -61,3 +61,20 @@ Windows / git / toolchain platform-specific gotchas for Felina.
 **Keywords:** windows, createprocess, cmd shim, npm global, rust command, tokscale, npx, tauri, gui path
 **Related:** kb-platform-windows-claude-credentials
 **Supersedes:** kb-platform-tokscale-parser-fallback
+
+---
+
+## git2 crate: vendored feature 名稱是 vendored-libgit2 不是 vendored
+**ID:** kb-platform-git2-vendored-feature
+**Date:** 2026-05-29
+**Updated:** 2026-05-29
+**Status:** active
+**Confidence:** confirmed
+**Source:** local-versioning-and-snapshot-layer 實作 — cargo check 首次失敗
+**Context:** `git2 = { version = "0.19", features = ["vendored"] }` 導致 `cargo check` 報錯 "does not have that feature"，正確名稱為 `vendored-libgit2`。
+**Applies when:** 在 Cargo.toml 加入 `git2` crate 並希望內嵌 libgit2 不依賴系統安裝時。
+**Lesson:**
+- git2 0.19 的 vendored feature 名稱為 `vendored-libgit2`，不是 `vendored`。
+- 另有 `vendored-openssl` 可選。完整可用 features 見 `cargo check` 錯誤訊息。
+- 首次編譯 vendored libgit2 需額外 30-60 秒（C 編譯），後續增量不受影響。
+**Keywords:** git2, vendored, vendored-libgit2, cargo, libgit2, feature name, build error

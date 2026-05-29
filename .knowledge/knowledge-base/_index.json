@@ -13,14 +13,14 @@
       "name": "Dev Docs",
       "keywords": ["convention", "workflow", "setup", "config", "ci", "cd", "build", "deploy", "ui", "ui consistency", "layout", "flexbox", "tailwind", "component reuse", "design review", "modal", "scaffold", "pagebody", "react", "zustand", "useEffect", "race condition", "identity migration", "canonical id", "rename", "async save", "store mutation"],
       "file": "dev-docs.md",
-      "count": 4
+      "count": 5
     },
     {
       "id": "platform",
       "name": "Platform",
       "keywords": ["windows", "git", "crlf", "autocrlf", "checkout", "merge", "line endings", "stat cache", "toolchain", "platform"],
       "file": "platform.md",
-      "count": 1
+      "count": 2
     },
     {
       "id": "tauri",

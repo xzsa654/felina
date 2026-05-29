@@ -100,3 +100,59 @@ Felina 的高層架構原則。用途是協助未來 agent 做出正確技術判
 - `.knowledge/` 應保存可重用的架構原則、決策與經驗，協助未來 agent 避免重複犯錯；它不應變成第二份 README、task queue 或 handoff log。
 **Keywords:** architecture, spectra, specs, knowledge base, documentation boundary, handoff, reusable lesson
 **Related:** exp-spectra-analyze-keyword-coverage
+
+---
+
+## 外部資料來源的 enum 解析應 passthrough-first
+**ID:** kb-architecture-external-data-passthrough
+**Date:** 2026-05-29
+**Updated:** 2026-05-29
+**Status:** active
+**Confidence:** confirmed
+**Source:** 2026-05-29 Session 2 — tokscale 回傳未知 client `big-pickle` 導致整批資料被丟棄
+**Context:** tokscale 解析鏈有三道 agent 白名單閘門（`parse_agent`、`agent_from_str`、`AgentId` enum），任一道遇到未知值就拒絕或整批失敗。新 agent 出現時每道都要手動加，且一個未知 row 毒化所有有效 rows。
+**Applies when:** 解析外部資料來源（CLI 工具輸出、API 回應、第三方 JSON）中的分類欄位，且該欄位值集合不由本專案控制時。
+**Lesson:**
+- 外部來源的分類值（agent name、provider、client type）不應用封閉 enum 當 gatekeeper。
+- 正確模式：認識的值正規化成內部名稱，不認識的原樣透傳（passthrough-first）。
+- 如果下游型別是封閉 enum（如 `AgentId`），考慮加 `Other(String)` variant 或在該層改用 `String`。
+- 逐一新增已知值和「遇到未知就跳過」都是亡羊補牢——前者每次都要改代碼，後者靜默丟資料。
+- 多層解析鏈（parse → transform → storage）每層都需一致的策略；只修一層不夠。
+**Keywords:** architecture, enum, whitelist, passthrough, external data, agent, closed enum, poisoning, batch failure
+**Related:** kb-platform-windows-cmd-shim
+
+---
+
+## Tauri invoke 參數名必須與 Rust 函式參數 snake_case 一致
+**ID:** kb-architecture-tauri-invoke-param-naming
+**Date:** 2026-05-29
+**Updated:** 2026-05-29
+**Status:** active
+**Confidence:** confirmed
+**Source:** 2026-05-29 Session 4 — `skill_pull_from_target` invoke silent failure
+**Context:** 前端 `invoke("cmd", { camelCaseKey })` 自動轉為 snake_case 傳給 Rust，但 Rust 參數名 `target_key_arg` 與轉換後的 `target_key` 不匹配 → invoke 直接失敗，無明確錯誤訊息。
+**Applies when:** 新增或修改 Tauri `#[tauri::command]` 函式參數時。
+**Lesson:**
+- 前端 camelCase key 自動轉 snake_case 後必須與 Rust 函式參數名**完全一致**。
+- 參數名不一致不會 compile error，只在 runtime invoke 時 silent fail。
+- 新增 command 後務必實際呼叫一次驗證，不能只靠 `cargo build` 通過。
+- 若 Rust 參數名與 import 的函式同名會 shadow，用 local `use ... as` 重新命名函式而非改參數名。
+**Keywords:** tauri, invoke, command, parameter, snake_case, camelCase, naming, silent failure
+
+---
+
+## Canonical 與 agent 端 SKILL.md 格式不同：pull/import 需分層處理
+**ID:** kb-architecture-canonical-vs-agent-skill-format
+**Date:** 2026-05-29
+**Updated:** 2026-05-29
+**Status:** active
+**Confidence:** confirmed
+**Source:** 2026-05-29 Session 4 — pull 整檔覆寫導致 frontmatter 解析失敗 + Codex import 殘留 `agents/openai.yaml`
+**Context:** Push 時 per-agent renderer 精簡 frontmatter（Anthropic 只輸出 name+description，不含 agents 欄位）並可能產生附屬檔案（Codex 的 `agents/openai.yaml`）。反向操作（pull/import）若不理解這個差異會破壞 canonical。
+**Applies when:** 實作任何從 agent target 讀取並寫回 canonical 的操作時（pull、import、sync）。
+**Lesson:**
+- Pull 只取 agent 端的 body，保留 canonical 原有的 frontmatter。直接整檔覆寫會丟失 `agents`、`agentFields` 等 canonical-only 欄位。
+- Import 從 agent 目錄複製時，agent-specific 附屬檔案（如 `agents/openai.yaml`）應解析後存入 `agentFields` metadata，然後從 canonical 目錄刪除，不該以原始檔案形式殘留。
+- `semantic_hash` 對整個檔案（frontmatter + body）算 hash，agent 端 frontmatter 與 canonical 不同 → 即使 body 相同 hash 也不同。pull 後存的 hash 應基於 agent 端原始內容，才能讓下次 drift scan 正確比對。
+- `copy_bundled_siblings` 是通用複製，需要在其後由 agent-specific 清理邏輯移除已解析的附屬檔案。
+**Keywords:** canonical, agent, skill, frontmatter, body, pull, import, format, hash, drift, bundled siblings, openai.yaml
