@@ -515,7 +515,7 @@ pub fn skill_sync_all_preview() -> Result<SkillSyncAllPreview, String> {
                 continue;
             }
             let has_pushable_target = skill.targets.iter().any(|t| {
-                t.enabled && matches!(t.mode, super::canonical_skills::TargetMode::Tracked)
+                t.enabled && matches!(t.mode, super::canonical_skills::TargetMode::Auto | super::canonical_skills::TargetMode::Manual)
             });
             if !has_pushable_target {
                 continue;
@@ -630,7 +630,7 @@ pub fn skill_sync_commit(request: SkillSyncCommitRequest) -> Result<Vec<SyncResu
 
     meta.dirty = any_failure
         || meta.targets.iter().any(|target| {
-            target.enabled && matches!(target.mode, TargetMode::Tracked) && {
+            target.enabled && matches!(target.mode, TargetMode::Auto | TargetMode::Manual) && {
                 let key = target_key(target);
                 !meta.last_sync.contains_key(&key)
             }
@@ -661,6 +661,63 @@ pub fn skill_sync_all_commit(
         }
     }
     Ok(out)
+}
+
+pub fn auto_push_if_needed(canonical_id: &str) -> Vec<SyncResult> {
+    let canonical_dir = canonical_skills_dir();
+    let canonical_skill_dir = canonical_dir.join(canonical_id);
+    let skill_md = canonical_skill_dir.join("SKILL.md");
+
+    let raw = match fs::read_to_string(&skill_md) {
+        Ok(r) => r,
+        Err(_) => return vec![],
+    };
+    let mut skill = match parse_skill_md(&raw) {
+        Ok(s) => s,
+        Err(_) => return vec![],
+    };
+    skill.canonical_id = canonical_id.to_string();
+    skill.name = canonical_id.to_string();
+
+    let (mut meta, _) = read_sync_meta_v2(&canonical_skill_dir, &skill);
+
+    let auto_targets: Vec<_> = meta
+        .targets
+        .iter()
+        .filter(|t| t.enabled && matches!(t.mode, TargetMode::Auto))
+        .cloned()
+        .collect();
+
+    if auto_targets.is_empty() {
+        return vec![];
+    }
+
+    let attempted_at = current_iso8601();
+    let mut results = Vec::new();
+
+    for target in &auto_targets {
+        match write_target(&skill, &canonical_skill_dir, target, &attempted_at, &mut meta) {
+            Ok(r) => {
+                let snapshot = try_snapshot(canonical_id);
+                let key = target_key(target);
+                if let Some(entry) = meta.last_sync.get_mut(&key) {
+                    entry.base_snapshot = snapshot;
+                }
+                results.push(r);
+            }
+            Err(r) => results.push(r),
+        }
+    }
+
+    let auto_failed = results.iter().any(|r| !r.success);
+    let has_manual_targets = meta
+        .targets
+        .iter()
+        .any(|t| t.enabled && matches!(t.mode, TargetMode::Manual));
+    meta.dirty = auto_failed || has_manual_targets;
+
+    let _ = write_sync_meta_v2(&canonical_skill_dir, &meta);
+    results
 }
 
 fn write_target(
@@ -1270,6 +1327,8 @@ pub fn skill_pull_from_target(canonical_id: String, target_key: String) -> Resul
     meta.dirty = has_other_targets;
     write_sync_meta_v2(&skill_dir, &meta)?;
 
+    auto_push_if_needed(&canonical_id);
+
     Ok(())
 }
 
@@ -1672,21 +1731,21 @@ mod tests {
                         scope: SkillScope::Project,
                         project: Some(project.clone()),
                         enabled: true,
-                        mode: TargetMode::Tracked,
+                        mode: TargetMode::Manual,
                     },
                     SkillTarget {
                         agent: AgentId::Codex,
                         scope: SkillScope::Project,
                         project: Some(project.clone()),
                         enabled: true,
-                        mode: TargetMode::Tracked,
+                        mode: TargetMode::Manual,
                     },
                     SkillTarget {
                         agent: AgentId::Gemini,
                         scope: SkillScope::Project,
                         project: Some(project.clone()),
                         enabled: true,
-                        mode: TargetMode::Tracked,
+                        mode: TargetMode::Manual,
                     },
                 ],
                 last_sync: std::collections::BTreeMap::new(),
@@ -1848,14 +1907,14 @@ mod tests {
                         scope: SkillScope::Project,
                         project: Some(project.clone()),
                         enabled: true,
-                        mode: TargetMode::Tracked,
+                        mode: TargetMode::Manual,
                     },
                     SkillTarget {
                         agent: AgentId::Gemini,
                         scope: SkillScope::Project,
                         project: Some(project.clone()),
                         enabled: true,
-                        mode: TargetMode::Tracked,
+                        mode: TargetMode::Manual,
                     },
                 ],
                 last_sync: std::collections::BTreeMap::new(),
@@ -1976,7 +2035,7 @@ mod tests {
                     scope: SkillScope::Project,
                     project: Some(project),
                     enabled: true,
-                    mode: TargetMode::Tracked,
+                    mode: TargetMode::Manual,
                 }],
                 last_sync: std::collections::BTreeMap::new(),
                 dirty: true,
@@ -2031,7 +2090,7 @@ mod tests {
                     scope: SkillScope::Project,
                     project: Some(project.clone()),
                     enabled: true,
-                    mode: TargetMode::Tracked,
+                    mode: TargetMode::Manual,
                 }],
                 last_sync: std::collections::BTreeMap::new(),
                 dirty: true,
@@ -2115,21 +2174,21 @@ mod tests {
             scope: SkillScope::Project,
             project: Some(project.clone()),
             enabled: true,
-            mode: TargetMode::Tracked,
+            mode: TargetMode::Manual,
         };
         let codex = SkillTarget {
             agent: AgentId::Codex,
             scope: SkillScope::Project,
             project: Some(project.clone()),
             enabled: true,
-            mode: TargetMode::Tracked,
+            mode: TargetMode::Manual,
         };
         let gemini = SkillTarget {
             agent: AgentId::Gemini,
             scope: SkillScope::Project,
             project: Some(project.clone()),
             enabled: true,
-            mode: TargetMode::Tracked,
+            mode: TargetMode::Manual,
         };
 
         let codex_dir = tmp.join(".agents").join("skills").join("preview-skill");
@@ -2204,14 +2263,14 @@ mod tests {
             scope: SkillScope::Project,
             project: Some(project.clone()),
             enabled: true,
-            mode: TargetMode::Tracked,
+            mode: TargetMode::Manual,
         };
         let gemini = SkillTarget {
             agent: AgentId::Gemini,
             scope: SkillScope::Project,
             project: Some(project.clone()),
             enabled: true,
-            mode: TargetMode::Tracked,
+            mode: TargetMode::Manual,
         };
 
         let anthropic_dir = tmp.join(".claude").join("skills").join("commit-skill");
@@ -2323,7 +2382,7 @@ mod tests {
             scope: SkillScope::Project,
             project: Some(project.clone()),
             enabled: true,
-            mode: TargetMode::Tracked,
+            mode: TargetMode::Manual,
         };
 
         // First push to create the target file.
@@ -2455,21 +2514,21 @@ mod tests {
                         scope: SkillScope::Project,
                         project: Some(project.clone()),
                         enabled: true,
-                        mode: TargetMode::Tracked,
+                        mode: TargetMode::Manual,
                     },
                     SkillTarget {
                         agent: AgentId::Codex,
                         scope: SkillScope::Project,
                         project: Some(project.clone()),
                         enabled: true,
-                        mode: TargetMode::Tracked,
+                        mode: TargetMode::Manual,
                     },
                     SkillTarget {
                         agent: AgentId::Gemini,
                         scope: SkillScope::Project,
                         project: Some(project.clone()),
                         enabled: true,
-                        mode: TargetMode::Tracked,
+                        mode: TargetMode::Manual,
                     },
                 ],
                 last_sync: std::collections::BTreeMap::new(),
@@ -2516,7 +2575,7 @@ mod tests {
                     scope: SkillScope::Project,
                     project: Some(project.clone()),
                     enabled: true,
-                    mode: TargetMode::Tracked,
+                    mode: TargetMode::Manual,
                 }],
                 last_sync: std::collections::BTreeMap::new(),
                 dirty: true,
@@ -2545,7 +2604,7 @@ mod tests {
                     scope: SkillScope::Project,
                     project: Some(project.clone()),
                     enabled: true,
-                    mode: TargetMode::Tracked,
+                    mode: TargetMode::Manual,
                 }],
                 last_sync: std::collections::BTreeMap::new(),
                 dirty: false,
@@ -2631,7 +2690,7 @@ mod tests {
                     scope: SkillScope::Project,
                     project: Some(project.clone()),
                     enabled: true,
-                    mode: TargetMode::Tracked,
+                    mode: TargetMode::Manual,
                 }],
                 last_sync: std::collections::BTreeMap::new(),
                 dirty: true,
@@ -2649,7 +2708,7 @@ mod tests {
                     scope: SkillScope::Project,
                     project: Some(project.clone()),
                     enabled: true,
-                    mode: TargetMode::Tracked,
+                    mode: TargetMode::Manual,
                 }],
                 last_sync: std::collections::BTreeMap::new(),
                 dirty: false,
@@ -2687,7 +2746,7 @@ mod tests {
                     scope: SkillScope::Project,
                     project: Some(project.clone()),
                     enabled: true,
-                    mode: TargetMode::Tracked,
+                    mode: TargetMode::Manual,
                 }],
                 last_sync: std::collections::BTreeMap::new(),
                 dirty: true,
@@ -2709,7 +2768,7 @@ mod tests {
                     scope: SkillScope::Project,
                     project: Some(project.clone()),
                     enabled: true,
-                    mode: TargetMode::Tracked,
+                    mode: TargetMode::Manual,
                 }],
                 last_sync: std::collections::BTreeMap::new(),
                 dirty: true,

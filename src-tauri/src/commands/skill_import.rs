@@ -679,14 +679,14 @@ fn import_target_for(
             scope: SkillScope::Project,
             project: Some(pp.to_string()),
             enabled,
-            mode: TargetMode::Tracked,
+            mode: TargetMode::Manual,
         },
         None => SkillTarget {
             agent: candidate.source_agent,
             scope: SkillScope::Global,
             project: None,
             enabled,
-            mode: TargetMode::Tracked,
+            mode: TargetMode::Manual,
         },
     }
 }
@@ -711,7 +711,7 @@ fn write_disabled_targets_for_non_selected_sources(
                 && target.project == disabled.project
         }) {
             existing.enabled = false;
-            existing.mode = TargetMode::Tracked;
+            existing.mode = TargetMode::Manual;
         } else {
             meta.targets.push(disabled);
         }
@@ -1218,10 +1218,10 @@ mod tests {
         assert_eq!(targets[0]["enabled"], true);
         assert_eq!(targets[1]["agent"], "codex");
         assert_eq!(targets[1]["enabled"], false);
-        assert_eq!(targets[1]["mode"], "tracked");
+        assert_eq!(targets[1]["mode"], "manual");
         assert_eq!(targets[2]["agent"], "gemini");
         assert_eq!(targets[2]["enabled"], false);
-        assert_eq!(targets[2]["mode"], "tracked");
+        assert_eq!(targets[2]["mode"], "manual");
     }
 
     #[test]
