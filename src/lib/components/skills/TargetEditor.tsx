@@ -77,6 +77,7 @@ export default function TargetEditor({ skillName, projectPath, targets, onTarget
   const [dirInfo, setDirInfo] = useState<Record<string, { path: string; exists: boolean }>>({});
   const [pullTarget, setPullTarget] = useState<{ key: string; name: string } | null>(null);
   const [pullBusy, setPullBusy] = useState(false);
+  const [pullDiff, setPullDiff] = useState<import("$lib/types").PullDiffPreview | null>(null);
 
   const buffered = !!onTargetsChange;
 
@@ -308,7 +309,16 @@ export default function TargetEditor({ skillName, projectPath, targets, onTarget
                     </span>
                     <button
                       type="button"
-                      onClick={() => setPullTarget({ key: targetKey(tgt), name: skillName })}
+                      onClick={async () => {
+                        const key = targetKey(tgt);
+                        try {
+                          const diff = await api.skillPull.preview(skillName, key);
+                          setPullDiff(diff);
+                          setPullTarget({ key, name: skillName });
+                        } catch (e) {
+                          window.alert(t(locale, "skills.pull.failed", { error: String(e) }));
+                        }
+                      }}
                       className="text-[11px] px-1.5 py-0.5 rounded border border-warning/40 text-warning hover:bg-warning/10"
                     >
                       {t(locale, "skills.pull.button")}
@@ -447,6 +457,7 @@ export default function TargetEditor({ skillName, projectPath, targets, onTarget
         skillName={pullTarget?.name ?? ""}
         targetKey={pullTarget?.key ?? ""}
         busy={pullBusy}
+        diff={pullDiff}
         onConfirm={async () => {
           if (!pullTarget) return;
           setPullBusy(true);
@@ -455,13 +466,14 @@ export default function TargetEditor({ skillName, projectPath, targets, onTarget
             await loadEntries();
             void refreshDriftScan();
             setPullTarget(null);
+            setPullDiff(null);
           } catch (e) {
             window.alert(t(locale, "skills.pull.failed", { error: String(e) }));
           } finally {
             setPullBusy(false);
           }
         }}
-        onCancel={() => setPullTarget(null)}
+        onCancel={() => { setPullTarget(null); setPullDiff(null); }}
       />
     </div>
   );

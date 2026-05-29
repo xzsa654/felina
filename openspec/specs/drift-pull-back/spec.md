@@ -8,49 +8,40 @@ Provides a "Pull" operation that reads a drifted agent target's skill file and o
 
 ### Requirement: Pull from Drifted Target
 
-The system SHALL provide a one-shot "Pull" operation that reads the content of a drifted agent target skill file and overwrites the corresponding canonical SKILL.md with that content.
-
-#### Scenario: Successful pull from a drifted target
+#### MODIFIED Scenario: Successful pull from a drifted target
 
 - **GIVEN** a canonical skill with a target whose DriftStatus is Drifted
 - **WHEN** the user initiates a Pull operation for that target
+- **THEN** the system SHALL first display a diff preview showing line-level differences between canonical and target content
+- **AND** wait for the user to confirm or cancel
+- **WHEN** the user confirms the pull
 - **THEN** the system SHALL read the target-side skill file content
 - **AND** overwrite the canonical SKILL.md with the target content
 - **AND** update the sidecar's pushed_hash to the semantic hash of the new content
 - **AND** update the sidecar's lastSync.at to the current timestamp
 - **AND** set the sidecar dirty flag to false
 
-#### Scenario: Pull when target file is missing
-
-- **GIVEN** a canonical skill with a target whose file does not exist on disk
-- **WHEN** the user initiates a Pull operation for that target
-- **THEN** the system SHALL return an error indicating the target file path is missing
-- **AND** the canonical SKILL.md SHALL remain unchanged
 
 <!-- @trace
-source: drift-pull-back
-updated: 2026-05-29
--->
-
-
-<!-- @trace
-source: drift-pull-back
+source: pull-diff-preview
 updated: 2026-05-29
 code:
-  - src/lib/components/skills/SkillEditor.tsx
-  - src/lib/components/skills/SkillList.tsx
-  - src/lib/tauri/commands.ts
-  - .knowledge/_catalog.json
-  - src-tauri/src/lib.rs
-  - src/lib/components/skills/TargetEditor.tsx
-  - .session/product-backlog.md
-  - src-tauri/src/commands/skill_import.rs
   - src/lib/components/skills/PullConfirmDialog.tsx
-  - src/lib/components/skills/SkillsPage.tsx
-  - src/lib/i18n/locales/zh-TW.ts
-  - src-tauri/src/commands/fan_out/mod.rs
-  - src/lib/i18n/locales/en.ts
   - .knowledge/knowledge-base/architecture.md
+  - .session/product-backlog.md
+  - src/lib/i18n/locales/en.ts
+  - src-tauri/src/lib.rs
+  - .knowledge/knowledge-base/_index.json
+  - src/lib/types/skills.ts
+  - src/lib/types/index.ts
+  - src/lib/tauri/commands.ts
+  - .knowledge/knowledge-base/dev-docs.md
+  - .knowledge/_catalog.json
+  - src-tauri/src/commands/fan_out/mod.rs
+  - .knowledge/knowledge-base/platform.md
+  - src-tauri/Cargo.toml
+  - src/lib/components/skills/TargetEditor.tsx
+  - src/lib/i18n/locales/zh-TW.ts
 -->
 
 ---
