@@ -481,6 +481,10 @@ const en = {
         blockedDrift: "Drift",
         overwriteUnknown: "Unknown",
       },
+      orphanSiblings: {
+        title: "Files to be removed from target",
+        description: "The following sibling files have been removed from the canonical skill directory and will be cleaned up from the target during push.",
+      },
     },
     coverageMatrix: {
       empty: "No skills to display",

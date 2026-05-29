@@ -271,6 +271,8 @@ pub struct SkillSyncPreview {
     pub skill_name: String,
     pub items: Vec<SkillSyncPreviewItem>,
     pub summary: SkillSyncPreviewSummary,
+    #[serde(default)]
+    pub orphan_siblings: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -404,6 +406,8 @@ pub fn skill_sync_one(name: String) -> Result<Vec<SyncResult>, String> {
                 }
             };
         let target_skill_dir = target_dir.join(&skill.name);
+        let key = target_key(&target);
+        let old_sibling_hashes = meta.last_sync.get(&key).and_then(|e| e.sibling_hashes.clone());
         let render_result = renderer.render(&skill, &target_dir);
         let final_result = match render_result {
             Ok(()) => copy_bundled_siblings(&canonical_skill_dir, &target_skill_dir),
@@ -412,11 +416,9 @@ pub fn skill_sync_one(name: String) -> Result<Vec<SyncResult>, String> {
 
         match final_result {
             Ok(()) => {
-                // Record per-target last_sync entry: hash the rendered
-                // SKILL.md so future drift checks can compare hash equality.
+                cleanup_orphan_siblings(&old_sibling_hashes, &canonical_skill_dir, &target_skill_dir);
                 let rendered =
                     fs::read_to_string(target_skill_dir.join("SKILL.md")).unwrap_or_default();
-                let key = target_key(&target);
                 let snapshot = try_snapshot(&name);
                 meta.last_sync.insert(
                     key.clone(),
@@ -840,6 +842,7 @@ fn write_target(
             }
         };
     let target_skill_dir = target_dir.join(&skill.name);
+    let old_sibling_hashes = meta.last_sync.get(&target_key(target)).and_then(|e| e.sibling_hashes.clone());
     let final_result = match renderer.render(skill, &target_dir) {
         Ok(()) => copy_bundled_siblings(canonical_skill_dir, &target_skill_dir),
         Err(e) => Err(e),
@@ -847,6 +850,7 @@ fn write_target(
 
     match final_result {
         Ok(()) => {
+            cleanup_orphan_siblings(&old_sibling_hashes, canonical_skill_dir, &target_skill_dir);
             let rendered =
                 fs::read_to_string(target_skill_dir.join("SKILL.md")).unwrap_or_default();
             let snapshot = try_snapshot(&skill.name);
@@ -1058,10 +1062,27 @@ fn build_preview_for_skill(
         count_operation(&mut summary, item.operation);
     }
 
+    // Compute orphan siblings: files in ANY target's previous baseline that
+    // no longer exist in the canonical dir. Since canonical is the same for
+    // all targets, we collect from all last_sync entries and deduplicate.
+    let canonical_siblings = compute_sibling_hashes(canonical_skill_dir);
+    let mut orphan_set = std::collections::BTreeSet::new();
+    for entry in meta.last_sync.values() {
+        if let Some(ref baseline) = entry.sibling_hashes {
+            for key in baseline.keys() {
+                if !canonical_siblings.contains_key(key) {
+                    orphan_set.insert(key.clone());
+                }
+            }
+        }
+    }
+    let orphan_siblings: Vec<String> = orphan_set.into_iter().collect();
+
     Ok(SkillSyncPreview {
         skill_name: skill.name.clone(),
         items,
         summary,
+        orphan_siblings,
     })
 }
 
@@ -1665,6 +1686,34 @@ pub(crate) fn prepare_skill_subdir(target_dir: &Path, skill_name: &str) -> Resul
     let dir = target_dir.join(skill_name);
     fs::create_dir_all(&dir).map_err(|e| format!("failed to create target skill dir: {e}"))?;
     Ok(dir)
+}
+
+/// Remove agent-side sibling files that were in the previous push baseline
+/// but no longer exist in the canonical skill directory. Files on the agent
+/// side that are NOT in the baseline are left untouched (user manual additions).
+/// Deletion failures are logged but do not interrupt the push.
+pub(crate) fn cleanup_orphan_siblings(
+    old_sibling_hashes: &Option<std::collections::BTreeMap<String, String>>,
+    canonical_skill_dir: &Path,
+    target_skill_dir: &Path,
+) {
+    let Some(baseline) = old_sibling_hashes else {
+        return;
+    };
+    if baseline.is_empty() {
+        return;
+    }
+    let current_canonical = compute_sibling_hashes(canonical_skill_dir);
+    for key in baseline.keys() {
+        if !current_canonical.contains_key(key) {
+            let orphan_path = target_skill_dir.join(key.replace('/', std::path::MAIN_SEPARATOR_STR));
+            if orphan_path.is_file() {
+                if let Err(e) = fs::remove_file(&orphan_path) {
+                    eprintln!("[fan_out] warning: failed to remove orphan sibling {}: {e}", orphan_path.display());
+                }
+            }
+        }
+    }
 }
 
 /// Recursively copy bundled siblings from a canonical skill dir into a
@@ -3225,6 +3274,263 @@ mod tests {
                 .unwrap()
                 .subsec_nanos()
         ))
+    }
+
+    #[test]
+    fn push_cleans_orphan_siblings_from_agent_side() {
+        let tmp = smoke_tempdir("orphan-clean");
+        let _g = override_felina_home(&tmp);
+        make_canonical("orphan-skill", &["anthropic"]);
+
+        let canonical_skill_dir = tmp.join(".felina").join("skills").join("orphan-skill");
+        let project = tmp.to_string_lossy().to_string();
+
+        // Add a sibling to canonical, push once to establish baseline
+        fs::write(canonical_skill_dir.join("script.py"), "print('hello')").unwrap();
+        fs::write(canonical_skill_dir.join("keep.txt"), "keep me").unwrap();
+        write_sync_meta_v2(
+            &canonical_skill_dir,
+            &SyncMetaV2 {
+                version: 2,
+                targets: vec![SkillTarget {
+                    agent: AgentId::Anthropic,
+                    scope: SkillScope::Project,
+                    project: Some(project.clone()),
+                    enabled: true,
+                    mode: TargetMode::Manual,
+                }],
+                last_sync: std::collections::BTreeMap::new(),
+                dirty: true,
+            },
+        )
+        .unwrap();
+        let results = skill_sync_one("orphan-skill".into()).expect("initial push");
+        assert!(results[0].success);
+
+        let agent_skill_dir = tmp.join(".claude").join("skills").join("orphan-skill");
+        assert!(agent_skill_dir.join("script.py").is_file());
+        assert!(agent_skill_dir.join("keep.txt").is_file());
+
+        // Now delete script.py from canonical (keep.txt remains)
+        fs::remove_file(canonical_skill_dir.join("script.py")).unwrap();
+
+        // Mark dirty and re-push
+        let mut meta: SyncMetaV2 = serde_json::from_str(
+            &fs::read_to_string(canonical_skill_dir.join(".felina-sync-meta.json")).unwrap(),
+        )
+        .unwrap();
+        meta.dirty = true;
+        write_sync_meta_v2(&canonical_skill_dir, &meta).unwrap();
+
+        let results2 = skill_sync_one("orphan-skill".into()).expect("second push");
+        assert!(results2[0].success);
+
+        // Agent-side script.py should be deleted (orphan), keep.txt should remain
+        assert!(
+            !agent_skill_dir.join("script.py").exists(),
+            "orphan sibling script.py should be cleaned from agent side"
+        );
+        assert!(
+            agent_skill_dir.join("keep.txt").is_file(),
+            "non-orphan sibling keep.txt should remain"
+        );
+    }
+
+    #[test]
+    fn push_preserves_agent_manual_additions() {
+        let tmp = smoke_tempdir("orphan-manual");
+        let _g = override_felina_home(&tmp);
+        make_canonical("manual-skill", &["anthropic"]);
+
+        let canonical_skill_dir = tmp.join(".felina").join("skills").join("manual-skill");
+        let project = tmp.to_string_lossy().to_string();
+
+        fs::write(canonical_skill_dir.join("bundled.txt"), "from canonical").unwrap();
+        write_sync_meta_v2(
+            &canonical_skill_dir,
+            &SyncMetaV2 {
+                version: 2,
+                targets: vec![SkillTarget {
+                    agent: AgentId::Anthropic,
+                    scope: SkillScope::Project,
+                    project: Some(project.clone()),
+                    enabled: true,
+                    mode: TargetMode::Manual,
+                }],
+                last_sync: std::collections::BTreeMap::new(),
+                dirty: true,
+            },
+        )
+        .unwrap();
+        let results = skill_sync_one("manual-skill".into()).expect("initial push");
+        assert!(results[0].success);
+
+        let agent_skill_dir = tmp.join(".claude").join("skills").join("manual-skill");
+        // Agent manually adds a file (not in baseline)
+        fs::write(agent_skill_dir.join("notes.txt"), "my notes").unwrap();
+
+        // Re-push (mark dirty)
+        let mut meta: SyncMetaV2 = serde_json::from_str(
+            &fs::read_to_string(canonical_skill_dir.join(".felina-sync-meta.json")).unwrap(),
+        )
+        .unwrap();
+        meta.dirty = true;
+        write_sync_meta_v2(&canonical_skill_dir, &meta).unwrap();
+
+        let results2 = skill_sync_one("manual-skill".into()).expect("second push");
+        assert!(results2[0].success);
+
+        // Agent-side notes.txt should NOT be deleted (not in baseline)
+        assert!(
+            agent_skill_dir.join("notes.txt").is_file(),
+            "agent-side manual addition should not be deleted"
+        );
+    }
+
+    #[test]
+    fn push_with_legacy_meta_skips_orphan_cleanup() {
+        let tmp = smoke_tempdir("orphan-legacy");
+        let _g = override_felina_home(&tmp);
+        make_canonical("legacy-skill", &["anthropic"]);
+
+        let canonical_skill_dir = tmp.join(".felina").join("skills").join("legacy-skill");
+        let project = tmp.to_string_lossy().to_string();
+
+        // Manually set up a legacy sidecar (sibling_hashes = None)
+        let target = SkillTarget {
+            agent: AgentId::Anthropic,
+            scope: SkillScope::Project,
+            project: Some(project.clone()),
+            enabled: true,
+            mode: TargetMode::Manual,
+        };
+        let key = target_key(&target);
+        let mut last_sync = std::collections::BTreeMap::new();
+        last_sync.insert(
+            key,
+            LastSyncEntry {
+                pushed_hash: "fakehash".into(),
+                base_snapshot: None,
+                at: "2026-01-01T00:00:00Z".into(),
+                sibling_hashes: None, // legacy
+            },
+        );
+        write_sync_meta_v2(
+            &canonical_skill_dir,
+            &SyncMetaV2 {
+                version: 2,
+                targets: vec![target],
+                last_sync,
+                dirty: true,
+            },
+        )
+        .unwrap();
+
+        // Create the agent-side dir with a file that would be an "orphan" if
+        // baseline existed
+        let agent_skill_dir = tmp.join(".claude").join("skills").join("legacy-skill");
+        fs::create_dir_all(&agent_skill_dir).unwrap();
+        fs::write(agent_skill_dir.join("old-file.txt"), "should survive").unwrap();
+
+        let results = skill_sync_one("legacy-skill".into()).expect("push");
+        assert!(results[0].success);
+
+        // With legacy meta (sibling_hashes = None), nothing should be deleted
+        assert!(
+            agent_skill_dir.join("old-file.txt").is_file(),
+            "legacy meta push should not delete any siblings"
+        );
+    }
+
+    #[test]
+    fn preview_includes_orphan_siblings_list() {
+        let tmp = smoke_tempdir("orphan-preview");
+        let _g = override_felina_home(&tmp);
+        make_canonical("prev-orphan", &["anthropic"]);
+
+        let canonical_skill_dir = tmp.join(".felina").join("skills").join("prev-orphan");
+        let project = tmp.to_string_lossy().to_string();
+
+        // Add siblings and push to establish baseline
+        fs::write(canonical_skill_dir.join("keep.txt"), "keep").unwrap();
+        fs::write(canonical_skill_dir.join("remove.txt"), "remove").unwrap();
+        write_sync_meta_v2(
+            &canonical_skill_dir,
+            &SyncMetaV2 {
+                version: 2,
+                targets: vec![SkillTarget {
+                    agent: AgentId::Anthropic,
+                    scope: SkillScope::Project,
+                    project: Some(project.clone()),
+                    enabled: true,
+                    mode: TargetMode::Manual,
+                }],
+                last_sync: std::collections::BTreeMap::new(),
+                dirty: true,
+            },
+        )
+        .unwrap();
+        let results = skill_sync_one("prev-orphan".into()).expect("initial push");
+        assert!(results[0].success);
+
+        // Delete remove.txt from canonical
+        fs::remove_file(canonical_skill_dir.join("remove.txt")).unwrap();
+
+        // Preview should list remove.txt as orphan
+        let preview = skill_sync_preview("prev-orphan".into()).expect("preview");
+        assert_eq!(preview.orphan_siblings, vec!["remove.txt".to_string()]);
+    }
+
+    #[test]
+    fn push_with_empty_baseline_skips_orphan_cleanup() {
+        let tmp = smoke_tempdir("orphan-empty");
+        let _g = override_felina_home(&tmp);
+        make_canonical("empty-baseline", &["anthropic"]);
+
+        let canonical_skill_dir = tmp.join(".felina").join("skills").join("empty-baseline");
+        let project = tmp.to_string_lossy().to_string();
+
+        // Push with no siblings to establish empty baseline
+        let target = SkillTarget {
+            agent: AgentId::Anthropic,
+            scope: SkillScope::Project,
+            project: Some(project.clone()),
+            enabled: true,
+            mode: TargetMode::Manual,
+        };
+        write_sync_meta_v2(
+            &canonical_skill_dir,
+            &SyncMetaV2 {
+                version: 2,
+                targets: vec![target],
+                last_sync: std::collections::BTreeMap::new(),
+                dirty: true,
+            },
+        )
+        .unwrap();
+        let results = skill_sync_one("empty-baseline".into()).expect("initial push");
+        assert!(results[0].success);
+
+        let agent_skill_dir = tmp.join(".claude").join("skills").join("empty-baseline");
+        // Agent manually adds a file
+        fs::write(agent_skill_dir.join("manual.txt"), "manual").unwrap();
+
+        // Re-push
+        let mut meta: SyncMetaV2 = serde_json::from_str(
+            &fs::read_to_string(canonical_skill_dir.join(".felina-sync-meta.json")).unwrap(),
+        )
+        .unwrap();
+        meta.dirty = true;
+        write_sync_meta_v2(&canonical_skill_dir, &meta).unwrap();
+
+        let results2 = skill_sync_one("empty-baseline".into()).expect("second push");
+        assert!(results2[0].success);
+
+        // Empty baseline → no orphans to clean → manual file survives
+        assert!(
+            agent_skill_dir.join("manual.txt").is_file(),
+            "empty baseline push should not delete any siblings"
+        );
     }
 
     #[test]

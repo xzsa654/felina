@@ -129,3 +129,39 @@ Conventions, workflows, UI consistency rules, and reusable design-time checklist
 - `skipLibCheck` 是 React 生態的常見做法，不影響專案自身程式碼的型別安全
 - 不要試圖 patch node_modules 或加 `declare namespace JSX`——等 library 更新即可
 **Keywords:** dnd-kit, react 19, jsx, skipLibCheck, typescript, tsconfig, namespace
+
+---
+
+## Option\<T\> vs T + serde(default) 區分 legacy 與空值
+**ID:** kb-rust-serde-option-vs-default
+**Date:** 2026-05-29
+**Updated:** 2026-05-29
+**Status:** active
+**Confidence:** confirmed
+**Source:** sibling-drift-detection change, Session 11
+**Context:** 擴展 `LastSyncEntry` 加入 `sibling_hashes` 時，用 `BTreeMap` + `#[serde(default)]` + `skip_serializing_if = "is_empty"` 導致無法區分 legacy meta（欄位不存在）與 push 時確實沒有 sibling（空 map）
+**Applies when:** 對既有 JSON schema 新增欄位，且「欄位不存在」與「欄位為空/零值」需要不同行為時
+**Lesson:**
+- `#[serde(default)]` 讓缺少的欄位反序列化為 `Default::default()`
+- `skip_serializing_if = "is_empty"` 讓空值序列化時被省略
+- 兩者組合使「欄位不存在」與「空值」在 round-trip 後無法區分
+- 當兩種狀態有不同語意（如 legacy 跳過比對 vs 空值代表無 sibling 應偵測新增），用 `Option<T>` + `skip_serializing_if = "Option::is_none"`：`None` = legacy / 不存在、`Some(empty)` = 明確的空值
+**Keywords:** serde, option, default, skip_serializing_if, backward compatibility, schema migration, json, rust
+
+---
+
+## Push preview 須考慮 SKILL.md 以外的檔案變動
+**ID:** kb-fanout-push-preview-sibling-check
+**Date:** 2026-05-29
+**Updated:** 2026-05-29
+**Status:** active
+**Confidence:** confirmed
+**Source:** sibling-drift-detection change, Session 11
+**Context:** push preview 只比較 SKILL.md semantic hash 決定 NoOp/Overwrite。使用者在 canonical 端新增 sibling 檔案後，SKILL.md 沒變導致 preview 顯示 NoOp，`copy_bundled_siblings` 不執行，sibling 不被複製到 agent 端
+**Applies when:** 修改 push/sync 流程、新增需要隨 push 同步的檔案類型、或評估 NoOp 快速路徑是否安全時
+**Lesson:**
+- `build_preview_for_skill` 的 NoOp 判斷不能只看 SKILL.md hash — 任何需要同步的檔案變動都應改為 Overwrite
+- 解法：preview 時計算 canonical sibling hashes 與 `lastSync.siblingHashes` 比較，有差異則 operation 改為 Overwrite
+- 同理，`canonical_skills_list` 載入時也需比較 canonical sibling，設 `dirty` + `siblingsDirty` 讓 push badge 出現
+- 未來若有其他 push 附帶檔案（如 manifest），同樣需要加入 preview 比較
+**Keywords:** push, preview, NoOp, sibling, copy_bundled_siblings, dirty, fan-out

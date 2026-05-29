@@ -22,7 +22,7 @@ function candidateAgents(c: ImportCandidate): AgentId[] {
 }
 
 function isTargetAvailable(tgt: SkillTarget): boolean {
-  return tgt.enabled && tgt.mode === "tracked";
+  return tgt.enabled && (tgt.mode === "manual" || tgt.mode === "auto");
 }
 
 function actionRank(r: InventoryRow): number {
