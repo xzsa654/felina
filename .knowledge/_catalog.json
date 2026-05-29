@@ -1,5 +1,5 @@
 {
-  "lastUpdated": "2026-05-28",
+  "lastUpdated": "2026-05-29",
   "entries": [
     {
       "id": "kb-architecture-local-only-boundary",
@@ -191,6 +191,66 @@
       "appliesWhen": "修改任何用於比對/drift 偵測的 hash 演算法、序列化格式、或正規化邏輯時",
       "file": "knowledge-base/dev-docs.md",
       "anchor": "hash-migration-sidecar",
+      "updated": "2026-05-29"
+    },
+    {
+      "id": "kb-architecture-external-data-passthrough",
+      "title": "外部資料來源的 enum 解析應 passthrough-first",
+      "type": "knowledge",
+      "status": "active",
+      "confidence": "confirmed",
+      "keywords": ["architecture", "enum", "whitelist", "passthrough", "external data", "agent", "closed enum", "poisoning", "batch failure"],
+      "appliesWhen": "解析外部資料來源中的分類欄位，且該欄位值集合不由本專案控制時",
+      "file": "knowledge-base/architecture.md",
+      "anchor": "external-data-passthrough-first",
+      "updated": "2026-05-29"
+    },
+    {
+      "id": "kb-architecture-tauri-invoke-param-naming",
+      "title": "Tauri invoke 參數名必須與 Rust 函式參數 snake_case 一致",
+      "type": "knowledge",
+      "status": "active",
+      "confidence": "confirmed",
+      "keywords": ["tauri", "invoke", "command", "parameter", "snake_case", "camelCase", "naming", "silent failure"],
+      "appliesWhen": "新增或修改 Tauri #[tauri::command] 函式參數時",
+      "file": "knowledge-base/architecture.md",
+      "anchor": "tauri-invoke-param-naming",
+      "updated": "2026-05-29"
+    },
+    {
+      "id": "kb-architecture-canonical-vs-agent-skill-format",
+      "title": "Canonical 與 agent 端 SKILL.md 格式不同：pull/import 需分層處理",
+      "type": "knowledge",
+      "status": "active",
+      "confidence": "confirmed",
+      "keywords": ["canonical", "agent", "skill", "frontmatter", "body", "pull", "import", "format", "hash", "drift"],
+      "appliesWhen": "實作任何從 agent target 讀取並寫回 canonical 的操作時",
+      "file": "knowledge-base/architecture.md",
+      "anchor": "canonical-vs-agent-skill-format",
+      "updated": "2026-05-29"
+    },
+    {
+      "id": "kb-platform-git2-vendored-feature",
+      "title": "git2 crate: vendored feature 名稱是 vendored-libgit2 不是 vendored",
+      "type": "knowledge",
+      "status": "active",
+      "confidence": "confirmed",
+      "keywords": ["git2", "vendored", "vendored-libgit2", "cargo", "libgit2", "feature name", "build error"],
+      "appliesWhen": "在 Cargo.toml 加入 git2 crate 並希望內嵌 libgit2 時",
+      "file": "knowledge-base/platform.md",
+      "anchor": "git2-crate-vendored-feature-name",
+      "updated": "2026-05-29"
+    },
+    {
+      "id": "kb-dev-docs-dndkit-react19-skiplibcheck",
+      "title": "@dnd-kit + React 19: 需要 skipLibCheck",
+      "type": "knowledge",
+      "status": "active",
+      "confidence": "confirmed",
+      "keywords": ["dnd-kit", "react 19", "jsx", "skipLibCheck", "typescript", "tsconfig", "namespace"],
+      "appliesWhen": "在 React 19 + TypeScript strict 專案中使用 @dnd-kit 或其他未更新 JSX 型別的第三方 React library 時",
+      "file": "knowledge-base/dev-docs.md",
+      "anchor": "dndkit-react19-skiplibcheck",
       "updated": "2026-05-29"
     }
   ]

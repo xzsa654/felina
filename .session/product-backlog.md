@@ -66,16 +66,6 @@ Architecture note:
 
 ## Phase 2 — Skill Sync Advanced
 
-### drift-detection-and-conflict-ui
-
-| Field | Value |
-|---|---|
-| type | planned-change |
-| status | active (Spectra change, 4/16) |
-| flagged | 2026-05-20 |
-| last-seen | 2026-05-28 |
-| description | Target 端 drift 自動偵測：batch scan API + check_drift 共用函式 + CoverageMatrix/TargetEditor drifted 狀態 + app 啟動/refocus/reload 觸發。 |
-
 ### forked-target-overlay
 
 | Field | Value |
@@ -83,40 +73,18 @@ Architecture note:
 | type | suggestion |
 | status | not-committed |
 | flagged | 2026-05-20 |
-| last-seen | 2026-05-28 |
+| last-seen | 2026-05-29 |
 | description | Per-target 客製化：canonical 推到某 project 後，使用者手改的部分自動與未來主檔更新進行 3-way merge 保留。 |
 
-Design route (2026-05-28 discuss 定案):
+Design route (2026-05-28 discuss 定案, 2026-05-29 更新):
 - 採用行級字串合併 (Git-style Diff)，廢棄「整段替換格式」的 MVP 構想。
 - 底層使用 Rust `git2` (libgit2) crate 進行 `git2::Merge::merge_file`。
 - 若發生合併衝突，由 `git2` 產生標準 `<<<<<<<` 標記，並在前端實作 Conflict Resolution UI 供使用者決策。
-- 依賴 `local-versioning-and-snapshot-layer` 提供的 Base Snapshot 作為 3-way merge 的基礎。
+- 依賴 `local-versioning-and-snapshot-layer`（已完成 2026-05-29）提供的 Base Snapshot 作為 3-way merge 的基礎。
+- `pull-diff-preview`（已完成 2026-05-29）提供了 `similar` crate 行級 diff + inline diff viewer + `PullConfirmDialog` diff 渲染元件，可直接複用於 Conflict Resolution UI。
+- 拆分為兩階段：Part 1 pull-diff-preview ✅ → Part 2 forked-target-overlay（本項）。
 
-### local-versioning-and-snapshot-layer
-
-| Field | Value |
-|---|---|
-| type | suggestion |
-| status | not-committed |
-| flagged | 2026-05-22 |
-| last-seen | 2026-05-28 |
-| description | Phase 2 compare/overwrite/delete/conflict/overlay 的共用安全層，直接基於內建 `git2` 管理的本地隱藏 repo 實作。 |
-
-Design route (2026-05-28 discuss 定案):
-- 系統不再手動管理 `.snapshots` 資料夾或 JSON 內的長字串。
-- 引入 Rust `git2` crate，將 `~/.felina/skills/` 自動初始化為隱藏的 Git Repo。
-- Canonical 的每次變更自動轉換為 git commit，`last_sync[target].base_snapshot` 直接儲存 commit hash。
-- 達成零外部相依性（不需系統安裝 Git），直接享受原生的 Snapshot 與 Rollback 能力。
-
-### sync-info-bar-scalability
-
-| Field | Value |
-|---|---|
-| type | suggestion |
-| status | parked (Spectra change, 0/6) |
-| flagged | 2026-05-22 |
-| last-seen | 2026-05-28 |
-| description | Sync info 面板在 agent 數量擴增時的 UI 縮放：摺疊/摘要視圖或 chip 化，失敗 target 展開、成功摺起。 |
+<!-- local-versioning-and-snapshot-layer: archived 2026-05-29, removed per backlog rules -->
 
 ### skill-export-validation-pipeline
 
@@ -138,7 +106,7 @@ Notes:
 | Field | Value |
 |---|---|
 | type | planned-change |
-| status | planned |
+| status | parked |
 | flagged | 2026-05-28 |
 | last-seen | 2026-05-28 |
 | description | Create new skill 時跳出簡化版 Dialog，要求輸入名稱與選擇初始同步目標 (Target)，避免新手忘記設定。 |
@@ -155,7 +123,7 @@ Design route (2026-05-28 discuss 定案):
 | Field | Value |
 |---|---|
 | type | planned-change |
-| status | planned |
+| status | not-committed |
 | flagged | 2026-05-28 |
 | last-seen | 2026-05-28 |
 | description | 使用者可透過 Felina Settings 手動新增無限多組第三方 agent 的路徑 (Global / Project)，使其成為動態 Map 支援。 |
@@ -192,7 +160,7 @@ Scope:
 | status | not-committed |
 | flagged | 2026-05-20 |
 | last-seen | 2026-05-28 |
-| blocked-by | resolve-multi-source-skill-import; drift-detection-and-conflict-ui; skill-creation-destination-model; local-versioning-and-snapshot-layer |
+| blocked-by | resolve-multi-source-skill-import; skill-creation-destination-model |
 | description | 公司內部 Skill 社群化 marketplace。使用者可將 Felina canonical Skill 發佈到內網 Market，同仁可搜尋、查看版本、安裝回自己的 Felina canonical storage，再透過既有 fan-out 同步到各 agent target。 |
 
 Scope:
@@ -235,48 +203,3 @@ Scope:
 - 收斂 Sidebar 主導航，降低早期產品表面積。
 - 需保留必要 hidden routes 或 secondary entry points，避免 Felina Settings / Claude Settings 類功能無入口。
 - 需要先定義「隱藏」是從 Sidebar 移除、route 保留，還是完整停用頁面。
-
-### resizable-skills-workspace
-
-| Field | Value |
-|---|---|
-| type | suggestion |
-| status | not-committed |
-| flagged | 2026-05-28 |
-| last-seen | 2026-05-28 |
-| description | Skills page 的 skill list 與 editor/preview 區域應可摺疊或拖曳調整寬度，提升長列表與編輯工作流的可用性。 |
-
-Scope:
-- 支援 skill list collapse。
-- 或支援 list 與 editor pane 之間的 draggable resize。
-- 需保存或重設使用者調整狀態的策略待定。
-
-### customizable-sidebar-order
-
-| Field | Value |
-|---|---|
-| type | suggestion |
-| status | not-committed |
-| flagged | 2026-05-28 |
-| last-seen | 2026-05-28 |
-| description | 左側導覽列項目可拖曳重新排序，讓使用者依自己的工作習慣調整主導航順序。 |
-
-Scope:
-- 支援 Sidebar nav item drag-and-drop ordering。
-- 需定義排序偏好儲存位置（Felina local preferences）與 reset/default 行為。
-- 需避免 hidden routes、non-nav routes、command palette ordering 互相漂移。
-
-### skill-import-entrypoint-ux
-
-| Field | Value |
-|---|---|
-| type | suggestion |
-| status | not-committed |
-| flagged | 2026-05-28 |
-| last-seen | 2026-05-28 |
-| description | 使用者想新增或匯入 project skill 時，直覺會先到 Skills page 的 Import，而不是 Project page 的 Import to global；需要調整入口導引或整合流程。 |
-
-Scope:
-- 檢討 Skills page Import 與 Project page Import to global 的資訊架構。
-- 決定 Skills page Import 是否直接支援 project-skill import，或導引使用者選擇 project/source。
-- 需與 `clarify-skill-import-conflicts`、`resolve-multi-source-skill-import` 的 conflict semantics 分開：本項聚焦入口與流程直覺，不先重設 import conflict model。
