@@ -27,6 +27,7 @@ import CoverageMatrix from "./CoverageMatrix";
 import SyncInfoBar from "./SyncInfoBar";
 import SyncPreviewDialog from "./SyncPreviewDialog";
 import DeletePolicyDialog from "./DeletePolicyDialog";
+import CreateSkillDialog from "./CreateSkillDialog";
 import ResizableHandle from "./ResizableHandle";
 
 import ManagedInventory from "$lib/components/projects/ManagedInventory";
@@ -74,6 +75,7 @@ export default function SkillsPage() {
   const [activeSkill, setActiveSkill] = useState<CanonicalSkill | null>(null);
   const [brokenRaw, setBrokenRaw] = useState<{ name: string; content: string; path?: string } | null>(null);
   const [creatingNew, setCreatingNew] = useState(false);
+  const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [wizardOpen, setWizardOpen] = useState(false);
   const [reloading, setReloading] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<{
@@ -348,11 +350,7 @@ export default function SkillsPage() {
             </button>
             <button
               type="button"
-              onClick={() => {
-                setPendingTargets([]);
-                setCreatingNew(true);
-                setSelectedName(null);
-              }}
+              onClick={() => setCreateDialogOpen(true)}
               className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded bg-accent text-white hover:bg-accent-hover"
             >
               <Plus size={12} /> {t(locale, "skills.newSkill")}
@@ -583,6 +581,19 @@ export default function SkillsPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {createDialogOpen && (
+        <CreateSkillDialog
+          projectPath={projectPath ?? null}
+          onCreated={async (name) => {
+            setCreateDialogOpen(false);
+            await loadEntries();
+            setCreatingNew(false);
+            setSelectedName(name);
+          }}
+          onClose={() => setCreateDialogOpen(false)}
+        />
       )}
 
       {browseProject && (
