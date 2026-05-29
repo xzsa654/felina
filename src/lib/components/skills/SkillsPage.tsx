@@ -392,6 +392,7 @@ export default function SkillsPage() {
             lastSync={selectedSkill.lastSync}
             knownProjects={knownProjects}
             locale={locale}
+            siblingsDirty={selectedSkill.siblingsDirty}
           />
         )}
 

@@ -43,12 +43,14 @@ export default function SyncInfoBar({
   lastSync,
   knownProjects,
   locale,
+  siblingsDirty,
 }: {
   skillName: string;
   targets: SkillTarget[];
   lastSync: Record<string, LastSyncEntry>;
   knownProjects: KnownProject[];
   locale: Locale;
+  siblingsDirty?: boolean;
 }) {
   const groups = useMemo<StatusGroup[]>(() => {
     const map = new Map<SyncStatus, StatusGroup["targets"]>();
@@ -84,6 +86,11 @@ export default function SyncInfoBar({
         {t(locale, "skills.syncInfo")}{" "}
         <span className="text-text-primary font-mono">{skillName}</span>
       </div>
+      {siblingsDirty && (
+        <div className="text-warning text-xs mb-1.5">
+          {t(locale, "skills.syncInfoBar.siblingsDirty")}
+        </div>
+      )}
       <div className="flex flex-wrap gap-1.5 mb-1">
         {groups.map((g) => {
           const cfg = STATUS_CONFIG[g.status];

@@ -59,6 +59,8 @@ export interface CanonicalSkill {
   lastSync: Record<string, LastSyncEntry>;
   /** Agent-scoped optional fields (`x_felina_agent_fields` in YAML). */
   agentFields: Record<string, unknown>;
+  /** True when canonical bundled sibling files differ from the last push. */
+  siblingsDirty: boolean;
 }
 
 /**

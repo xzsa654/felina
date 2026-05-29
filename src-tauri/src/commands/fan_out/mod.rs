@@ -77,6 +77,7 @@ pub fn check_drift(
     agent_side_path: &Path,
     pushed_hash: Option<&str>,
     last_sync_at: Option<&str>,
+    sibling_hashes: &Option<std::collections::BTreeMap<String, String>>,
 ) -> DriftStatus {
     let Some(pushed) = pushed_hash else {
         return DriftStatus::NoPushHistory;
@@ -85,23 +86,101 @@ pub fn check_drift(
         Ok(m) => m,
         Err(_) => return DriftStatus::Missing,
     };
+
+    // mtime fast-path: only for SKILL.md, not siblings
+    let mut skill_md_synced_by_mtime = false;
     if let (Some(at), Ok(mtime)) = (last_sync_at, metadata.modified()) {
         if let Some(push_time) = parse_iso8601_to_system_time(at) {
             if mtime <= push_time {
-                return DriftStatus::Synced;
+                skill_md_synced_by_mtime = true;
             }
         }
     }
-    let content = match fs::read_to_string(agent_side_path) {
-        Ok(c) => c,
-        Err(_) => return DriftStatus::Missing,
-    };
-    let current_hash = semantic_hash(&content);
-    if current_hash == pushed {
-        DriftStatus::Synced
+
+    let skill_md_drifted = if skill_md_synced_by_mtime {
+        false
     } else {
-        DriftStatus::Drifted
+        let content = match fs::read_to_string(agent_side_path) {
+            Ok(c) => c,
+            Err(_) => return DriftStatus::Missing,
+        };
+        semantic_hash(&content) != pushed
+    };
+
+    if skill_md_drifted {
+        return DriftStatus::Drifted;
     }
+
+    // Sibling drift check (skip if no recorded hashes — legacy meta)
+    let agent_skill_dir = agent_side_path.parent().unwrap_or(Path::new(""));
+    if check_sibling_drift(agent_skill_dir, sibling_hashes) {
+        return DriftStatus::Drifted;
+    }
+
+    DriftStatus::Synced
+}
+
+/// Compute raw SHA-256 hashes for all sibling files in a skill directory.
+/// Excludes SKILL.md and .felina-sync-meta.json. Returns a BTreeMap with
+/// forward-slash relative paths as keys and hex SHA-256 as values.
+pub(crate) fn compute_sibling_hashes(
+    skill_dir: &Path,
+) -> std::collections::BTreeMap<String, String> {
+    let mut map = std::collections::BTreeMap::new();
+    collect_sibling_hashes(skill_dir, skill_dir, &mut map);
+    map
+}
+
+fn collect_sibling_hashes(
+    root: &Path,
+    dir: &Path,
+    map: &mut std::collections::BTreeMap<String, String>,
+) {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let name_str = name.to_string_lossy();
+        if dir == root && (name_str == "SKILL.md" || name_str == ".felina-sync-meta.json") {
+            continue;
+        }
+        let path = entry.path();
+        if path.is_dir() {
+            collect_sibling_hashes(root, &path, map);
+        } else if path.is_file() {
+            let rel = path
+                .strip_prefix(root)
+                .unwrap_or(&path)
+                .to_string_lossy()
+                .replace('\\', "/");
+            if let Ok(content) = fs::read(&path) {
+                let hash = sha256_hex_bytes(&content);
+                map.insert(rel, hash);
+            }
+        }
+    }
+}
+
+fn sha256_hex_bytes(data: &[u8]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(data);
+    format!("{:x}", hasher.finalize())
+}
+
+/// Check whether agent-side sibling files have drifted from the recorded hashes.
+/// Returns true if any sibling was added, deleted, or modified.
+/// `None` = legacy meta (no field) → skip comparison (no false positives).
+/// `Some(map)` = compare current agent-side siblings against recorded map.
+fn check_sibling_drift(
+    agent_skill_dir: &Path,
+    sibling_hashes: &Option<std::collections::BTreeMap<String, String>>,
+) -> bool {
+    let Some(recorded) = sibling_hashes else {
+        return false;
+    };
+    let current = compute_sibling_hashes(agent_skill_dir);
+    current != *recorded
 }
 
 fn parse_iso8601_to_system_time(s: &str) -> Option<std::time::SystemTime> {
@@ -345,6 +424,7 @@ pub fn skill_sync_one(name: String) -> Result<Vec<SyncResult>, String> {
                         pushed_hash: semantic_hash(&rendered),
                         base_snapshot: snapshot,
                         at: attempted_at.clone(),
+                        sibling_hashes: Some(compute_sibling_hashes(&target_skill_dir)),
                     },
                 );
                 written_keys.push(key);
@@ -620,6 +700,9 @@ pub fn skill_sync_commit(request: SkillSyncCommitRequest) -> Result<Vec<SyncResu
                             pushed_hash: hash.to_string(),
                             base_snapshot: snapshot,
                             at: attempted_at.clone(),
+                            sibling_hashes: Some(compute_sibling_hashes(
+                                &std::path::Path::new(&item.target_dir).join(&item.skill_name),
+                            )),
                         },
                     );
                 }
@@ -773,6 +856,7 @@ fn write_target(
                     pushed_hash: semantic_hash(&rendered),
                     base_snapshot: snapshot,
                     at: attempted_at.to_string(),
+                    sibling_hashes: Some(compute_sibling_hashes(&target_skill_dir)),
                 },
             );
             Ok(SyncResult {
@@ -911,8 +995,11 @@ fn build_preview_for_skill(
             }
         };
 
-        let last_sync_at = meta.last_sync.get(&key).map(|e| e.at.as_str());
-        let drift = check_drift(&skill_md_path, last_sync_hash.as_deref(), last_sync_at);
+        let last_sync_entry = meta.last_sync.get(&key);
+        let last_sync_at = last_sync_entry.map(|e| e.at.as_str());
+        let sibling_hashes_ref = last_sync_entry
+            .and_then(|e| e.sibling_hashes.clone());
+        let drift = check_drift(&skill_md_path, last_sync_hash.as_deref(), last_sync_at, &sibling_hashes_ref);
         let current_hash = if skill_md_path.is_file() {
             let current = fs::read_to_string(&skill_md_path).map_err(|e| {
                 format!(
@@ -925,9 +1012,24 @@ fn build_preview_for_skill(
             None
         };
 
+        let canonical_siblings = compute_sibling_hashes(canonical_skill_dir);
+        let recorded_siblings = meta
+            .last_sync
+            .get(&key)
+            .and_then(|e| e.sibling_hashes.as_ref());
+        let siblings_changed = match recorded_siblings {
+            Some(recorded) => canonical_siblings != *recorded,
+            None => !canonical_siblings.is_empty(),
+        };
+
         let operation = match (&current_hash, drift) {
             (None, _) => SkillSyncPreviewOperation::Create,
-            (Some(current), _) if current == &rendered_hash => SkillSyncPreviewOperation::NoOp,
+            (Some(current), _) if current == &rendered_hash && !siblings_changed => {
+                SkillSyncPreviewOperation::NoOp
+            }
+            (Some(current), _) if current == &rendered_hash && siblings_changed => {
+                SkillSyncPreviewOperation::Overwrite
+            }
             (_, DriftStatus::Drifted) => SkillSyncPreviewOperation::BlockedDrift,
             (_, DriftStatus::Synced) => SkillSyncPreviewOperation::Overwrite,
             (_, DriftStatus::NoPushHistory) => SkillSyncPreviewOperation::OverwriteUnknown,
@@ -1057,7 +1159,7 @@ pub fn skill_drift_scan() -> Result<std::collections::BTreeMap<String, std::coll
 
     // Collect (skill_name, target_key, agent_side_path, pushed_hash, last_sync_at)
     // for targets that need checking. Disabled/detached targets are skipped per spec.
-    let mut checks: Vec<(String, String, PathBuf, Option<String>, Option<String>)> = Vec::new();
+    let mut checks: Vec<(String, String, PathBuf, Option<String>, Option<String>, Option<std::collections::BTreeMap<String, String>>)> = Vec::new();
 
     for entry in entries {
         let super::canonical_skills::SkillListEntry::Ok {
@@ -1087,12 +1189,15 @@ pub fn skill_drift_scan() -> Result<std::collections::BTreeMap<String, std::coll
                     Err(_) => continue,
                 };
             let skill_md_path = target_dir.join(&canonical_id).join("SKILL.md");
+            let sib_hashes = last_sync_entry
+                .and_then(|e| e.sibling_hashes.clone());
             checks.push((
                 canonical_id.clone(),
                 key,
                 skill_md_path,
                 pushed_hash,
                 last_sync_at,
+                sib_hashes,
             ));
         }
     }
@@ -1101,8 +1206,8 @@ pub fn skill_drift_scan() -> Result<std::collections::BTreeMap<String, std::coll
     use rayon::prelude::*;
     let statuses: Vec<(String, String, DriftStatus)> = checks
         .into_par_iter()
-        .map(|(skill_name, tkey, path, pushed, at)| {
-            let status = check_drift(&path, pushed.as_deref(), at.as_deref());
+        .map(|(skill_name, tkey, path, pushed, at, sib_hashes)| {
+            let status = check_drift(&path, pushed.as_deref(), at.as_deref(), &sib_hashes);
             (skill_name, tkey, status)
         })
         .collect();
@@ -1318,6 +1423,9 @@ pub fn skill_pull_from_target(canonical_id: String, target_key: String) -> Resul
             pushed_hash: hash,
             base_snapshot: None,
             at: current_iso8601(),
+            sibling_hashes: Some(compute_sibling_hashes(
+                agent_side.parent().unwrap_or(Path::new("")),
+            )),
         },
     );
     let has_other_targets = meta
@@ -1518,7 +1626,7 @@ mod tests {
         let path = tmp.join("SKILL.md");
         fs::write(&path, content).unwrap();
         let hash = semantic_hash(content);
-        assert_eq!(check_drift(&path, Some(&hash), None), DriftStatus::Synced);
+        assert_eq!(check_drift(&path, Some(&hash), None, &Default::default()), DriftStatus::Synced);
         let _ = fs::remove_dir_all(&tmp);
     }
 
@@ -1536,7 +1644,7 @@ mod tests {
         let path = tmp.join("SKILL.md");
         fs::write(&path, "---\nname: changed\n---\n# New body\n").unwrap();
         let old_hash = semantic_hash("---\nname: original\n---\n# Old body\n");
-        assert_eq!(check_drift(&path, Some(&old_hash), None), DriftStatus::Drifted);
+        assert_eq!(check_drift(&path, Some(&old_hash), None, &Default::default()), DriftStatus::Drifted);
         let _ = fs::remove_dir_all(&tmp);
     }
 
@@ -1544,7 +1652,7 @@ mod tests {
     fn check_drift_returns_missing_when_file_does_not_exist() {
         let path = std::env::temp_dir().join("felina-drift-nonexistent-SKILL.md");
         assert_eq!(
-            check_drift(&path, Some("somehash"), None),
+            check_drift(&path, Some("somehash"), None, &Default::default()),
             DriftStatus::Missing
         );
     }
@@ -1552,7 +1660,7 @@ mod tests {
     #[test]
     fn check_drift_returns_no_push_history_when_no_hash() {
         let path = std::env::temp_dir().join("felina-drift-nopush-SKILL.md");
-        assert_eq!(check_drift(&path, None, None), DriftStatus::NoPushHistory);
+        assert_eq!(check_drift(&path, None, None, &Default::default()), DriftStatus::NoPushHistory);
     }
 
     #[test]
@@ -1575,11 +1683,111 @@ mod tests {
         // Use a far-future push timestamp so file mtime is definitely ≤.
         let future_at = "2099-01-01T00:00:00Z";
         assert_eq!(
-            check_drift(&path, Some(&wrong_hash), Some(future_at)),
+            check_drift(&path, Some(&wrong_hash), Some(future_at), &Default::default()),
             DriftStatus::Synced,
             "mtime fast-path should return Synced without hash computation"
         );
         let _ = fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn sibling_modified_triggers_drift() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let skill_dir = tmp.path().join("my-skill");
+        fs::create_dir_all(&skill_dir).unwrap();
+        let skill_md = skill_dir.join("SKILL.md");
+        fs::write(&skill_md, "---\nname: my-skill\n---\n# Body\n").unwrap();
+        let script = skill_dir.join("run.py");
+        fs::write(&script, "print('hello')").unwrap();
+
+        let pushed_hash = semantic_hash("---\nname: my-skill\n---\n# Body\n");
+        let sib = Some(compute_sibling_hashes(&skill_dir));
+
+        // Modify sibling
+        fs::write(&script, "print('modified')").unwrap();
+        assert_eq!(
+            check_drift(&skill_md, Some(&pushed_hash), None, &sib),
+            DriftStatus::Drifted,
+        );
+    }
+
+    #[test]
+    fn sibling_deleted_triggers_drift() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let skill_dir = tmp.path().join("my-skill");
+        fs::create_dir_all(&skill_dir).unwrap();
+        let skill_md = skill_dir.join("SKILL.md");
+        fs::write(&skill_md, "---\nname: my-skill\n---\n# Body\n").unwrap();
+        let script = skill_dir.join("run.py");
+        fs::write(&script, "print('hello')").unwrap();
+
+        let pushed_hash = semantic_hash("---\nname: my-skill\n---\n# Body\n");
+        let sib = Some(compute_sibling_hashes(&skill_dir));
+
+        // Delete sibling
+        fs::remove_file(&script).unwrap();
+        assert_eq!(
+            check_drift(&skill_md, Some(&pushed_hash), None, &sib),
+            DriftStatus::Drifted,
+        );
+    }
+
+    #[test]
+    fn sibling_added_on_agent_side_triggers_drift() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let skill_dir = tmp.path().join("my-skill");
+        fs::create_dir_all(&skill_dir).unwrap();
+        let skill_md = skill_dir.join("SKILL.md");
+        fs::write(&skill_md, "---\nname: my-skill\n---\n# Body\n").unwrap();
+
+        let pushed_hash = semantic_hash("---\nname: my-skill\n---\n# Body\n");
+        // Push with no siblings → Some(empty map)
+        let sib = Some(compute_sibling_hashes(&skill_dir));
+        assert!(sib.as_ref().unwrap().is_empty());
+
+        // Agent adds a file after push → drifted
+        fs::write(skill_dir.join("new.txt"), "surprise").unwrap();
+        assert_eq!(
+            check_drift(&skill_md, Some(&pushed_hash), None, &sib),
+            DriftStatus::Drifted,
+        );
+    }
+
+    #[test]
+    fn sibling_added_with_existing_recorded_triggers_drift() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let skill_dir = tmp.path().join("my-skill");
+        fs::create_dir_all(&skill_dir).unwrap();
+        let skill_md = skill_dir.join("SKILL.md");
+        fs::write(&skill_md, "---\nname: my-skill\n---\n# Body\n").unwrap();
+        fs::write(skill_dir.join("existing.txt"), "existing content").unwrap();
+
+        let pushed_hash = semantic_hash("---\nname: my-skill\n---\n# Body\n");
+        let sib = Some(compute_sibling_hashes(&skill_dir));
+
+        // Agent adds extra file → drifted
+        fs::write(skill_dir.join("extra.txt"), "extra").unwrap();
+        assert_eq!(
+            check_drift(&skill_md, Some(&pushed_hash), None, &sib),
+            DriftStatus::Drifted,
+        );
+    }
+
+    #[test]
+    fn legacy_meta_no_sibling_hashes_does_not_drift() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let skill_dir = tmp.path().join("my-skill");
+        fs::create_dir_all(&skill_dir).unwrap();
+        let skill_md = skill_dir.join("SKILL.md");
+        fs::write(&skill_md, "---\nname: my-skill\n---\n# Body\n").unwrap();
+        fs::write(skill_dir.join("script.sh"), "#!/bin/bash").unwrap();
+
+        let pushed_hash = semantic_hash("---\nname: my-skill\n---\n# Body\n");
+        // None = legacy meta, no siblingHashes field → skip comparison
+        assert_eq!(
+            check_drift(&skill_md, Some(&pushed_hash), None, &None),
+            DriftStatus::Synced,
+        );
     }
 
     #[test]
@@ -2210,6 +2418,7 @@ mod tests {
                 pushed_hash: sha256_hex("previous push\n"),
                 base_snapshot: None,
                 at: "2026-05-26T00:00:00Z".into(),
+                sibling_hashes: None,
             },
         );
         let meta = SyncMetaV2 {
@@ -2287,6 +2496,7 @@ mod tests {
                 pushed_hash: sha256_hex("old anthropic\n"),
                 base_snapshot: None,
                 at: "2026-05-26T00:00:00Z".into(),
+                sibling_hashes: None,
             },
         );
         last_sync.insert(
@@ -2295,6 +2505,7 @@ mod tests {
                 pushed_hash: sha256_hex("old gemini\n"),
                 base_snapshot: None,
                 at: "2026-05-26T00:00:00Z".into(),
+                sibling_hashes: None,
             },
         );
         write_sync_meta_v2(
@@ -2424,6 +2635,7 @@ mod tests {
                 pushed_hash: raw_hash.clone(),
                 base_snapshot: None,
                 at: "2026-01-01T00:00:00Z".into(),
+                sibling_hashes: None,
             },
         );
         write_sync_meta_v2(&canonical_skill_dir, &legacy_meta).unwrap();
