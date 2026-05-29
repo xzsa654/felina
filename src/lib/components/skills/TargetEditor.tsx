@@ -14,29 +14,33 @@ import AddTargetDialog from "./AddTargetDialog";
 import PullConfirmDialog from "./PullConfirmDialog";
 import type { TargetRemovalPolicy } from "$lib/types";
 
-type UIState = "tracked" | "disabled";
+type UIState = "auto" | "manual" | "disabled";
 
 function toUIState(t: SkillTarget): UIState {
   if (!t.enabled) return "disabled";
   if (t.mode === "detached") return "disabled";
-  return "tracked";
+  if (t.mode === "auto") return "auto";
+  return "manual";
 }
 
 function applyUIState(t: SkillTarget, state: UIState): SkillTarget {
   switch (state) {
-    case "tracked":
-      return { ...t, enabled: true, mode: "tracked" };
+    case "auto":
+      return { ...t, enabled: true, mode: "auto" };
+    case "manual":
+      return { ...t, enabled: true, mode: "manual" };
     case "disabled":
-      return { ...t, enabled: false, mode: "tracked" };
+      return { ...t, enabled: false, mode: "manual" };
   }
 }
 
-const STATE_KEYS: Record<UIState, "skills.targets.tracked" | "skills.targets.disabled"> = {
-  tracked: "skills.targets.tracked",
+const STATE_KEYS = {
+  auto: "skills.targets.auto",
+  manual: "skills.targets.manual",
   disabled: "skills.targets.disabled",
-};
+} as const;
 
-const STATES: UIState[] = ["tracked", "disabled"];
+const STATES: UIState[] = ["auto", "manual", "disabled"];
 
 function targetKey(target: SkillTarget): string {
   if (target.scope === "global") return `${target.agent}:global`;
@@ -286,9 +290,9 @@ export default function TargetEditor({ skillName, projectPath, targets, onTarget
               >
                 <span className="capitalize font-medium w-20">{tgt.agent}</span>
                 <span className="text-text-secondary w-14">{tgt.scope === "project" ? t(locale, "skills.addTargetDialog.scopeProject") : t(locale, "skills.addTargetDialog.scopeGlobal")}</span>
-                {tgt.scope === "project" && (
-                  <span className="text-text-secondary truncate max-w-[10rem]" title={tgt.project ?? ""}>
-                    {tgt.project ?? ""}
+                {tgt.scope === "project" && tgt.project && (
+                  <span className="text-text-secondary truncate max-w-[10rem]" title={tgt.project}>
+                    {tgt.project.split(/[/\\]/).filter(Boolean).pop() ?? tgt.project}
                   </span>
                 )}
                 {projectNotFound && (
