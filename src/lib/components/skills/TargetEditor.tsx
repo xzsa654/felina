@@ -462,11 +462,15 @@ export default function TargetEditor({ skillName, projectPath, targets, onTarget
         targetKey={pullTarget?.key ?? ""}
         busy={pullBusy}
         diff={pullDiff}
-        onConfirm={async () => {
+        onConfirm={async (siblingResolutions) => {
           if (!pullTarget) return;
           setPullBusy(true);
           try {
-            await api.skillPull.fromTarget(pullTarget.name, pullTarget.key);
+            await api.skillPull.fromTarget(
+              pullTarget.name,
+              pullTarget.key,
+              siblingResolutions.length > 0 ? siblingResolutions : undefined,
+            );
             await loadEntries();
             void refreshDriftScan();
             setPullTarget(null);

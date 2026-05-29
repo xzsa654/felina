@@ -79,6 +79,9 @@ export type {
   DiffLine,
   DiffHunk,
   PullDiffPreview,
+  SiblingChange,
+  SiblingStatus,
+  SiblingResolution,
   // Deprecated; removed in tasks 5.3 + 6.6.
   SkillInfo,
 } from "./skills";

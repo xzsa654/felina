@@ -238,6 +238,17 @@ const zhTW: TranslationDict = {
       identical: "內容相同 — 沒有需要拉回的變更。",
       success: "拉回成功",
       failed: "拉回失敗：{{error}}",
+      siblings: {
+        title: "附屬檔案變動",
+        added: "新增",
+        modified: "修改",
+        deleted: "刪除",
+        conflict: "衝突",
+        resolutionUseAgent: "使用 Agent 端版本",
+        resolutionUseCanonical: "使用 Canonical 端版本",
+        resolutionSkip: "跳過",
+        noChanges: "無附屬檔案變動",
+      },
     },
     editor: {
       creatingNew: "建立新 skill",
