@@ -60,10 +60,25 @@ pub fn output_from_collection(
     let generation = format!("tokscale-{}", now);
     let mut events = Vec::new();
     let mut event_counts = Vec::new();
+    let mut skipped = 0u64;
     for record in collection.records {
         let event_count = record.event_count.max(1);
-        events.push(event_from_record(record)?);
-        event_counts.push(event_count);
+        match event_from_record(record) {
+            Ok(event) => {
+                events.push(event);
+                event_counts.push(event_count);
+            }
+            Err(e) if e == "skip" => {
+                skipped += 1;
+            }
+            Err(e) => return Err(e),
+        }
+    }
+    if skipped > 0 {
+        eprintln!(
+            "tokscale ingestion: skipped {} record(s) from unknown agents",
+            skipped
+        );
     }
 
     if events.is_empty() {
@@ -91,12 +106,21 @@ pub fn scan_error_from_status(status: &str, message: Option<String>) -> ScanErro
 }
 
 fn event_from_record(record: ReconciliationRecord) -> Result<TokenEvent, String> {
+    let agent = match agent_from_str(&record.agent) {
+        Some(a) => a,
+        None => {
+            eprintln!(
+                "tokscale ingestion: skipping unknown agent '{}' (model={}, events={})",
+                record.agent, record.model, record.event_count
+            );
+            return Err("skip".to_string());
+        }
+    };
     let timestamp = timestamp_from_record(&record).unwrap_or(0);
     let project = record.source_metadata.get("workspace").cloned();
     let session_id = record.session_id.clone();
     Ok(TokenEvent {
-        agent: agent_from_str(&record.agent)
-            .ok_or_else(|| format!("unsupported tokscale agent: {}", record.agent))?,
+        agent,
         provider: record.provider,
         model: record.model,
         timestamp,
