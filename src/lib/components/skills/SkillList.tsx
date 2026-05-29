@@ -86,10 +86,10 @@ export default function SkillList({
                   <div className="text-sm font-medium text-text-primary truncate">
                     {entry.name}
                   </div>
-                  <div className="text-xs text-danger truncate">
+                  <div className="hidden @[200px]:block text-xs text-danger truncate">
                     {t(locale, "skills.list.frontmatterBroken")}
                   </div>
-                  <div className="text-[10px] text-text-secondary truncate font-mono">
+                  <div className="hidden @[200px]:block text-[10px] text-text-secondary truncate font-mono">
                     {entry.path}
                   </div>
                 </div>
@@ -124,11 +124,11 @@ export default function SkillList({
                 <div className="text-sm font-medium text-text-primary truncate">
                   {skill.name}
                 </div>
-                <div className="text-xs text-text-secondary truncate">
+                <div className="hidden @[200px]:block text-xs text-text-secondary truncate">
                   {skill.description || <span className="italic">{t(locale, "skills.list.noDescription")}</span>}
                 </div>
                 {skill.targets.length > 0 && (
-                  <div className="mt-1 flex gap-1 flex-wrap">
+                  <div className="hidden @[200px]:flex mt-1 gap-1 flex-wrap">
                     {[...new Set(skill.targets.map((tgt) => tgt.agent))].map((a) => (
                       <span
                         key={a}
@@ -144,7 +144,7 @@ export default function SkillList({
                 const targets = driftMap[canonicalId];
                 return targets && Object.values(targets).some((s) => s === "drifted");
               })() && (
-                <span title={t(locale, "skills.list.drifted")}>
+                <span className="hidden @[200px]:inline" title={t(locale, "skills.list.drifted")}>
                   <AlertTriangle size={14} className="shrink-0 text-warning" />
                 </span>
               )}
@@ -156,7 +156,7 @@ export default function SkillList({
                     e.stopPropagation();
                     onPush(canonicalId);
                   }}
-                  className={`shrink-0 inline-flex items-center gap-1 text-xs px-2 py-1 rounded transition-colors ${
+                  className={`hidden @[200px]:inline-flex shrink-0 items-center gap-1 text-xs px-2 py-1 rounded transition-colors ${
                     isPushing
                       ? "text-text-secondary opacity-50 cursor-wait"
                       : "bg-accent text-white hover:bg-accent-hover"

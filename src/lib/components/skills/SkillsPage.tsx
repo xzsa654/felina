@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { Group, Panel, useDefaultLayout } from "react-resizable-panels";
 import { useSearchParams } from "react-router";
 import { Download, FolderSearch, Grid2x2, List, Loader2, Plus, RefreshCw, Sparkles, Undo2, X } from "lucide-react";
 import { PageBody, PageHeader } from "$lib/components/shared/PageScaffold";
@@ -26,6 +27,7 @@ import CoverageMatrix from "./CoverageMatrix";
 import SyncInfoBar from "./SyncInfoBar";
 import SyncPreviewDialog from "./SyncPreviewDialog";
 import DeletePolicyDialog from "./DeletePolicyDialog";
+import ResizableHandle from "./ResizableHandle";
 
 import ManagedInventory from "$lib/components/projects/ManagedInventory";
 
@@ -63,6 +65,8 @@ export default function SkillsPage() {
     resetBannerDismissed,
     removeEntry,
   } = useSkillsStore();
+
+  const skillsLayout = useDefaultLayout({ id: "felina-skills-layout" });
 
   const [searchParams, setSearchParams] = useSearchParams();
   const [viewMode, setViewMode] = useState<"list" | "summary">("list");
@@ -396,8 +400,21 @@ export default function SkillsPage() {
             <CoverageMatrix entries={entries} knownProjects={knownProjects} />
           </div>
         ) : (
-          <div className="grid grid-cols-[320px_minmax(0,1fr)] gap-4 flex-1 min-h-0">
-            <div className="border border-border rounded overflow-y-auto">
+          <Group
+            orientation="horizontal"
+            defaultLayout={skillsLayout.defaultLayout}
+            onLayoutChanged={skillsLayout.onLayoutChanged}
+            id="felina-skills-layout"
+            className="flex-1 min-h-0"
+          >
+            <Panel
+              id="skill-list"
+              defaultSize="25%"
+              minSize="15%"
+              maxSize="50%"
+              collapsible
+              className="@container border border-border rounded overflow-y-auto"
+            >
               {loaded ? (
                 <SkillList
                   entries={entries}
@@ -414,9 +431,11 @@ export default function SkillsPage() {
               ) : (
                 <div className="text-sm text-text-secondary p-4">{t(locale, "skills.loading")}</div>
               )}
-            </div>
+            </Panel>
 
-            <div className="border border-border rounded overflow-y-auto">
+            <ResizableHandle />
+
+            <Panel id="skill-editor" className="border border-border rounded overflow-y-auto">
               {creatingNew ? (
                 <div className="flex flex-col">
                   <div className="px-4 pt-4">
@@ -502,8 +521,8 @@ export default function SkillsPage() {
                   {t(locale, "skills.selectOrCreate")}
                 </div>
               )}
-            </div>
-          </div>
+            </Panel>
+          </Group>
         )}
         </div>
       </PageBody>
