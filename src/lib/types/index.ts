@@ -76,6 +76,9 @@ export type {
   SkillFieldDefinition,
   FieldAgent,
   DriftStatus,
+  DiffLine,
+  DiffHunk,
+  PullDiffPreview,
   // Deprecated; removed in tasks 5.3 + 6.6.
   SkillInfo,
 } from "./skills";

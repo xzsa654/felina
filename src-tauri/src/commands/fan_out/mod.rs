@@ -1060,6 +1060,154 @@ pub fn skill_drift_scan() -> Result<std::collections::BTreeMap<String, std::coll
     Ok(result)
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiffLine {
+    pub kind: String,
+    pub content: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiffHunk {
+    pub old_start: u32,
+    pub old_count: u32,
+    pub new_start: u32,
+    pub new_count: u32,
+    pub lines: Vec<DiffLine>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PullDiffPreview {
+    pub has_base: bool,
+    pub canonical_content: String,
+    pub target_content: String,
+    pub base_content: Option<String>,
+    pub hunks: Vec<DiffHunk>,
+}
+
+fn build_diff_hunks(old_text: &str, new_text: &str) -> Vec<DiffHunk> {
+    use similar::TextDiff;
+
+    let diff = TextDiff::from_lines(old_text, new_text);
+    let mut hunks = Vec::new();
+
+    for group in diff.grouped_ops(3) {
+        let mut lines = Vec::new();
+        let mut old_start = u32::MAX;
+        let mut old_end = 0u32;
+        let mut new_start = u32::MAX;
+        let mut new_end = 0u32;
+
+        for op in &group {
+            let tag = op.tag();
+            let old_range = op.old_range();
+            let new_range = op.new_range();
+            old_start = old_start.min(old_range.start as u32);
+            old_end = old_end.max(old_range.end as u32);
+            new_start = new_start.min(new_range.start as u32);
+            new_end = new_end.max(new_range.end as u32);
+
+            match tag {
+                similar::DiffTag::Equal => {
+                    for line in old_text.lines().skip(old_range.start).take(old_range.len()) {
+                        lines.push(DiffLine { kind: "context".into(), content: format!("{line}\n") });
+                    }
+                }
+                similar::DiffTag::Delete => {
+                    for line in old_text.lines().skip(old_range.start).take(old_range.len()) {
+                        lines.push(DiffLine { kind: "delete".into(), content: format!("{line}\n") });
+                    }
+                }
+                similar::DiffTag::Insert => {
+                    for line in new_text.lines().skip(new_range.start).take(new_range.len()) {
+                        lines.push(DiffLine { kind: "add".into(), content: format!("{line}\n") });
+                    }
+                }
+                similar::DiffTag::Replace => {
+                    for line in old_text.lines().skip(old_range.start).take(old_range.len()) {
+                        lines.push(DiffLine { kind: "delete".into(), content: format!("{line}\n") });
+                    }
+                    for line in new_text.lines().skip(new_range.start).take(new_range.len()) {
+                        lines.push(DiffLine { kind: "add".into(), content: format!("{line}\n") });
+                    }
+                }
+            }
+        }
+
+        hunks.push(DiffHunk {
+            old_start: old_start + 1,
+            old_count: old_end - old_start,
+            new_start: new_start + 1,
+            new_count: new_end - new_start,
+            lines,
+        });
+    }
+
+    hunks
+}
+
+#[tauri::command]
+pub fn skill_pull_preview(canonical_id: String, target_key: String) -> Result<PullDiffPreview, String> {
+    use crate::commands::canonical_skills::{
+        split_frontmatter, target_key as make_target_key,
+    };
+
+    let canonical_dir = canonical_skills_dir();
+    let skill_dir = canonical_dir.join(&canonical_id);
+    if !skill_dir.is_dir() {
+        return Err(format!("canonical skill directory not found: {}", skill_dir.display()));
+    }
+
+    let meta = read_sync_meta_v2_no_backfill(&skill_dir);
+    let tgt = meta
+        .targets
+        .iter()
+        .find(|t| make_target_key(t) == target_key)
+        .ok_or_else(|| format!("target not found: {target_key}"))?
+        .clone();
+
+    let cfg = super::agent_paths::agent_paths_get()?;
+    let pair = pair_for(&cfg, tgt.agent);
+    let target_dir = resolve_pair(tgt.scope, tgt.project.as_deref(), pair)?;
+    let agent_side = target_dir.join(&canonical_id).join("SKILL.md");
+
+    let agent_content = fs::read_to_string(&agent_side)
+        .map_err(|e| format!("cannot read target file {}: {e}", agent_side.display()))?;
+    let (_, target_body) = split_frontmatter(&agent_content);
+
+    let canonical_path = skill_dir.join("SKILL.md");
+    let canonical_raw = fs::read_to_string(&canonical_path)
+        .map_err(|e| format!("cannot read canonical SKILL.md: {e}"))?;
+    let (_, canonical_body) = split_frontmatter(&canonical_raw);
+
+    let base_snapshot = meta.last_sync.get(&target_key).and_then(|e| e.base_snapshot.as_deref());
+
+    let (has_base, base_content) = if let Some(hash) = base_snapshot {
+        match super::snapshot::get_snapshot_content(hash, &format!("{}/SKILL.md", canonical_id)) {
+            Ok(Some(raw)) => {
+                let (_, body) = split_frontmatter(&raw);
+                (true, Some(body))
+            }
+            _ => (false, None),
+        }
+    } else {
+        (false, None)
+    };
+
+    let old_text = base_content.as_deref().unwrap_or(&canonical_body);
+    let hunks = build_diff_hunks(old_text, &target_body);
+
+    Ok(PullDiffPreview {
+        has_base,
+        canonical_content: canonical_body,
+        target_content: target_body,
+        base_content: base_content.clone(),
+        hunks,
+    })
+}
+
 /// Pull: read agent-side SKILL.md and overwrite canonical, then update sidecar.
 #[tauri::command]
 pub fn skill_pull_from_target(canonical_id: String, target_key: String) -> Result<(), String> {
@@ -1106,6 +1254,7 @@ pub fn skill_pull_from_target(canonical_id: String, target_key: String) -> Resul
         .map_err(|e| format!("cannot write canonical SKILL.md: {e}"))?;
 
     let hash = semantic_hash(&agent_content);
+    let pulled_key = target_key.clone();
     meta.last_sync.insert(
         target_key,
         LastSyncEntry {
@@ -1114,7 +1263,11 @@ pub fn skill_pull_from_target(canonical_id: String, target_key: String) -> Resul
             at: current_iso8601(),
         },
     );
-    meta.dirty = false;
+    let has_other_targets = meta
+        .targets
+        .iter()
+        .any(|t| make_target_key(t) != pulled_key && t.enabled && !matches!(t.mode, TargetMode::Detached | TargetMode::Forked));
+    meta.dirty = has_other_targets;
     write_sync_meta_v2(&skill_dir, &meta)?;
 
     Ok(())
@@ -2603,5 +2756,24 @@ mod tests {
         );
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("not found"));
+    }
+
+    #[test]
+    fn build_diff_hunks_detects_added_and_deleted_lines() {
+        let old = "line1\nline2\nline3\n";
+        let new = "line1\nmodified\nline3\nextra\n";
+        let hunks = build_diff_hunks(old, new);
+        assert!(!hunks.is_empty());
+        let all_lines: Vec<&str> = hunks.iter().flat_map(|h| h.lines.iter().map(|l| l.kind.as_str())).collect();
+        assert!(all_lines.contains(&"delete"));
+        assert!(all_lines.contains(&"add"));
+        assert!(all_lines.contains(&"context"));
+    }
+
+    #[test]
+    fn build_diff_hunks_returns_empty_for_identical() {
+        let text = "same\ncontent\n";
+        let hunks = build_diff_hunks(text, text);
+        assert!(hunks.is_empty());
     }
 }
