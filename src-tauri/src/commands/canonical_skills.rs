@@ -333,8 +333,11 @@ struct SyncMetaV1 {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum TargetMode {
-    /// Push overwrites the agent-side file.
-    Tracked,
+    /// Save automatically pushes to this target.
+    Auto,
+    /// Push requires manual trigger (preview + confirm).
+    #[serde(alias = "tracked")]
+    Manual,
     /// Target skipped by push (kept in list for visibility / re-enable).
     Detached,
     /// Reserved for Phase 2 overlay customization. NOT rendered by this capability.
@@ -432,7 +435,7 @@ fn backfill_from_skill(skill: &CanonicalSkill, dirty: bool) -> SyncMetaV2 {
             scope: SkillScope::Global,
             project: None,
             enabled: true,
-            mode: TargetMode::Tracked,
+            mode: TargetMode::Manual,
         })
         .collect();
     SyncMetaV2 {
@@ -730,6 +733,7 @@ pub fn canonical_skills_write_raw(name: String, content: String) -> Result<Write
     }
 
     mark_sync_meta_dirty(&skill_dir);
+    let _ = super::fan_out::auto_push_if_needed(&name);
     Ok(WriteRawResult { normalized_from })
 }
 
@@ -806,6 +810,7 @@ pub fn canonical_skills_write(
     fs::write(skill_dir.join("SKILL.md"), out)
         .map_err(|e| format!("failed to write SKILL.md: {e}"))?;
     mark_sync_meta_dirty(&skill_dir);
+    let _ = super::fan_out::auto_push_if_needed(&name);
     Ok(())
 }
 
@@ -1138,7 +1143,7 @@ pub fn skill_prune_orphans_scan(skill_name: String) -> Result<Vec<OrphanFile>, S
             let is_active = meta.targets.iter().any(|t| {
                 t.agent == agent
                     && t.scope == *check_scope
-                    && matches!(t.mode, TargetMode::Tracked)
+                    && matches!(t.mode, TargetMode::Manual)
                     && match check_scope {
                         SkillScope::Global => true,
                         SkillScope::Project => {
@@ -1193,7 +1198,7 @@ pub fn skill_prune_orphans_apply(
             scope: orphan.scope,
             project: orphan.project.clone(),
             enabled: false,
-            mode: TargetMode::Tracked,
+            mode: TargetMode::Manual,
         });
         pruned_keys.push(key);
     }
@@ -1292,7 +1297,7 @@ fn resolve_current_target_skill_dirs(
     let cfg = super::agent_paths::agent_paths_get()?;
     let mut dirs = Vec::new();
     for target in meta.targets {
-        if !target.enabled || target.mode != TargetMode::Tracked {
+        if !target.enabled || target.mode != TargetMode::Manual {
             continue;
         }
         let pair = match target.agent {
@@ -1877,14 +1882,14 @@ Hello.\n";
                     scope: SkillScope::Project,
                     project: Some("C:/proj".into()),
                     enabled: true,
-                    mode: TargetMode::Tracked,
+                    mode: TargetMode::Manual,
                 },
                 SkillTarget {
                     agent: AgentId::Codex,
                     scope: SkillScope::Project,
                     project: Some("C:/proj".into()),
                     enabled: true,
-                    mode: TargetMode::Tracked,
+                    mode: TargetMode::Manual,
                 },
             ],
             last_sync,
@@ -1953,7 +1958,7 @@ Hello.\n";
             assert_eq!(t.scope, SkillScope::Global);
             assert!(t.project.is_none());
             assert!(t.enabled);
-            assert!(matches!(t.mode, TargetMode::Tracked));
+            assert!(matches!(t.mode, TargetMode::Manual));
         }
 
         // last_sync is empty on backfill (no real per-target push history).
@@ -1985,7 +1990,7 @@ Hello.\n";
                     scope: SkillScope::Global,
                     project: None,
                     enabled: true,
-                    mode: TargetMode::Tracked,
+                    mode: TargetMode::Manual,
                 }],
                 last_sync,
                 dirty: false,
@@ -2056,7 +2061,7 @@ Hello.\n";
                     scope: SkillScope::Global,
                     project: None,
                     enabled: true,
-                    mode: TargetMode::Tracked,
+                    mode: TargetMode::Manual,
                 }],
                 last_sync,
                 dirty: false,
@@ -2173,14 +2178,14 @@ Hello.\n";
             scope: SkillScope::Global,
             project: None,
             enabled: true,
-            mode: TargetMode::Tracked,
+            mode: TargetMode::Manual,
         };
         let t_codex = SkillTarget {
             agent: AgentId::Codex,
             scope: SkillScope::Global,
             project: None,
             enabled: true,
-            mode: TargetMode::Tracked,
+            mode: TargetMode::Manual,
         };
 
         let mut ls = BTreeMap::new();
@@ -2269,7 +2274,7 @@ Hello.\n";
                     scope: SkillScope::Project,
                     project: Some(project.clone()),
                     enabled: true,
-                    mode: TargetMode::Tracked,
+                    mode: TargetMode::Manual,
                 }],
                 last_sync: BTreeMap::new(),
                 dirty: false,
@@ -2346,7 +2351,7 @@ Hello.\n";
                         scope: SkillScope::Project,
                         project: Some(project.clone()),
                         enabled: false,
-                        mode: TargetMode::Tracked,
+                        mode: TargetMode::Manual,
                     },
                     SkillTarget {
                         agent: AgentId::Codex,
@@ -2532,7 +2537,7 @@ Hello.\n";
             scope: SkillScope::Project,
             project: Some(project.clone()),
             enabled: false,
-            mode: TargetMode::Tracked,
+            mode: TargetMode::Manual,
         };
         let skill_dir = tmp.join(".felina").join("skills").join("code-review");
         write_sync_meta_v2(
@@ -2581,7 +2586,7 @@ Hello.\n";
             scope: SkillScope::Project,
             project: Some(project),
             enabled: false,
-            mode: TargetMode::Tracked,
+            mode: TargetMode::Manual,
         };
         let skill_dir = tmp.join(".felina").join("skills").join("code-review");
         write_sync_meta_v2(
@@ -2652,7 +2657,7 @@ Hello.\n";
             scope: SkillScope::Global,
             project: None,
             enabled: true,
-            mode: TargetMode::Tracked,
+            mode: TargetMode::Manual,
         };
         skill_targets_set("fresh".into(), vec![target]).expect("add target");
 
@@ -2807,7 +2812,7 @@ Hello.\n";
             scope: SkillScope::Global,
             project: None,
             enabled: true,
-            mode: TargetMode::Tracked,
+            mode: TargetMode::Manual,
         };
 
         // Lookup by canonical directory identity succeeds despite the mismatch.
@@ -2857,21 +2862,21 @@ Hello.\n";
                         scope: SkillScope::Project,
                         project: Some(project.clone()),
                         enabled: true,
-                        mode: TargetMode::Tracked,
+                        mode: TargetMode::Manual,
                     },
                     SkillTarget {
                         agent: AgentId::Codex,
                         scope: SkillScope::Project,
                         project: Some(project.clone()),
                         enabled: true,
-                        mode: TargetMode::Tracked,
+                        mode: TargetMode::Manual,
                     },
                     SkillTarget {
                         agent: AgentId::Gemini,
                         scope: SkillScope::Project,
                         project: Some(disabled_project.to_string_lossy().to_string()),
                         enabled: false,
-                        mode: TargetMode::Tracked,
+                        mode: TargetMode::Manual,
                     },
                     SkillTarget {
                         agent: AgentId::Anthropic,
@@ -3004,21 +3009,21 @@ Hello.\n";
             scope: SkillScope::Project,
             project: Some(project.clone()),
             enabled: true,
-            mode: TargetMode::Tracked,
+            mode: TargetMode::Manual,
         };
         let gemini = SkillTarget {
             agent: AgentId::Gemini,
             scope: SkillScope::Project,
             project: Some(project.clone()),
             enabled: true,
-            mode: TargetMode::Tracked,
+            mode: TargetMode::Manual,
         };
         let codex = SkillTarget {
             agent: AgentId::Codex,
             scope: SkillScope::Project,
             project: Some(project.clone()),
             enabled: true,
-            mode: TargetMode::Tracked,
+            mode: TargetMode::Manual,
         };
         skill_targets_set(
             "target-remove".into(),
@@ -3120,7 +3125,7 @@ Hello.\n";
             scope: SkillScope::Project,
             project: Some(unexpected_project.to_string_lossy().to_string()),
             enabled: true,
-            mode: TargetMode::Tracked,
+            mode: TargetMode::Manual,
         };
         let missing_err = skill_target_remove_with_policy(
             "target-remove".into(),
@@ -3199,7 +3204,7 @@ Hello.\n";
             scope: SkillScope::Project,
             project: Some(old_project.to_string_lossy().to_string()),
             enabled: true,
-            mode: TargetMode::Tracked,
+            mode: TargetMode::Manual,
         };
         skill_targets_set("repoint-skill".into(), vec![target.clone()]).unwrap();
 
@@ -3282,5 +3287,26 @@ Hello.\n";
         assert!(
             parse_skill_md(&canonical_skills_read_raw("broken-skill".into()).unwrap()).is_err()
         );
+    }
+
+    #[test]
+    fn target_mode_tracked_deserializes_as_manual() {
+        let json = r#""tracked""#;
+        let mode: TargetMode = serde_json::from_str(json).unwrap();
+        assert_eq!(mode, TargetMode::Manual);
+    }
+
+    #[test]
+    fn target_mode_auto_round_trips() {
+        let json = serde_json::to_string(&TargetMode::Auto).unwrap();
+        assert_eq!(json, r#""auto""#);
+        let mode: TargetMode = serde_json::from_str(&json).unwrap();
+        assert_eq!(mode, TargetMode::Auto);
+    }
+
+    #[test]
+    fn target_mode_manual_serializes_as_manual() {
+        let json = serde_json::to_string(&TargetMode::Manual).unwrap();
+        assert_eq!(json, r#""manual""#);
     }
 }

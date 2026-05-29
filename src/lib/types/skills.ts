@@ -248,7 +248,7 @@ export interface AgentPathsConfig {
   gemini: AgentPathPair;
 }
 
-export type TargetMode = "tracked" | "detached" | "forked";
+export type TargetMode = "auto" | "manual" | "tracked" | "detached" | "forked";
 
 export interface SkillTarget {
   agent: AgentId;
