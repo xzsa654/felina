@@ -166,6 +166,8 @@ pub fn run() {
             commands::tokens::resolve_session_transcript,
             commands::tokens::reveal_session_transcript,
             commands::tokens::refresh_token_data,
+            commands::tokens::prune_token_events,
+            commands::tokens::delete_all_token_events,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

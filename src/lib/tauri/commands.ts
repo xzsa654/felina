@@ -385,6 +385,11 @@ export const api = {
         sessionId,
       }),
     refresh: () => invoke<RefreshResult>("refresh_token_data"),
+    pruneTokenEvents: (retentionDays: number) =>
+      invoke<number>("prune_token_events", {
+        retentionDays,
+      }),
+    deleteAllTokenEvents: () => invoke<number>("delete_all_token_events"),
     getAgentQuotaSnapshot: () =>
       invoke<import("$lib/types").QuotaSnapshot>("get_agent_quota_snapshot"),
   },

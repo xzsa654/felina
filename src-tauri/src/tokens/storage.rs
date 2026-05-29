@@ -446,6 +446,16 @@ impl TokenStorage {
         Ok(deleted as u64)
     }
 
+    /// Delete all rows from `token_events` (both dated and aggregate).
+    /// Returns the number of rows deleted.
+    pub fn delete_all_events(&self) -> Result<u64, String> {
+        let conn = self.db.lock().map_err(|e| format!("Lock error: {}", e))?;
+        let deleted = conn
+            .execute("DELETE FROM token_events", [])
+            .map_err(|e| format!("Cannot delete all events: {}", e))?;
+        Ok(deleted as u64)
+    }
+
     /// Raw connection access for the aggregator (caller must handle locking).
     pub fn connection(&self) -> &Mutex<Connection> {
         &self.db

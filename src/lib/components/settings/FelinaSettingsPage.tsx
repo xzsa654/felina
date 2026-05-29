@@ -1,4 +1,5 @@
 import AgentPathsSection from "./AgentPathsSection";
+import DataPruningSection from "./DataPruningSection";
 import SavedKnownProjectsSection from "./SavedKnownProjectsSection";
 import { t } from "$lib/i18n";
 import { useLocaleStore } from "$lib/stores/locale";
@@ -20,6 +21,7 @@ export default function FelinaSettingsPage() {
       <div className="space-y-6">
         <AgentPathsSection />
         <SavedKnownProjectsSection />
+        <DataPruningSection />
       </div>
     </div>
   );

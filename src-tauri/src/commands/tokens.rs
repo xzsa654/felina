@@ -853,6 +853,27 @@ pub async fn refresh_token_data(state: State<'_, TokenState>) -> Result<RefreshR
     result
 }
 
+#[tauri::command]
+pub fn prune_token_events(
+    retention_days: u64,
+    state: State<'_, TokenState>,
+) -> Result<u64, String> {
+    let agg = state
+        .aggregator
+        .lock()
+        .map_err(|e| format!("Lock error: {}", e))?;
+    agg.prune_old_events(retention_days)
+}
+
+#[tauri::command]
+pub fn delete_all_token_events(state: State<'_, TokenState>) -> Result<u64, String> {
+    let agg = state
+        .aggregator
+        .lock()
+        .map_err(|e| format!("Lock error: {}", e))?;
+    agg.delete_all_events()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

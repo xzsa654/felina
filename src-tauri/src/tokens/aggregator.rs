@@ -1275,6 +1275,18 @@ impl TokenAggregator {
             .upsert_events_for_source(&output.events, SOURCE_FELINA_PARSER, "parser")
     }
 
+    /// Prune events older than `retention_days` from the database.
+    /// Returns the number of rows deleted.
+    pub fn prune_old_events(&self, retention_days: u64) -> Result<u64, String> {
+        self.storage.prune_older_than(retention_days)
+    }
+
+    /// Delete all token events from the database.
+    /// Returns the number of rows deleted.
+    pub fn delete_all_events(&self) -> Result<u64, String> {
+        self.storage.delete_all_events()
+    }
+
     /// Trigger a tokscale-backed refresh and return result.
     pub fn refresh(&self) -> Result<RefreshResult, String> {
         self.refresh_with_options(false)
@@ -1307,8 +1319,6 @@ impl TokenAggregator {
         result: Result<tokscale_ingestion::TokscaleIngestionOutput, String>,
         allow_parser_fallback: bool,
     ) -> Result<RefreshResult, String> {
-        // Prune events older than 90 days on every refresh (best-effort, non-fatal).
-        let _ = self.storage.prune_older_than(90);
         self.invalidate_dated_source_cache();
 
         match result {
