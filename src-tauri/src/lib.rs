@@ -166,6 +166,10 @@ pub fn run() {
             commands::tokens::resolve_session_transcript,
             commands::tokens::reveal_session_transcript,
             commands::tokens::refresh_token_data,
+            // Skill Library (export/import/reset)
+            commands::skill_library::skill_library_export,
+            commands::skill_library::skill_library_import,
+            commands::skill_library::skill_library_reset,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

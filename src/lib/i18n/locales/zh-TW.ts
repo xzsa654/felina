@@ -568,6 +568,22 @@ const zhTW: TranslationDict = {
       removeError: "移除失敗：{error}",
       loadError: "無法載入自訂專案路徑：{error}",
     },
+    skillLibrary: {
+      title: "技能庫",
+      description: "匯出、匯入或重置整個 canonical 技能庫。",
+      skillCount: "{count} 個技能",
+      export: "匯出",
+      import: "匯入",
+      reset: "重置",
+      exportSuccess: "已匯出 {count} 個技能至 ZIP。",
+      exportEmpty: "技能庫是空的，無項目可匯出。",
+      importSuccess: "已匯入 {imported} 個技能（{skipped} 個略過）。",
+      importError: "匯入失敗：{error}",
+      resetConfirmTitle: "重置技能庫",
+      resetConfirmBody: "這將永久刪除所有 canonical 技能，此操作無法復原。\n\n建議先匯出備份。",
+      resetSuccess: "已刪除 {deleted} 個技能。",
+      resetCancel: "已取消重置。",
+    },
   },
 };
 

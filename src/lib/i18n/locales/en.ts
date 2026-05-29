@@ -566,6 +566,22 @@ const en = {
       removeError: "Remove failed: {error}",
       loadError: "Could not load custom project paths: {error}",
     },
+    skillLibrary: {
+      title: "Skill Library",
+      description: "Export, import, or reset your entire canonical skill library.",
+      skillCount: "{count} skills",
+      export: "Export",
+      import: "Import",
+      reset: "Reset",
+      exportSuccess: "Exported {count} skills to ZIP.",
+      exportEmpty: "Skill library is empty — nothing to export.",
+      importSuccess: "Imported {imported} skills ({skipped} skipped).",
+      importError: "Import failed: {error}",
+      resetConfirmTitle: "Reset Skill Library",
+      resetConfirmBody: "This will permanently delete all canonical skills. This action cannot be undone.\n\nIt is recommended to export a backup first.",
+      resetSuccess: "Deleted {deleted} skills.",
+      resetCancel: "Reset cancelled.",
+    },
   },
 };
 

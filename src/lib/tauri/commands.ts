@@ -388,7 +388,24 @@ export const api = {
     getAgentQuotaSnapshot: () =>
       invoke<import("$lib/types").QuotaSnapshot>("get_agent_quota_snapshot"),
   },
+
+  skillLibrary: {
+    export: (outputPath: string) =>
+      invoke<void>("skill_library_export", { outputPath }),
+    import: (inputPath: string) =>
+      invoke<SkillLibraryImportResult>("skill_library_import", { inputPath }),
+    reset: () => invoke<SkillLibraryResetResult>("skill_library_reset"),
+  },
 } as const;
+
+export interface SkillLibraryImportResult {
+  imported: number;
+  skipped: number;
+}
+
+export interface SkillLibraryResetResult {
+  deleted: number;
+}
 
 export interface DiskUsageReport {
   total_bytes: number;
