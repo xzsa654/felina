@@ -1,5 +1,5 @@
 import { useRef, useState, useEffect, useMemo } from "react";
-import { Link, useMatch } from "react-router";
+import { useMatch, useNavigate } from "react-router";
 import { getVersion } from "@tauri-apps/api/app";
 import {
   getMergedNavItems,
@@ -51,7 +51,7 @@ const ICON_MAP: Record<string, React.ComponentType<{ size?: number; className?: 
   history: History,
 };
 
-function SortableSidebarItem({ item, collapsed }: { item: NavItem; collapsed: boolean }) {
+function SortableSidebarItem({ item, collapsed, didDrag }: { item: NavItem; collapsed: boolean; didDrag: React.MutableRefObject<boolean> }) {
   const {
     attributes,
     listeners,
@@ -61,6 +61,7 @@ function SortableSidebarItem({ item, collapsed }: { item: NavItem; collapsed: bo
     isDragging,
   } = useSortable({ id: item.id });
 
+  const navigate = useNavigate();
   const isActive = useMatch(`/${item.id}`) !== null;
   const IconComponent = ICON_MAP[item.icon];
 
@@ -70,14 +71,17 @@ function SortableSidebarItem({ item, collapsed }: { item: NavItem; collapsed: bo
   };
 
   return (
-    <Link
+    <div
       ref={setNodeRef}
       style={style}
       {...attributes}
       {...listeners}
-      to={`/${item.id}`}
+      role="button"
+      tabIndex={0}
       title={collapsed ? item.label : undefined}
-      className={`w-full flex items-center py-2.5 text-sm transition-colors select-none ${
+      onClick={() => { if (!didDrag.current) navigate(`/${item.id}`); }}
+      onKeyDown={(e) => { if (e.key === "Enter" && !didDrag.current) navigate(`/${item.id}`); }}
+      className={`w-full flex items-center py-2.5 text-sm transition-colors select-none cursor-pointer ${
         collapsed ? "justify-center px-0" : "gap-3 px-4"
       } ${
         isDragging
@@ -91,7 +95,7 @@ function SortableSidebarItem({ item, collapsed }: { item: NavItem; collapsed: bo
         {IconComponent && <IconComponent size={18} />}
       </span>
       {!collapsed && <span>{item.label}</span>}
-    </Link>
+    </div>
   );
 }
 
@@ -108,6 +112,7 @@ export default function Sidebar() {
   const quickSettingsButtonRef = useRef<HTMLButtonElement | null>(null);
 
   const navItems = useMemo(() => getMergedNavItems(customOrder), [customOrder]);
+  const didDrag = useRef(false);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -115,6 +120,8 @@ export default function Sidebar() {
   );
 
   function handleDragEnd(event: DragEndEvent) {
+    didDrag.current = true;
+    requestAnimationFrame(() => { didDrag.current = false; });
     const { active, over } = event;
     if (!over || active.id === over.id) return;
 
@@ -166,7 +173,7 @@ export default function Sidebar() {
             strategy={verticalListSortingStrategy}
           >
             {navItems.map((item) => (
-              <SortableSidebarItem key={item.id} item={item} collapsed={collapsed} />
+              <SortableSidebarItem key={item.id} item={item} collapsed={collapsed} didDrag={didDrag} />
             ))}
           </SortableContext>
         </DndContext>
