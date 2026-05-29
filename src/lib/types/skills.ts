@@ -291,12 +291,22 @@ export interface DiffHunk {
   lines: DiffLine[];
 }
 
+export type SiblingStatus = "added" | "modified" | "deleted" | "conflict";
+
+export interface SiblingChange {
+  path: string;
+  status: SiblingStatus;
+}
+
+export type SiblingResolution = "useAgent" | "useCanonical" | "skip";
+
 export interface PullDiffPreview {
   hasBase: boolean;
   canonicalContent: string;
   targetContent: string;
   baseContent: string | null;
   hunks: DiffHunk[];
+  siblingChanges: SiblingChange[];
 }
 
 export type ProjectSource = "cwd" | "detected" | "saved";

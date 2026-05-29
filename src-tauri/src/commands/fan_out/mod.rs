@@ -1239,6 +1239,30 @@ pub struct DiffHunk {
     pub lines: Vec<DiffLine>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum SiblingStatus {
+    Added,
+    Modified,
+    Deleted,
+    Conflict,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SiblingChange {
+    pub path: String,
+    pub status: SiblingStatus,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum SiblingResolution {
+    UseAgent,
+    UseCanonical,
+    Skip,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PullDiffPreview {
@@ -1247,6 +1271,7 @@ pub struct PullDiffPreview {
     pub target_content: String,
     pub base_content: Option<String>,
     pub hunks: Vec<DiffHunk>,
+    pub sibling_changes: Vec<SiblingChange>,
 }
 
 fn build_diff_hunks(old_text: &str, new_text: &str) -> Vec<DiffHunk> {
@@ -1310,6 +1335,69 @@ fn build_diff_hunks(old_text: &str, new_text: &str) -> Vec<DiffHunk> {
     hunks
 }
 
+/// Three-way comparison of sibling files: pushed (from sync meta) vs canonical vs agent.
+/// Returns empty if `pushed_map` is `None` (legacy meta).
+pub(crate) fn compute_sibling_changes(
+    pushed_map: Option<&std::collections::BTreeMap<String, String>>,
+    canonical_skill_dir: &Path,
+    agent_skill_dir: &Path,
+) -> Vec<SiblingChange> {
+    let Some(pushed) = pushed_map else {
+        return vec![];
+    };
+
+    let canonical_hashes = compute_sibling_hashes(canonical_skill_dir);
+    let agent_hashes = compute_sibling_hashes(agent_skill_dir);
+
+    let mut all_keys = std::collections::BTreeSet::new();
+    all_keys.extend(pushed.keys().cloned());
+    all_keys.extend(agent_hashes.keys().cloned());
+    all_keys.extend(canonical_hashes.keys().cloned());
+
+    let mut changes = Vec::new();
+    for key in all_keys {
+        let p = pushed.get(&key);
+        let c = canonical_hashes.get(&key);
+        let a = agent_hashes.get(&key);
+
+        let status = match (p, c, a) {
+            (None, _, Some(_)) => SiblingStatus::Added,
+            (Some(ph), Some(ch), Some(ah)) => {
+                if ah == ph {
+                    continue;
+                }
+                if ch == ph {
+                    SiblingStatus::Modified
+                } else {
+                    SiblingStatus::Conflict
+                }
+            }
+            (Some(ph), None, Some(ah)) => {
+                if ah == ph {
+                    continue;
+                }
+                SiblingStatus::Conflict
+            }
+            (Some(ph), Some(ch), None) => {
+                if ch == ph {
+                    SiblingStatus::Deleted
+                } else {
+                    SiblingStatus::Conflict
+                }
+            }
+            (Some(_), None, None) => continue,
+            (None, _, None) => continue,
+        };
+
+        changes.push(SiblingChange {
+            path: key,
+            status,
+        });
+    }
+
+    changes
+}
+
 #[tauri::command]
 pub fn skill_pull_preview(canonical_id: String, target_key: String) -> Result<PullDiffPreview, String> {
     use crate::commands::canonical_skills::{
@@ -1361,18 +1449,82 @@ pub fn skill_pull_preview(canonical_id: String, target_key: String) -> Result<Pu
     let old_text = base_content.as_deref().unwrap_or(&canonical_body);
     let hunks = build_diff_hunks(old_text, &target_body);
 
+    let agent_skill_dir = target_dir.join(&canonical_id);
+    let sibling_changes = compute_sibling_changes(
+        meta.last_sync.get(&target_key).and_then(|e| e.sibling_hashes.as_ref()),
+        &skill_dir,
+        &agent_skill_dir,
+    );
+
     Ok(PullDiffPreview {
         has_base,
         canonical_content: canonical_body,
         target_content: target_body,
         base_content: base_content.clone(),
         hunks,
+        sibling_changes,
     })
+}
+
+/// Apply sibling file changes from agent to canonical directory.
+fn apply_sibling_changes(
+    changes: &[SiblingChange],
+    resolutions: &[SiblingResolution],
+    canonical_skill_dir: &Path,
+    agent_skill_dir: &Path,
+) -> Result<(), String> {
+    let resolution_map: std::collections::HashMap<usize, &SiblingResolution> =
+        resolutions.iter().enumerate().map(|(i, r)| (i, r)).collect();
+
+    let mut conflict_idx = 0usize;
+    for change in changes {
+        let canonical_path = canonical_skill_dir.join(&change.path);
+        let agent_path = agent_skill_dir.join(&change.path);
+
+        match change.status {
+            SiblingStatus::Added | SiblingStatus::Modified => {
+                if let Some(parent) = canonical_path.parent() {
+                    fs::create_dir_all(parent)
+                        .map_err(|e| format!("cannot create dir for sibling {}: {e}", change.path))?;
+                }
+                fs::copy(&agent_path, &canonical_path)
+                    .map_err(|e| format!("cannot copy sibling {}: {e}", change.path))?;
+            }
+            SiblingStatus::Deleted => {
+                if canonical_path.exists() {
+                    fs::remove_file(&canonical_path)
+                        .map_err(|e| format!("cannot delete sibling {}: {e}", change.path))?;
+                }
+            }
+            SiblingStatus::Conflict => {
+                let resolution = resolution_map.get(&conflict_idx).copied();
+                conflict_idx += 1;
+                match resolution {
+                    Some(SiblingResolution::UseAgent) => {
+                        if let Some(parent) = canonical_path.parent() {
+                            fs::create_dir_all(parent)
+                                .map_err(|e| format!("cannot create dir for sibling {}: {e}", change.path))?;
+                        }
+                        fs::copy(&agent_path, &canonical_path)
+                            .map_err(|e| format!("cannot copy sibling {}: {e}", change.path))?;
+                    }
+                    Some(SiblingResolution::UseCanonical) | Some(SiblingResolution::Skip) | None => {
+                        // keep canonical as-is
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Pull: read agent-side SKILL.md and overwrite canonical, then update sidecar.
 #[tauri::command]
-pub fn skill_pull_from_target(canonical_id: String, target_key: String) -> Result<(), String> {
+pub fn skill_pull_from_target(
+    canonical_id: String,
+    target_key: String,
+    sibling_resolutions: Option<Vec<SiblingResolution>>,
+) -> Result<(), String> {
     use crate::commands::canonical_skills::{
         split_frontmatter, target_key as make_target_key,
     };
@@ -1394,7 +1546,8 @@ pub fn skill_pull_from_target(canonical_id: String, target_key: String) -> Resul
     let cfg = super::agent_paths::agent_paths_get()?;
     let pair = pair_for(&cfg, tgt.agent);
     let target_dir = resolve_pair(tgt.scope, tgt.project.as_deref(), pair)?;
-    let agent_side = target_dir.join(&canonical_id).join("SKILL.md");
+    let agent_skill_dir = target_dir.join(&canonical_id);
+    let agent_side = agent_skill_dir.join("SKILL.md");
 
     let agent_content = fs::read_to_string(&agent_side)
         .map_err(|e| format!("cannot read target file {}: {e}", agent_side.display()))?;
@@ -1415,6 +1568,21 @@ pub fn skill_pull_from_target(canonical_id: String, target_key: String) -> Resul
     fs::write(&canonical_path, &merged)
         .map_err(|e| format!("cannot write canonical SKILL.md: {e}"))?;
 
+    // Sibling sync
+    let sibling_changes = compute_sibling_changes(
+        meta.last_sync.get(&target_key).and_then(|e| e.sibling_hashes.as_ref()),
+        &skill_dir,
+        &agent_skill_dir,
+    );
+    if !sibling_changes.is_empty() {
+        apply_sibling_changes(
+            &sibling_changes,
+            sibling_resolutions.as_deref().unwrap_or(&[]),
+            &skill_dir,
+            &agent_skill_dir,
+        )?;
+    }
+
     let hash = semantic_hash(&agent_content);
     let pulled_key = target_key.clone();
     meta.last_sync.insert(
@@ -1423,9 +1591,7 @@ pub fn skill_pull_from_target(canonical_id: String, target_key: String) -> Resul
             pushed_hash: hash,
             base_snapshot: None,
             at: current_iso8601(),
-            sibling_hashes: Some(compute_sibling_hashes(
-                agent_side.parent().unwrap_or(Path::new("")),
-            )),
+            sibling_hashes: Some(compute_sibling_hashes(&skill_dir)),
         },
     );
     let has_other_targets = meta
@@ -3024,6 +3190,7 @@ mod tests {
         let result = skill_pull_from_target(
             "nonexistent-skill-12345".to_string(),
             "anthropic:global".to_string(),
+            None,
         );
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("not found"));
@@ -3046,5 +3213,206 @@ mod tests {
         let text = "same\ncontent\n";
         let hunks = build_diff_hunks(text, text);
         assert!(hunks.is_empty());
+    }
+
+    fn tmp_dir(label: &str) -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "felina-sibling-{}-{}-{}",
+            label,
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .subsec_nanos()
+        ))
+    }
+
+    #[test]
+    fn sibling_changes_legacy_none_returns_empty() {
+        let canonical = tmp_dir("leg-can");
+        let agent = tmp_dir("leg-agt");
+        fs::create_dir_all(&canonical).unwrap();
+        fs::create_dir_all(&agent).unwrap();
+        fs::write(agent.join("extra.txt"), "data").unwrap();
+        let result = compute_sibling_changes(None, &canonical, &agent);
+        assert!(result.is_empty());
+        let _ = fs::remove_dir_all(&canonical);
+        let _ = fs::remove_dir_all(&agent);
+    }
+
+    #[test]
+    fn sibling_changes_empty_pushed_detects_added() {
+        let canonical = tmp_dir("emp-can");
+        let agent = tmp_dir("emp-agt");
+        fs::create_dir_all(&canonical).unwrap();
+        fs::create_dir_all(&agent).unwrap();
+        fs::write(agent.join("new.py"), "print('hi')").unwrap();
+        let pushed = std::collections::BTreeMap::new();
+        let result = compute_sibling_changes(Some(&pushed), &canonical, &agent);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].path, "new.py");
+        assert_eq!(result[0].status, SiblingStatus::Added);
+        let _ = fs::remove_dir_all(&canonical);
+        let _ = fs::remove_dir_all(&agent);
+    }
+
+    #[test]
+    fn sibling_changes_detects_modified() {
+        let canonical = tmp_dir("mod-can");
+        let agent = tmp_dir("mod-agt");
+        fs::create_dir_all(&canonical).unwrap();
+        fs::create_dir_all(&agent).unwrap();
+        let original = "original content";
+        let modified = "modified content";
+        fs::write(canonical.join("file.txt"), original).unwrap();
+        fs::write(agent.join("file.txt"), modified).unwrap();
+        let mut pushed = std::collections::BTreeMap::new();
+        let orig_hash = format!("{:x}", Sha256::digest(original.as_bytes()));
+        pushed.insert("file.txt".into(), orig_hash);
+        let result = compute_sibling_changes(Some(&pushed), &canonical, &agent);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].path, "file.txt");
+        assert_eq!(result[0].status, SiblingStatus::Modified);
+        let _ = fs::remove_dir_all(&canonical);
+        let _ = fs::remove_dir_all(&agent);
+    }
+
+    #[test]
+    fn sibling_changes_detects_deleted() {
+        let canonical = tmp_dir("del-can");
+        let agent = tmp_dir("del-agt");
+        fs::create_dir_all(&canonical).unwrap();
+        fs::create_dir_all(&agent).unwrap();
+        let content = "to be deleted";
+        fs::write(canonical.join("old.txt"), content).unwrap();
+        // agent side: file deleted (not present)
+        let mut pushed = std::collections::BTreeMap::new();
+        let hash = format!("{:x}", Sha256::digest(content.as_bytes()));
+        pushed.insert("old.txt".into(), hash);
+        let result = compute_sibling_changes(Some(&pushed), &canonical, &agent);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].path, "old.txt");
+        assert_eq!(result[0].status, SiblingStatus::Deleted);
+        let _ = fs::remove_dir_all(&canonical);
+        let _ = fs::remove_dir_all(&agent);
+    }
+
+    #[test]
+    fn sibling_changes_detects_conflict() {
+        let canonical = tmp_dir("con-can");
+        let agent = tmp_dir("con-agt");
+        fs::create_dir_all(&canonical).unwrap();
+        fs::create_dir_all(&agent).unwrap();
+        fs::write(canonical.join("shared.txt"), "canonical edit").unwrap();
+        fs::write(agent.join("shared.txt"), "agent edit").unwrap();
+        let mut pushed = std::collections::BTreeMap::new();
+        let orig_hash = format!("{:x}", Sha256::digest(b"original"));
+        pushed.insert("shared.txt".into(), orig_hash);
+        let result = compute_sibling_changes(Some(&pushed), &canonical, &agent);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].path, "shared.txt");
+        assert_eq!(result[0].status, SiblingStatus::Conflict);
+        let _ = fs::remove_dir_all(&canonical);
+        let _ = fs::remove_dir_all(&agent);
+    }
+
+    #[test]
+    fn apply_sibling_copies_added_and_deletes_removed() {
+        let canonical = tmp_dir("apply-can");
+        let agent = tmp_dir("apply-agt");
+        fs::create_dir_all(&canonical).unwrap();
+        fs::create_dir_all(&agent).unwrap();
+        // Added: agent has new.py
+        fs::write(agent.join("new.py"), "print('hi')").unwrap();
+        // Deleted: canonical has old.txt
+        fs::write(canonical.join("old.txt"), "bye").unwrap();
+        // Modified: agent modified existing.txt
+        fs::write(canonical.join("existing.txt"), "original").unwrap();
+        fs::write(agent.join("existing.txt"), "modified").unwrap();
+
+        let changes = vec![
+            SiblingChange { path: "new.py".into(), status: SiblingStatus::Added },
+            SiblingChange { path: "old.txt".into(), status: SiblingStatus::Deleted },
+            SiblingChange { path: "existing.txt".into(), status: SiblingStatus::Modified },
+        ];
+        apply_sibling_changes(&changes, &[], &canonical, &agent).unwrap();
+
+        assert!(canonical.join("new.py").exists());
+        assert!(!canonical.join("old.txt").exists());
+        assert_eq!(fs::read_to_string(canonical.join("existing.txt")).unwrap(), "modified");
+        let _ = fs::remove_dir_all(&canonical);
+        let _ = fs::remove_dir_all(&agent);
+    }
+
+    #[test]
+    fn apply_sibling_conflict_use_agent_overwrites() {
+        let canonical = tmp_dir("conf-can");
+        let agent = tmp_dir("conf-agt");
+        fs::create_dir_all(&canonical).unwrap();
+        fs::create_dir_all(&agent).unwrap();
+        fs::write(canonical.join("shared.txt"), "canonical ver").unwrap();
+        fs::write(agent.join("shared.txt"), "agent ver").unwrap();
+
+        let changes = vec![
+            SiblingChange { path: "shared.txt".into(), status: SiblingStatus::Conflict },
+        ];
+        apply_sibling_changes(&changes, &[SiblingResolution::UseAgent], &canonical, &agent).unwrap();
+        assert_eq!(fs::read_to_string(canonical.join("shared.txt")).unwrap(), "agent ver");
+        let _ = fs::remove_dir_all(&canonical);
+        let _ = fs::remove_dir_all(&agent);
+    }
+
+    #[test]
+    fn apply_sibling_conflict_use_canonical_keeps_original() {
+        let canonical = tmp_dir("confk-can");
+        let agent = tmp_dir("confk-agt");
+        fs::create_dir_all(&canonical).unwrap();
+        fs::create_dir_all(&agent).unwrap();
+        fs::write(canonical.join("shared.txt"), "canonical ver").unwrap();
+        fs::write(agent.join("shared.txt"), "agent ver").unwrap();
+
+        let changes = vec![
+            SiblingChange { path: "shared.txt".into(), status: SiblingStatus::Conflict },
+        ];
+        apply_sibling_changes(&changes, &[SiblingResolution::UseCanonical], &canonical, &agent).unwrap();
+        assert_eq!(fs::read_to_string(canonical.join("shared.txt")).unwrap(), "canonical ver");
+        let _ = fs::remove_dir_all(&canonical);
+        let _ = fs::remove_dir_all(&agent);
+    }
+
+    #[test]
+    fn apply_sibling_conflict_skip_keeps_original() {
+        let canonical = tmp_dir("confs-can");
+        let agent = tmp_dir("confs-agt");
+        fs::create_dir_all(&canonical).unwrap();
+        fs::create_dir_all(&agent).unwrap();
+        fs::write(canonical.join("shared.txt"), "canonical ver").unwrap();
+        fs::write(agent.join("shared.txt"), "agent ver").unwrap();
+
+        let changes = vec![
+            SiblingChange { path: "shared.txt".into(), status: SiblingStatus::Conflict },
+        ];
+        apply_sibling_changes(&changes, &[SiblingResolution::Skip], &canonical, &agent).unwrap();
+        assert_eq!(fs::read_to_string(canonical.join("shared.txt")).unwrap(), "canonical ver");
+        let _ = fs::remove_dir_all(&canonical);
+        let _ = fs::remove_dir_all(&agent);
+    }
+
+    #[test]
+    fn sibling_changes_agent_unchanged_skipped() {
+        let canonical = tmp_dir("unch-can");
+        let agent = tmp_dir("unch-agt");
+        fs::create_dir_all(&canonical).unwrap();
+        fs::create_dir_all(&agent).unwrap();
+        let content = "unchanged";
+        fs::write(canonical.join("same.txt"), content).unwrap();
+        fs::write(agent.join("same.txt"), content).unwrap();
+        let mut pushed = std::collections::BTreeMap::new();
+        let hash = format!("{:x}", Sha256::digest(content.as_bytes()));
+        pushed.insert("same.txt".into(), hash);
+        let result = compute_sibling_changes(Some(&pushed), &canonical, &agent);
+        assert!(result.is_empty());
+        let _ = fs::remove_dir_all(&canonical);
+        let _ = fs::remove_dir_all(&agent);
     }
 }

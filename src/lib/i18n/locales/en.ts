@@ -236,6 +236,17 @@ const en = {
       identical: "Content is identical — no changes to pull.",
       success: "Pulled successfully",
       failed: "Pull failed: {{error}}",
+      siblings: {
+        title: "Sibling File Changes",
+        added: "Added",
+        modified: "Modified",
+        deleted: "Deleted",
+        conflict: "Conflict",
+        resolutionUseAgent: "Use agent version",
+        resolutionUseCanonical: "Use canonical version",
+        resolutionSkip: "Skip",
+        noChanges: "No sibling file changes",
+      },
     },
     editor: {
       creatingNew: "Creating new canonical skill",

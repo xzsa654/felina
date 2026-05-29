@@ -37,6 +37,7 @@ import type {
   TargetRemovalPolicy,
   DriftStatus,
   PullDiffPreview,
+  SiblingResolution,
 } from "$lib/types";
 import type {
   AgentId as TokenAgentId,
@@ -173,8 +174,8 @@ export const api = {
   },
 
   skillPull: {
-    fromTarget: (canonicalId: string, targetKey: string) =>
-      invoke<void>("skill_pull_from_target", { canonicalId, targetKey }),
+    fromTarget: (canonicalId: string, targetKey: string, siblingResolutions?: SiblingResolution[]) =>
+      invoke<void>("skill_pull_from_target", { canonicalId, targetKey, siblingResolutions: siblingResolutions ?? null }),
     preview: (canonicalId: string, targetKey: string) =>
       invoke<PullDiffPreview>("skill_pull_preview", { canonicalId, targetKey }),
   },
