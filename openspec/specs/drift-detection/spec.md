@@ -40,96 +40,108 @@ code:
 ---
 ### Requirement: Shared Drift Check Function
 
-The fan-out module SHALL expose a reusable `check_drift` function that compares an agent-side file's semantic hash against a stored `pushed_hash`. The batch drift scan API and the existing push preview SHALL both use this function. The function SHALL NOT perform rendering; it SHALL only read the agent-side file and compare hashes.
+MODIFY scenario:
 
-#### Scenario: check_drift returns synced when hashes match
+#### Scenario: check_drift detects sibling file changes
 
-- **WHEN** the agent-side file's semantic hash equals the stored `pushed_hash`
-- **THEN** `check_drift` SHALL return synced status
-
-#### Scenario: check_drift returns drifted when hashes differ
-
-- **WHEN** the agent-side file's semantic hash differs from the stored `pushed_hash`
+- **GIVEN** a skill has been pushed with sibling files and their hashes recorded in sync meta
+- **WHEN** an agent-side sibling file's content has been modified since the last push
 - **THEN** `check_drift` SHALL return drifted status
 
-#### Scenario: check_drift returns missing when file does not exist
+#### Scenario: check_drift detects sibling file deletion
 
-- **WHEN** the agent-side file does not exist on disk
-- **THEN** `check_drift` SHALL return missing status
+- **GIVEN** a skill has been pushed with sibling files and their hashes recorded in sync meta
+- **WHEN** an agent-side sibling file that existed at push time has been deleted
+- **THEN** `check_drift` SHALL return drifted status
+
+#### Scenario: check_drift detects new sibling file on agent side
+
+- **GIVEN** a skill has been pushed with sibling hashes recorded in sync meta
+- **WHEN** a new file exists in the agent-side skill directory that was not present at push time
+- **THEN** `check_drift` SHALL return drifted status
+
+#### Scenario: check_drift treats missing sibling hashes as legacy (no comparison)
+
+- **GIVEN** the sync meta was written before sibling hash tracking was introduced
+- **WHEN** the `sibling_hashes` field is absent from the sync meta (`None`)
+- **THEN** `check_drift` SHALL skip sibling comparison entirely
+- **AND** `check_drift` SHALL NOT report drift due to agent-side sibling files
+
+#### Scenario: check_drift detects agent-side additions when push had no siblings
+
+- **GIVEN** a skill was pushed with no sibling files (`sibling_hashes` is `Some({})`)
+- **WHEN** a new file is added on the agent side
+- **THEN** `check_drift` SHALL return drifted status
 
 
 <!-- @trace
-source: drift-detection-and-conflict-ui
+source: sibling-drift-detection
 updated: 2026-05-29
 code:
-  - src/lib/components/skills/SkillsPage.tsx
-  - src-tauri/src/lib.rs
-  - src/lib/stores/skills-store.ts
-  - src-tauri/src/commands/fan_out/mod.rs
-  - src/lib/components/skills/TargetEditor.tsx
-  - src/lib/tauri/commands.ts
-  - src/lib/components/skills/CoverageMatrix.tsx
-  - src/lib/components/projects/ManagedInventory.tsx
-  - src/lib/types/skills.ts
-  - .knowledge/knowledge-base/dev-docs.md
-  - src/lib/components/skills/PendingPushBar.tsx
-  - .session/product-backlog.md
+  - src-tauri/src/commands/fan_out/anthropic.rs
+  - src-tauri/src/commands/skill_library.rs
+  - src-tauri/src/tokens/storage.rs
+  - src-tauri/src/tokens/aggregator.rs
+  - src-tauri/src/commands/fan_out/codex.rs
   - src/lib/i18n/locales/en.ts
-  - .knowledge/_catalog.json
-  - .knowledge/knowledge-base/architecture.md
+  - src-tauri/src/lib.rs
+  - src-tauri/src/commands/mod.rs
+  - src/lib/components/settings/DataPruningSection.tsx
+  - src/lib/types/skills.ts
+  - src-tauri/src/commands/tokens.rs
+  - src/lib/components/skills/SyncInfoBar.tsx
+  - src/lib/tauri/commands.ts
+  - docs/tokscale-backed-token-ingestion.md
+  - src/lib/components/settings/FelinaSettingsPage.tsx
+  - src/lib/components/skills/SkillEditor.tsx
+  - src-tauri/src/commands/fan_out/gemini.rs
+  - src/lib/components/settings/SkillLibrarySection.tsx
+  - src-tauri/src/commands/fan_out/mod.rs
+  - src/lib/components/skills/SkillsPage.tsx
   - src/lib/i18n/locales/zh-TW.ts
-  - .session/agent-skill-market-complete.md
-  - src/lib/types/index.ts
-  - src/lib/components/skills/SkillImportWizard.tsx
+  - src-tauri/src/commands/canonical_skills.rs
+  - src-tauri/Cargo.toml
 -->
 
 ---
 ### Requirement: Drift Scan Performance Optimization
 
-The `check_drift` function SHALL first compare the agent-side file's filesystem modification time (mtime) against the `last_sync.at` timestamp. If the file's mtime is less than or equal to the push timestamp, `check_drift` SHALL return synced without reading the file content or computing a hash. When mtime indicates a potential change (mtime > push timestamp), `check_drift` SHALL read the file and compute the semantic hash. The batch drift scan SHALL process targets that require hash computation in parallel using a thread pool.
+ADD scenario:
 
-#### Scenario: mtime fast path skips hash for unmodified files
+#### Scenario: Sibling hash computation runs in parallel with SKILL.md check
 
-- **WHEN** an agent-side SKILL.md has mtime earlier than the stored `last_sync.at` timestamp
-- **THEN** `check_drift` SHALL return synced status
-- **AND** `check_drift` SHALL NOT read the file content or compute a semantic hash
-
-#### Scenario: mtime indicates potential change triggers hash
-
-- **WHEN** an agent-side SKILL.md has mtime later than the stored `last_sync.at` timestamp
-- **THEN** `check_drift` SHALL read the file and compute the semantic hash
-- **AND** `check_drift` SHALL compare the hash against `pushed_hash` to determine synced or drifted
-
-#### Scenario: Batch scan parallelizes hash computation
-
-- **WHEN** multiple targets require hash computation (mtime > push timestamp)
-- **THEN** the batch scan SHALL compute hashes in parallel using a thread pool
-- **AND** the scan result SHALL be identical to sequential execution
+- **WHEN** the batch drift scan processes a target that requires hash computation
+- **THEN** sibling file hashes SHALL be computed as part of the same parallel work unit as the SKILL.md hash
+- **AND** the combined result SHALL reflect both SKILL.md and sibling drift status
 
 
 <!-- @trace
-source: drift-detection-and-conflict-ui
+source: sibling-drift-detection
 updated: 2026-05-29
 code:
-  - src/lib/components/skills/SkillsPage.tsx
-  - src-tauri/src/lib.rs
-  - src/lib/stores/skills-store.ts
-  - src-tauri/src/commands/fan_out/mod.rs
-  - src/lib/components/skills/TargetEditor.tsx
-  - src/lib/tauri/commands.ts
-  - src/lib/components/skills/CoverageMatrix.tsx
-  - src/lib/components/projects/ManagedInventory.tsx
-  - src/lib/types/skills.ts
-  - .knowledge/knowledge-base/dev-docs.md
-  - src/lib/components/skills/PendingPushBar.tsx
-  - .session/product-backlog.md
+  - src-tauri/src/commands/fan_out/anthropic.rs
+  - src-tauri/src/commands/skill_library.rs
+  - src-tauri/src/tokens/storage.rs
+  - src-tauri/src/tokens/aggregator.rs
+  - src-tauri/src/commands/fan_out/codex.rs
   - src/lib/i18n/locales/en.ts
-  - .knowledge/_catalog.json
-  - .knowledge/knowledge-base/architecture.md
+  - src-tauri/src/lib.rs
+  - src-tauri/src/commands/mod.rs
+  - src/lib/components/settings/DataPruningSection.tsx
+  - src/lib/types/skills.ts
+  - src-tauri/src/commands/tokens.rs
+  - src/lib/components/skills/SyncInfoBar.tsx
+  - src/lib/tauri/commands.ts
+  - docs/tokscale-backed-token-ingestion.md
+  - src/lib/components/settings/FelinaSettingsPage.tsx
+  - src/lib/components/skills/SkillEditor.tsx
+  - src-tauri/src/commands/fan_out/gemini.rs
+  - src/lib/components/settings/SkillLibrarySection.tsx
+  - src-tauri/src/commands/fan_out/mod.rs
+  - src/lib/components/skills/SkillsPage.tsx
   - src/lib/i18n/locales/zh-TW.ts
-  - .session/agent-skill-market-complete.md
-  - src/lib/types/index.ts
-  - src/lib/components/skills/SkillImportWizard.tsx
+  - src-tauri/src/commands/canonical_skills.rs
+  - src-tauri/Cargo.toml
 -->
 
 ---

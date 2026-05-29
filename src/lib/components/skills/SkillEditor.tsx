@@ -165,6 +165,7 @@ export default function SkillEditor({ skill, brokenRaw, onSaved, onCancel, onDel
         targets: currentTargets,
         lastSync: skill?.lastSync ?? {},
         agentFields: skill?.agentFields ?? {},
+        siblingsDirty: false,
       });
       await loadEntries();
       // Structured save also normalizes a mismatched `frontmatter.name` to the

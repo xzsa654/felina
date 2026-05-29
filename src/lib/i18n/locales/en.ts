@@ -215,6 +215,7 @@ const en = {
       synced: "Synced",
       pending: "Pending",
       missing: "Missing",
+      siblingsDirty: "Bundled files have changed — push to sync.",
     },
     list: {
       empty: "No canonical skills yet. Create one or import existing skills.",

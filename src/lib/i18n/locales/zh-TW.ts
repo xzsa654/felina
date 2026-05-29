@@ -217,6 +217,7 @@ const zhTW: TranslationDict = {
       synced: "已同步",
       pending: "待同步",
       missing: "遺失",
+      siblingsDirty: "附加檔案已變更，請推送以同步。",
     },
     list: {
       empty: "還沒有任何 skill。建立一個，或從既有的 agent 目錄匯入。",

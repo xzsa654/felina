@@ -78,6 +78,9 @@ pub struct CanonicalSkill {
     /// Per-target push provenance (sync-meta v2). Keyed by `target_key()`.
     #[serde(default)]
     pub last_sync: BTreeMap<String, LastSyncEntry>,
+    /// True when canonical bundled sibling files differ from the last push.
+    #[serde(default)]
+    pub siblings_dirty: bool,
 }
 
 /// Canonical skills directory. After `scope-model-simplification` this is
@@ -171,6 +174,7 @@ pub fn parse_skill_md(raw: &str) -> Result<CanonicalSkill, String> {
         targets: Vec::new(),
         last_sync: BTreeMap::new(),
         agent_fields,
+        siblings_dirty: false,
     })
 }
 
@@ -368,6 +372,13 @@ pub struct LastSyncEntry {
     pub base_snapshot: Option<String>,
     /// ISO-8601 timestamp of the last successful push for this target.
     pub at: String,
+    /// Per-sibling file hashes recorded at push time.
+    /// Key: forward-slash relative path from skill dir. Value: raw SHA-256 hex.
+    /// `None` = legacy meta (field absent) → skip sibling comparison.
+    /// `Some({})` = no siblings at push time → agent-side additions are drift.
+    /// `Some({...})` = siblings recorded → compare normally.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sibling_hashes: Option<std::collections::BTreeMap<String, String>>,
 }
 
 /// Sidecar schema v2. Stored at `<skill_dir>/.felina-sync-meta.json`.
@@ -558,6 +569,27 @@ fn mark_sync_meta_dirty(skill_dir: &Path) {
 }
 
 /// Pick the most-recent `at` timestamp across a per-target last_sync map,
+/// Check whether canonical sibling files differ from what was recorded at last
+/// push for any target. Returns true if any target has stale sibling hashes,
+/// meaning the canonical side changed after the last push.
+fn has_canonical_sibling_changes(
+    canonical_skill_dir: &Path,
+    last_sync: &BTreeMap<String, LastSyncEntry>,
+) -> bool {
+    if last_sync.is_empty() {
+        return false;
+    }
+    let canonical_siblings = super::fan_out::compute_sibling_hashes(canonical_skill_dir);
+    for entry in last_sync.values() {
+        match &entry.sibling_hashes {
+            Some(recorded) if *recorded != canonical_siblings => return true,
+            None if !canonical_siblings.is_empty() => return true,
+            _ => {}
+        }
+    }
+    false
+}
+
 /// for surfacing a single `CanonicalSkill.last_synced` value to the UI.
 /// ISO-8601 UTC strings (`...Z`) compare lexicographically as time order.
 fn pick_latest_at(last_sync: &BTreeMap<String, LastSyncEntry>) -> Option<String> {
@@ -613,7 +645,9 @@ pub fn canonical_skills_list() -> Result<Vec<SkillListEntry>, String> {
             Ok(mut skill) => {
                 skill.canonical_id = dir_name.clone();
                 let (meta, legacy_last) = read_sync_meta_v2(&skill_dir, &skill);
-                skill.dirty = meta.dirty;
+                let sib_dirty = has_canonical_sibling_changes(&skill_dir, &meta.last_sync);
+                skill.dirty = meta.dirty || sib_dirty;
+                skill.siblings_dirty = sib_dirty;
                 skill.last_synced = legacy_last.or_else(|| pick_latest_at(&meta.last_sync));
                 skill.targets = meta.targets;
                 skill.last_sync = meta.last_sync;
@@ -1847,6 +1881,7 @@ Hello.\n";
             targets: Vec::new(),
             last_sync: BTreeMap::new(),
             agent_fields: BTreeMap::new(),
+            siblings_dirty: false,
         }
     }
 
@@ -1863,6 +1898,7 @@ Hello.\n";
                 pushed_hash: "abc123".into(),
                 base_snapshot: None,
                 at: "2026-05-22T05:00:00Z".into(),
+                sibling_hashes: None,
             },
         );
         last_sync.insert(
@@ -1871,6 +1907,7 @@ Hello.\n";
                 pushed_hash: "def456".into(),
                 base_snapshot: None,
                 at: "2026-05-22T05:01:00Z".into(),
+                sibling_hashes: None,
             },
         );
 
@@ -1978,6 +2015,7 @@ Hello.\n";
                 pushed_hash: "preserved-hash".into(),
                 base_snapshot: None,
                 at: "2026-05-22T06:00:00Z".into(),
+                sibling_hashes: None,
             },
         );
 
@@ -2050,6 +2088,7 @@ Hello.\n";
                 pushed_hash: "hash-anthropic".into(),
                 base_snapshot: None,
                 at: "2026-05-22T01:00:00Z".into(),
+                sibling_hashes: None,
             },
         );
         write_sync_meta_v2(
@@ -2195,6 +2234,7 @@ Hello.\n";
                 pushed_hash: "h1".into(),
                 base_snapshot: None,
                 at: "2026-01-01T00:00:00Z".into(),
+                sibling_hashes: None,
             },
         );
         ls.insert(
@@ -2203,6 +2243,7 @@ Hello.\n";
                 pushed_hash: "h2".into(),
                 base_snapshot: None,
                 at: "2026-01-01T00:00:00Z".into(),
+                sibling_hashes: None,
             },
         );
         write_sync_meta_v2(
@@ -3041,6 +3082,7 @@ Hello.\n";
                 pushed_hash: "a".into(),
                 base_snapshot: None,
                 at: "2026-05-26T00:00:00Z".into(),
+                sibling_hashes: None,
             },
         );
         meta.last_sync.insert(
@@ -3049,6 +3091,7 @@ Hello.\n";
                 pushed_hash: "g".into(),
                 base_snapshot: None,
                 at: "2026-05-26T00:00:00Z".into(),
+                sibling_hashes: None,
             },
         );
         meta.last_sync.insert(
@@ -3057,6 +3100,7 @@ Hello.\n";
                 pushed_hash: "c".into(),
                 base_snapshot: None,
                 at: "2026-05-26T00:00:00Z".into(),
+                sibling_hashes: None,
             },
         );
         write_sync_meta_v2(&skill_dir, &meta).unwrap();
@@ -3219,6 +3263,7 @@ Hello.\n";
                 pushed_hash: "old".into(),
                 base_snapshot: None,
                 at: "2026-05-26T00:00:00Z".into(),
+                sibling_hashes: None,
             },
         );
         meta.dirty = false;
