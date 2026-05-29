@@ -276,6 +276,27 @@ export interface SyncMetaV2 {
   dirty: boolean;
 }
 
+export interface DiffLine {
+  kind: "context" | "add" | "delete";
+  content: string;
+}
+
+export interface DiffHunk {
+  oldStart: number;
+  oldCount: number;
+  newStart: number;
+  newCount: number;
+  lines: DiffLine[];
+}
+
+export interface PullDiffPreview {
+  hasBase: boolean;
+  canonicalContent: string;
+  targetContent: string;
+  baseContent: string | null;
+  hunks: DiffHunk[];
+}
+
 export type ProjectSource = "cwd" | "detected" | "saved";
 
 export interface KnownProject {

@@ -35,6 +35,7 @@ walkdir = "2"
 serde_yaml = "0.9"
 git2 = { version = "0.19", features = ["vendored-libgit2"] }
 sha2 = "0.10"
+similar = "2"
 reqwest = { version = "0.12", features = ["blocking", "json", "native-tls"], default-features = false }
 
 [dev-dependencies]
