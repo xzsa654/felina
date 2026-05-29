@@ -1,18 +1,103 @@
 # Tokscale-backed Token Ingestion
 
-## Migration Strategy
+## Architecture
 
-Token refresh now treats `tokscale_export` as the production ingestion source. A successful tokscale refresh replaces only rows with `source = 'tokscale_export'`, writes a new `source_generation`, and sets `token_ingestion_state.active_source` to `tokscale_export`.
+Token analytics uses **two independent data sources** stored in the same `token_events` table, separated by the `source` column:
 
-Legacy Felina parser rows are retained with `source = 'felina_parser'` and `source_generation = 'legacy'`. Analytics queries read only the active source, so legacy parser totals and tokscale totals are not added together after migration.
+| Source | Data origin | Granularity | Strengths | Weaknesses |
+|--------|-------------|-------------|-----------|------------|
+| `tokscale_export` | `tokscale graph --json --no-spinner` (API billing data) | Daily buckets (midnight UTC) | Accurate token/cost numbers | No hourly breakdown, no project/session fields |
+| `felina_parser` | Local JSONL session files (file scanner) | Per-message timestamps | Hourly distribution, project & session IDs | Inflated token counts (cumulative context per message) |
 
-By default, Felina first invokes an installed `tokscale` binary with `graph --no-spinner` so production refreshes preserve dated buckets for daily and monthly analytics. If no local binary is available and no override is configured, it falls back to `npx --yes tokscale@latest graph --no-spinner` so refresh totals match the current tokscale CLI behavior. Set `PATH=/path/to/tokscale` to force a specific local binary and disable the npm fallback.
+## Mixed Source Selection
 
-Tokscale rows are accepted only when required machine-readable fields are present and valid: client/agent, provider, model, input, output, cache read, cache write, and message count. Reasoning is preserved when present and treated as `0` when tokscale omits it. Missing or invalid required fields return `unsupported_schema` instead of writing partial zero-filled production records.
+Analytics queries are **not** single-source. Different views use different sources based on what data they need:
 
-Aggregate tokscale rows without timestamps are stored with timestamp `0` and displayed as the `all` scope bucket. They are not rewritten to the refresh time, so date filters and time-series views do not imply fake per-event timing.
+| View | Source | Reason |
+|------|--------|--------|
+| Dashboard Daily / Weekly / Monthly | `tokscale_export` | Accurate billing totals |
+| Dashboard Hourly heatmap | `felina_parser` | Needs per-hour timestamps |
+| Day detail: Model breakdown | `tokscale_export` | Accurate per-model counts |
+| Day detail: Hourly chart | `felina_parser` | Needs hourly distribution |
+| Day detail: Project breakdown | `felina_parser` | tokscale has no project field |
+| Day detail: Top Sessions | `felina_parser` | tokscale has no session IDs |
 
-Parser fallback is explicit. The default `refresh_token_data` path attempts tokscale and returns an observable failure status if tokscale is unavailable or invalid; it does not automatically run the legacy parsers. The diagnostic fallback path writes rows with `source = 'parser_fallback'` and marks the refresh result with `fallback_used = true`.
+Resolution logic in `aggregator.rs`:
+- `default_analytics_source(Daily/Weekly/Monthly)` → prefers `tokscale_export` if it has rows, falls back to `active_source`
+- `default_analytics_source(Hourly)` → uses `active_source` (which is `felina_parser` since tokscale has no hourly data)
+- `auto_dated` → `pick_dated_source()` selects the source with the most `timestamp > 0` rows (typically `felina_parser`), except for model breakdown which explicitly prefers `tokscale_export`
+
+## Refresh Flow
+
+```
+User clicks Refresh
+  │
+  ├─ Invalidate dated-source cache
+  ├─ Run tokscale ingestion
+  │   ├─ Resolve binary: FELINA_TOKSCALE_BIN → tokscale (PATH) → npx tokscale@latest
+  │   ├─ Run tokscale graph --no-spinner
+  │   ├─ Parse JSON output → ReconciliationRecord[]
+  │   ├─ Unknown agents → silently skipped (does NOT fail the batch)
+  │   ├─ DELETE FROM token_events WHERE source='tokscale_export'
+  │   ├─ INSERT new records
+  │   └─ Set active_source = 'tokscale_export'
+  │
+  ├─ If tokscale succeeded:
+  │   └─ run_parser_scan() (best-effort, errors silently ignored)
+  │       └─ INSERT OR IGNORE INTO token_events WHERE source='felina_parser'
+  │
+  └─ If tokscale failed + allow_parser_fallback:
+      └─ refresh_parser_fallback()
+          └─ Scan JSONL, write to source='parser_fallback', mark fallback_used=true
+```
+
+**Important**: `replace_tokscale_records()` does `DELETE` then `INSERT` — full replacement on every refresh. `felina_parser` uses `INSERT OR IGNORE` with unique key `(source, agent, session_id, timestamp, model)` — existing rows are never updated.
+
+## Binary Resolution
+
+Felina resolves the tokscale binary in this order:
+
+1. `FELINA_TOKSCALE_BIN` env var (absolute path)
+2. `tokscale` found in system `PATH`
+3. `npx --yes tokscale@latest` as last-resort fallback
+
+tokscale is listed as a devDependency in `package.json` (`npm install` puts it at `node_modules/.bin/tokscale`).
+
+**Setup (macOS / Linux)**:
+```bash
+export FELINA_TOKSCALE_BIN="$PWD/node_modules/.bin/tokscale"
+```
+
+**Setup (Windows PowerShell)**:
+```powershell
+$env:FELINA_TOKSCALE_BIN = "$PWD\node_modules\.bin\tokscale.cmd"
+```
+
+If `FELINA_TOKSCALE_BIN` is not set but `node_modules/.bin` is in `PATH`, the default `tokscale` lookup will find it.
+
+## Unknown Agent Handling
+
+When tokscale reports an agent not in Felina's `AgentId` enum (`claude-code`, `codex-cli`, `gemini-cli`), the ingestion layer **skips that single record** with a stderr warning instead of failing the entire batch:
+
+```
+tokscale ingestion: skipping unknown agent 'opencode' (model=big-pickle, events=7)
+tokscale ingestion: skipped 1 record(s) from unknown agents
+```
+
+Known agents continue to be ingested normally. If ALL records are skipped, it returns `unsupported_schema`.
+
+## Data Retention & Pruning
+
+**Auto-prune is disabled.** Refresh no longer deletes old data automatically.
+
+Users manage retention manually from **Felina Settings page**:
+
+- **Prune old data**: Select retention period (30/60/90/180/365 days), deletes dated records (`timestamp > 0`) older than the cutoff
+- **Delete all data**: Clears the entire `token_events` table, including aggregate rows (`timestamp = 0`)
+
+Backend commands:
+- `prune_token_events(retention_days: u64)` → `DELETE FROM token_events WHERE timestamp > 0 AND timestamp < cutoff`
+- `delete_all_token_events()` → `DELETE FROM token_events`
 
 ## Rollback
 
@@ -30,22 +115,23 @@ sqlite3 ~/.felina/tokens.db "INSERT OR REPLACE INTO token_ingestion_state (key, 
 
 If a tokscale refresh fails, the storage replacement transaction is not committed and the previous active source remains readable.
 
-## Smoke Result
+## Scan Cursor
 
-Mocked smoke coverage was run through token unit tests:
+The `felina_parser` uses an mtime-based cursor in the `scan_state` table to skip files that haven't changed since the last scan. After deleting parser data manually, the cursor must also be cleared to force a full rescan:
 
 ```bash
-cargo test --manifest-path src-tauri/Cargo.toml tokens::
+sqlite3 ~/.felina/tokens.db "DELETE FROM scan_state;"
 ```
 
-Result: 40 token tests passed.
+## Key Files
 
-Verified scenarios:
-
-- `analytics_response_uses_active_tokscale_source_without_legacy_totals` confirms `/tokens` analytics totals, cache metrics, model breakdown, agent breakdown, and time series are derived from tokscale rows while legacy rows remain isolated.
-- `active_source_can_roll_back_to_legacy_parser_rows` confirms rollback to `felina_parser` makes old parser-backed analytics readable again.
-- `refresh_success_reports_tokscale_source_and_message_count` confirms refresh diagnostics expose `active_source = tokscale_export`, `status = ok`, and tokscale `messageCount` as parsed event count.
-- `refresh_reports_tokscale_failure_without_automatic_parser_fallback` confirms a tokscale command failure preserves the last active source, returns `status = command_failed`, and does not enable fallback by default.
-- `unsupported_schema_for_missing_required_tokscale_fields_even_with_tokens` confirms schema drift does not become partial zero-filled production data.
-- `all_scope_tokscale_rows_are_labeled_all_not_refresh_day` confirms aggregate rows without timestamps are not assigned to refresh time.
-- `source_is_part_of_unique_identity` confirms legacy and tokscale rows with matching event identity can coexist by source.
+| File | Role |
+|------|------|
+| `src-tauri/src/tokens/aggregator.rs` | Source selection, refresh orchestration, analytics queries |
+| `src-tauri/src/tokens/tokscale.rs` | Tokscale binary execution, skip-unknown-agent, JSON parsing |
+| `src-tauri/src/tokens/tokscale_ingestion.rs` | Record → TokenEvent conversion, replace_tokscale_records |
+| `src-tauri/src/tokens/storage.rs` | SQL schema, CRUD, prune/delete, active_source management |
+| `src-tauri/src/tokens/scan_state.rs` | Persistent mtime cursor for parser scanner |
+| `src-tauri/src/tokens/scanner.rs` | File system scanner (felina_parser source) |
+| `src-tauri/src/tokens/parsers/` | Claude Code, Codex CLI, Gemini CLI JSONL parsers |
+| `src/lib/components/settings/DataPruningSection.tsx` | Manual prune UI |
