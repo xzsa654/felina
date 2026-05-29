@@ -1436,3 +1436,82 @@ code:
   - src/lib/types/index.ts
   - src/lib/components/skills/SkillImportWizard.tsx
 -->
+
+---
+### Requirement: Interactive Skill Creation Flow
+
+The system SHALL present an interactive creation dialog when the user initiates a new skill creation. The dialog SHALL mandate that the user provides a `Skill Name` and selects an `Initial Target`. The initial target selection SHALL offer Global, a specific Project, or "None". 
+
+When the user submits the dialog, the system SHALL create the canonical skill directory and `SKILL.md` using the provided name, and immediately write the selected initial target (if not "None") into the skill's sync-meta sidecar (`.felina-sync-meta.json`) as an enabled and tracked target. The system SHALL NOT create a skill without this explicit user flow.
+
+#### Scenario: User creates a skill and binds a global target
+
+- **WHEN** the user clicks "New Skill"
+- **THEN** the system SHALL display the Create Skill Dialog
+- **WHEN** the user inputs "code-reviewer" and selects a Global Anthropic target, then submits
+- **THEN** the system SHALL create `~/.felina/skills/code-reviewer/SKILL.md` with `name: code-reviewer`
+- **AND** the system SHALL write a sync-meta sidecar containing the Global Anthropic target
+- **AND** the system SHALL navigate to the editor for "code-reviewer"
+
+#### Scenario: User creates a skill with no initial target
+
+- **WHEN** the user opens the Create Skill Dialog, inputs "brainstorm-helper", and selects "None" for the target
+- **THEN** the system SHALL create the canonical skill
+- **AND** the skill's sync-meta sidecar SHALL contain an empty targets array
+- **AND** the system SHALL navigate to the editor for "brainstorm-helper"
+
+<!-- @trace
+source: skill-creation-destination-model
+updated: 2026-05-30
+code:
+  - .session/product-backlog.md
+  - src/lib/components/settings/SkillLibrarySection.tsx
+  - docs/tokscale-backed-token-ingestion.md
+  - src-tauri/src/commands/skill_import.rs
+  - src/lib/components/skills/CreateSkillDialog.tsx
+  - .knowledge/knowledge-base/_index.json
+  - src-tauri/Cargo.toml
+  - src-tauri/src/lib.rs
+  - src/lib/components/skills/SyncInfoBar.tsx
+  - src/lib/components/skills/TargetEditor.tsx
+  - .knowledge/_catalog.json
+  - src-tauri/src/commands/fan_out/gemini.rs
+  - src-tauri/src/tokens/tokscale_ingestion.rs
+  - .knowledge/knowledge-base/architecture.md
+  - src/lib/components/layout/QuickSettingsPopover.tsx
+  - src/lib/components/projects/managed-inventory.ts
+  - src-tauri/src/tokens/aggregator.rs
+  - src/lib/types/index.ts
+  - src/lib/components/skills/SkillsPage.tsx
+  - .knowledge/knowledge-base/platform.md
+  - src/lib/components/shared/InfoDialog.tsx
+  - src/lib/components/skills/ResizableHandle.tsx
+  - tsconfig.json
+  - src-tauri/src/commands/canonical_skills.rs
+  - src/lib/components/skills/PullConfirmDialog.tsx
+  - src/lib/i18n/locales/en.ts
+  - src/lib/components/skills/SkillEditor.tsx
+  - src-tauri/src/commands/mod.rs
+  - src/lib/types/skills.ts
+  - src/lib/i18n/locales/zh-TW.ts
+  - src/lib/components/projects/ManagedInventory.tsx
+  - src/lib/components/layout/Sidebar.tsx
+  - .knowledge/knowledge-base/dev-docs.md
+  - src/lib/tauri/commands.ts
+  - src-tauri/src/commands/tokens.rs
+  - src-tauri/src/tokens/storage.rs
+  - src-tauri/src/commands/fan_out/anthropic.rs
+  - src/lib/components/skills/SkillList.tsx
+  - .session/felina_development_report.md
+  - src/lib/components/settings/DataPruningSection.tsx
+  - src/lib/components/settings/FelinaSettingsPage.tsx
+  - src/lib/stores/navigation.ts
+  - src-tauri/src/commands/fan_out/mod.rs
+  - package.json
+  - src-tauri/src/commands/snapshot.rs
+  - src-tauri/src/commands/fan_out/codex.rs
+  - src/lib/components/skills/SyncPreviewDialog.tsx
+  - src-tauri/src/commands/skill_library.rs
+tests:
+  - src/lib/stores/navigation.test.ts
+-->
