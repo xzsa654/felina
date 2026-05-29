@@ -1,9 +1,10 @@
 import { Fragment, useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router";
-import { ArrowRight, ChevronDown, ChevronRight, Download } from "lucide-react";
+import { ArrowRight, ChevronDown, ChevronRight, Download, HelpCircle } from "lucide-react";
 import { api } from "$lib/tauri/commands";
 import type { AgentId, KnownProject } from "$lib/types";
 import ConfirmDialog from "$lib/components/shared/ConfirmDialog";
+import InfoDialog from "$lib/components/shared/InfoDialog";
 import { useLocaleStore } from "$lib/stores/locale";
 import { t } from "$lib/i18n";
 import { buildInventoryRows, type InventoryRow } from "./managed-inventory";
@@ -34,6 +35,7 @@ export default function ManagedInventory({ project, onChanged }: Props) {
   const [pendingImport, setPendingImport] = useState<InventoryRow | null>(null);
   const [expandedMulti, setExpandedMulti] = useState<Record<string, boolean>>({});
   const [selectedSource, setSelectedSource] = useState<Record<string, number>>({});
+  const [helpOpen, setHelpOpen] = useState(false);
 
   const projectPath = project?.path ?? null;
   const projectExists = project?.exists ?? false;
@@ -155,6 +157,20 @@ export default function ManagedInventory({ project, onChanged }: Props) {
           {t(locale, "projects.emptyInventory")}
         </div>
       ) : (
+        <>
+        <div className="flex items-center gap-1.5 px-3 pt-2 pb-1">
+          <h4 className="text-xs font-semibold uppercase tracking-wide text-text-secondary">
+            {t(locale, "projects.inventory.skill")}
+          </h4>
+          <button
+            type="button"
+            onClick={() => setHelpOpen(true)}
+            className="p-0.5 text-text-muted hover:text-text-secondary"
+            aria-label={t(locale, "projects.inventory.help.title")}
+          >
+            <HelpCircle size={13} />
+          </button>
+        </div>
         <table className="w-full text-xs">
           <thead>
             <tr className="text-text-muted border-b border-border">
@@ -294,8 +310,28 @@ export default function ManagedInventory({ project, onChanged }: Props) {
             })}
           </tbody>
         </table>
+        </>
       )}
 
+      <InfoDialog
+        open={helpOpen}
+        title={t(locale, "projects.inventory.help.title")}
+        onClose={() => setHelpOpen(false)}
+        content={
+          (() => {
+            const text = t(locale, "projects.inventory.help.multiSource");
+            const dashIdx = text.indexOf("—");
+            if (dashIdx === -1) return <p>{text}</p>;
+            return (
+              <p>
+                <strong>{text.slice(0, dashIdx).trim()}</strong>
+                {" — "}
+                {text.slice(dashIdx + 1).trim()}
+              </p>
+            );
+          })()
+        }
+      />
       <ConfirmDialog
         open={pendingImport !== null}
         title={t(locale, "projects.importConflictDialog.title")}

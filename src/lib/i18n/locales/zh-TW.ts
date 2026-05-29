@@ -349,7 +349,7 @@ const zhTW: TranslationDict = {
     },
     targets: {
       title: "同步目標",
-      pruneOrphans: "清理孤立檔",
+      pruneOrphans: "清除孤立檔案",
       addTarget: "新增同步目標",
       empty: "尚未設定同步目標，新增後即可推送此 Skill。",
       noOrphans: "未發現孤立檔。",
@@ -385,6 +385,14 @@ const zhTW: TranslationDict = {
       contentPreview: "預覽",
       contentRaw: "原始碼",
       contentClose: "關閉",
+      help: {
+        title: "關於同步目標",
+        auto: "自動 — 儲存 Skill 時自動推送至 Agent 端目錄。",
+        manual: "手動 — 保留同步追蹤，但需手動推送才會更新。",
+        disabled: "停用 — 保留目標設定但停止同步，Agent 端檔案維持原狀直到重新啟用。",
+        pull: "Pull — 當偵測到 Agent 端檔案與主檔不一致時出現。點擊後以 Agent 端版本覆寫主檔。",
+        repoint: "重新指向 — 變更目標指向的專案資料夾。適用於專案已搬移或更名的情況。",
+      },
     },
     addTargetDialog: {
       title: "新增同步目標",
@@ -552,6 +560,10 @@ const zhTW: TranslationDict = {
       importing: "匯入中…",
       present: "存在",
       absent: "不存在",
+      help: {
+        title: "關於託管清單",
+        multiSource: "多來源 — 此 Skill 在多個 Agent 目錄中都被偵測到（例如同時存在於 .claude/skills/ 和 .gemini/skills/）。由於各版本內容可能不同，您需要選擇要以哪個 Agent 的版本匯入作為主檔。",
+      },
     },
     importConflictDialog: {
       title: "Global 已有同名主檔",

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AlertTriangle, Eye, FolderOpen, Plus, Search, Trash2, X } from "lucide-react";
+import { AlertTriangle, Eye, FolderOpen, HelpCircle, Plus, Search, Trash2, X } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
 import type { KnownProject, OrphanFile, SkillTarget } from "$lib/types";
 import { api } from "$lib/tauri/commands";
@@ -9,6 +9,7 @@ import { useLocaleStore } from "$lib/stores/locale";
 import { t } from "$lib/i18n";
 import { isProjectMissing, normalizeProjectPath } from "$lib/utils/path";
 import ConfirmDialog from "$lib/components/shared/ConfirmDialog";
+import InfoDialog from "$lib/components/shared/InfoDialog";
 import MarkdownPreview from "$lib/components/shared/MarkdownPreview";
 import AddTargetDialog from "./AddTargetDialog";
 import PullConfirmDialog from "./PullConfirmDialog";
@@ -82,6 +83,7 @@ export default function TargetEditor({ skillName, projectPath, targets, onTarget
   const [pullTarget, setPullTarget] = useState<{ key: string; name: string } | null>(null);
   const [pullBusy, setPullBusy] = useState(false);
   const [pullDiff, setPullDiff] = useState<import("$lib/types").PullDiffPreview | null>(null);
+  const [helpOpen, setHelpOpen] = useState(false);
 
   const buffered = !!onTargetsChange;
 
@@ -242,9 +244,19 @@ export default function TargetEditor({ skillName, projectPath, targets, onTarget
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center justify-between">
-        <h4 className="text-xs font-semibold uppercase tracking-wide text-text-secondary">
-          {t(locale, "skills.targets.title")}
-        </h4>
+        <div className="flex items-center gap-1.5">
+          <h4 className="text-xs font-semibold uppercase tracking-wide text-text-secondary">
+            {t(locale, "skills.targets.title")}
+          </h4>
+          <button
+            type="button"
+            onClick={() => setHelpOpen(true)}
+            className="p-0.5 text-text-muted hover:text-text-secondary"
+            aria-label={t(locale, "skills.targets.help.title")}
+          >
+            <HelpCircle size={13} />
+          </button>
+        </div>
         <div className="flex items-center gap-1">
           {!buffered && (
             <button
@@ -455,6 +467,27 @@ export default function TargetEditor({ skillName, projectPath, targets, onTarget
       <TargetContentModal
         state={contentModal}
         onclose={() => setContentModal(null)}
+      />
+      <InfoDialog
+        open={helpOpen}
+        title={t(locale, "skills.targets.help.title")}
+        onClose={() => setHelpOpen(false)}
+        content={
+          <div className="space-y-3">
+            {(["auto", "manual", "disabled", "pull", "repoint"] as const).map((key) => {
+              const text = t(locale, `skills.targets.help.${key}`);
+              const dashIdx = text.indexOf("—");
+              if (dashIdx === -1) return <p key={key}>{text}</p>;
+              return (
+                <p key={key}>
+                  <strong>{text.slice(0, dashIdx).trim()}</strong>
+                  {" — "}
+                  {text.slice(dashIdx + 1).trim()}
+                </p>
+              );
+            })}
+          </div>
+        }
       />
       <PullConfirmDialog
         open={pullTarget !== null}
