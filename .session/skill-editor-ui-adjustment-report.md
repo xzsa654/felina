@@ -21,12 +21,12 @@
 * **Description**：柔和文字顏色緊接 Name 下方。
 * **Action Bar**：Save / Rename / Delete 整合到 Document Header 右上方，捨棄原本獨立的頂部橫幅。若實作時發現寬度不足，退回獨立 toolbar 作為備案。
 
-## 3. Target Chips（TargetEditor 輕量化）
+## 3. Target Chips（融合 SyncInfoBar 與 TargetEditor）
 
-緊接 Description 下方，作為文件 Metadata 的一部分（類似 Notion 文件頂部的 Tag 屬性列）。
+緊接 Description 下方，作為文件 Metadata 的一部分（類似 Notion 文件頂部的 Tag 屬性列）。為保持版面純粹，將原獨立的 `SyncInfoBar` 徹底移除，並將其狀態資訊融入 Target Chips 中。
 
-* **收合態（預設）**：每個 target 顯示為 compact chip（`anthropic · global · auto`），最右邊一個 `+` 新增按鈕。一行搞定，使用者一進來就能看見「這份 Skill 將會發布到哪裡」。
-* **展開態**：點擊任一 chip 或展開按鈕後，展開成完整 TargetEditor（mode 切換 Auto/Manual/Disabled、Pull/Repoint/Delete 操作、drift 狀態指示）。
+* **收合態（預設）直接顯示同步燈號**：每個 target 顯示為 compact chip，且本身帶有狀態回饋（如 `✓ anthropic·global` 代表已同步，`●` 代表待同步，`!` 代表專案遺失），最右邊一個 `+` 新增按鈕。使用者一進來就能同時看見「發布到哪裡」以及「是否同步成功」。
+* **展開態顯示詳細時間**：點擊任一 chip 或展開按鈕後，展開成完整 TargetEditor（mode 切換 Auto/Manual/Disabled、Pull/Repoint/Delete 操作、drift 狀態指示）。原本 `SyncInfoBar` 顯示的「最後同步時間」與「Siblings Dirty 警告」自然融入對應的 Target 設定面板中。
 
 ## 4. Content 分頁（Markdown Body）
 
@@ -70,7 +70,7 @@
 ┌─────────────────────────────────────────────────┐
 │ code-review                  [Rename][Del][Save] │  ← Document Header (Name + Action Bar)
 │ A tool for reviewing pull requests               │  ← Description
-│ 🏷 anthropic·global·auto  gemini·proj·manual [+] │  ← Target chips (收合態)
+│ 🏷 ✓ anthropic·global·auto  ● gemini·proj·manual [+] │  ← Target chips (收合態 + 同步狀態)
 ├─────────────────────────────────────────────────┤
 │ [Content]  [Settings]                            │  ← 分頁列
 ├─────────────────────────────────────────────────┤
@@ -89,3 +89,13 @@
 1. **去格線化 (Borderless Data Grid)**：捨棄傳統生硬的網格線條，改以適當的留白 (Padding) 與整列 Hover 時的微弱背景色（例如 `bg-bg-secondary/20`）來引導視覺對齊，讓表格看起來更輕盈。
 2. **狀態圖示精緻化**：原本單薄的純文字符號 (✓, ●, ⚠ 等) 升級為帶有狀態顏色微弱底色圓角的 Badge 或是更精緻的 SVG Icon，提升整體儀表板的精緻度。
 3. **從展示升級為導航樞紐**：將最左側的 Skill 名稱加上 Hover 互動回饋與點擊事件。點擊後能直接關閉摘要檢視，切換回 List 模式並展開對應的 SkillEditor，讓這個矩陣不僅是報表，更是最高效的全域跳轉入口。
+
+## 8. 側邊欄清單 (SkillList) 升級
+
+為使左側清單與右側的 Notion 風格編輯器匹配，將 `SkillList` 從「傳統檔案列表」升級為「現代化筆記本側欄」：
+
+1. **明確分組排序 (Grouped Sorting)**：保留原有的實用排序邏輯（將 Broken、Dirty、無 Target 的技能置頂），但在視覺上加入明確的群組標題（如 `Action Required` 與 `All Skills`），讓使用者理解置頂原因，呼應 Inbox 概念。
+2. **去線條化與圓角選取態**：移除傳統的左側粗邊框選取提示 (`border-l-2`)，改為左右內縮留白的懸浮感圓角卡片 (`rounded-md` + `bg-bg-secondary`)。利用 Hover 與選中時的背景色深淺來區分，視覺更圓潤現代。
+3. **標籤與狀態圖示統一**：
+   - 清單內的 Agent 標籤改為與編輯器頂部相同的 **Target Chips** 小型化設計，確保全域視覺語彙統一。
+   - 將未儲存的紅點與 Push 按鈕改用更精緻的狀態 Icon 取代，並僅在必要時（Hover 或處於 Dirty 狀態）浮現，降低整個列表的視覺焦慮感。
