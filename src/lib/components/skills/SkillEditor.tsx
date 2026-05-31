@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { FolderOpen, Pencil, Save, Trash2 } from "lucide-react";
 import { ChevronUp } from "lucide-react";
 import type { CanonicalSkill, KnownProject, SkillTarget } from "$lib/types";
@@ -84,7 +84,12 @@ export default function SkillEditor({ skill, brokenRaw, onSaved, onCancel, onDel
   const [name, setName] = useState(isNew ? "" : (skill?.name ?? ""));
   const [description, setDescription] = useState(skill?.description ?? "");
   const [body, setBody] = useState(skill?.body ?? "");
-  const [bodyMode, setBodyMode] = useState<"edit" | "preview">("edit");
+  const [bodyMode, setBodyMode] = useState<"edit" | "preview" | "split">("edit");
+  const contentRef = useRef<HTMLDivElement>(null);
+  const splitEditorRef = useRef<HTMLTextAreaElement>(null);
+  const splitPreviewRef = useRef<HTMLDivElement>(null);
+  const syncingScroll = useRef(false);
+  const [containerWidth, setContainerWidth] = useState(0);
   const [renameOpen, setRenameOpen] = useState(false);
   const [targetsExpanded, setTargetsExpanded] = useState(false);
   const [extras, setExtras] = useState<ExtraRow[]>(() => initExtras(skill));
@@ -113,6 +118,38 @@ export default function SkillEditor({ skill, brokenRaw, onSaved, onCancel, onDel
     setRawContent(brokenRaw?.content ?? "");
     setError(null);
   }, [brokenRaw?.name, brokenRaw?.content]);
+
+  useEffect(() => {
+    const el = contentRef.current;
+    if (!el) return;
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        setContainerWidth(entry.contentRect.width);
+      }
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    if (bodyMode === "split" && containerWidth > 0 && containerWidth < 768) {
+      setBodyMode("edit");
+    }
+  }, [containerWidth, bodyMode]);
+
+  function handleSplitScroll(source: "editor" | "preview") {
+    if (syncingScroll.current) return;
+    syncingScroll.current = true;
+    const from = source === "editor" ? splitEditorRef.current : splitPreviewRef.current;
+    const to = source === "editor" ? splitPreviewRef.current : splitEditorRef.current;
+    if (from && to) {
+      const maxFrom = from.scrollHeight - from.clientHeight;
+      const ratio = maxFrom > 0 ? from.scrollTop / maxFrom : 0;
+      const maxTo = to.scrollHeight - to.clientHeight;
+      to.scrollTop = ratio * maxTo;
+    }
+    requestAnimationFrame(() => { syncingScroll.current = false; });
+  }
 
   async function handleRawSave() {
     if (!brokenRaw) return;
@@ -429,9 +466,9 @@ export default function SkillEditor({ skill, brokenRaw, onSaved, onCancel, onDel
       </div>
 
       {/* ------- Scrollable Tab Content ------- */}
-      <div className="flex-1 overflow-y-auto px-4 pb-4">
+      <div ref={contentRef} className="flex-1 overflow-y-auto px-4 pb-4">
       {activeTab === "content" ? (
-        <section className="flex flex-col gap-2 mt-3">
+        <section className="flex flex-col gap-2 mt-3 h-full">
           <div className="flex items-center justify-between gap-3">
             <h3 className="text-xs font-semibold uppercase tracking-wide text-text-secondary">
               {t(locale, "skills.editor.bodyLabel")}
@@ -455,9 +492,37 @@ export default function SkillEditor({ skill, brokenRaw, onSaved, onCancel, onDel
               >
                 {t(locale, "skills.editor.bodyPreview")}
               </button>
+              <button
+                type="button"
+                disabled={containerWidth > 0 && containerWidth < 768}
+                onClick={() => setBodyMode("split")}
+                className={`px-3 py-1 text-xs rounded-md transition-colors ${
+                  bodyMode === "split" ? "bg-bg-secondary text-text-primary" : "text-text-muted hover:text-text-secondary"
+                } disabled:opacity-50 disabled:cursor-not-allowed`}
+              >
+                {t(locale, "skills.editor.bodySplit")}
+              </button>
             </div>
           </div>
-          {bodyMode === "preview" ? (
+          {bodyMode === "split" ? (
+            <div className="flex flex-1 min-h-[22rem]">
+              <textarea
+                ref={splitEditorRef}
+                value={body}
+                onChange={(e) => setBody(e.target.value)}
+                onScroll={() => handleSplitScroll("editor")}
+                className="w-1/2 block resize-none px-3 py-2 bg-bg-primary border border-border text-sm font-mono focus:outline-none focus:border-accent overflow-y-auto"
+                placeholder={t(locale, "skills.editor.bodyPlaceholder")}
+              />
+              <div
+                ref={splitPreviewRef}
+                onScroll={() => handleSplitScroll("preview")}
+                className="w-1/2 border border-l-0 border-border bg-bg-primary px-3 py-2 text-sm overflow-y-auto"
+              >
+                <MarkdownPreview markdown={body} />
+              </div>
+            </div>
+          ) : bodyMode === "preview" ? (
             <MarkdownPreview
               markdown={body}
               className="min-h-[22rem] w-full rounded border border-border bg-bg-primary px-3 py-2 text-sm"
