@@ -120,8 +120,7 @@ pub fn run() {
             commands::canonical_skills::skill_target_remove_with_policy,
             commands::canonical_skills::skill_target_repoint,
             commands::canonical_skills::skill_target_read_content,
-            commands::canonical_skills::skill_prune_orphans_scan,
-            commands::canonical_skills::skill_prune_orphans_apply,
+            commands::canonical_skills::canonical_skill_rename,
             // Fan-out push.
             commands::fan_out::skill_sync_one,
             commands::fan_out::skill_sync_all,
@@ -168,6 +167,10 @@ pub fn run() {
             commands::tokens::refresh_token_data,
             commands::tokens::prune_token_events,
             commands::tokens::delete_all_token_events,
+            // Skill Library (export/import/reset)
+            commands::skill_library::skill_library_export,
+            commands::skill_library::skill_library_import,
+            commands::skill_library::skill_library_reset,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

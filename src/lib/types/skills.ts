@@ -59,6 +59,8 @@ export interface CanonicalSkill {
   lastSync: Record<string, LastSyncEntry>;
   /** Agent-scoped optional fields (`x_felina_agent_fields` in YAML). */
   agentFields: Record<string, unknown>;
+  /** True when canonical bundled sibling files differ from the last push. */
+  siblingsDirty: boolean;
 }
 
 /**
@@ -131,6 +133,7 @@ export interface SkillSyncPreview {
   skillName: string;
   items: SkillSyncPreviewItem[];
   summary: SkillSyncPreviewSummary;
+  orphanSiblings: string[];
 }
 
 export interface SkillSyncAllPreview {
@@ -289,12 +292,22 @@ export interface DiffHunk {
   lines: DiffLine[];
 }
 
+export type SiblingStatus = "added" | "modified" | "deleted" | "conflict";
+
+export interface SiblingChange {
+  path: string;
+  status: SiblingStatus;
+}
+
+export type SiblingResolution = "useAgent" | "useCanonical" | "skip";
+
 export interface PullDiffPreview {
   hasBase: boolean;
   canonicalContent: string;
   targetContent: string;
   baseContent: string | null;
   hunks: DiffHunk[];
+  siblingChanges: SiblingChange[];
 }
 
 export type ProjectSource = "cwd" | "detected" | "saved";
@@ -309,12 +322,13 @@ export interface KnownProject {
   sources: ProjectSource[];
 }
 
-export interface OrphanFile {
-  path: string;
-  agent: AgentId;
-  scope: SkillScope;
-  /** Originating project path when `scope === "project"`; absent for global. */
-  project?: string;
+
+export interface RenameResult {
+  oldName: string;
+  newName: string;
+  commitHash: string;
+  targetsCleaned: number;
+  targetsFailed: string[];
 }
 
 // ── Skill field catalog ──────────────────────────────────────────

@@ -252,6 +252,30 @@
       "file": "knowledge-base/dev-docs.md",
       "anchor": "dndkit-react19-skiplibcheck",
       "updated": "2026-05-29"
+    },
+    {
+      "id": "kb-rust-serde-option-vs-default",
+      "title": "Option<T> vs T + serde(default) 區分 legacy 與空值",
+      "type": "knowledge",
+      "status": "active",
+      "confidence": "confirmed",
+      "keywords": ["serde", "option", "default", "skip_serializing_if", "backward compatibility", "schema migration", "json", "rust"],
+      "appliesWhen": "對既有 JSON schema 新增欄位，且欄位不存在與空值需要不同行為時",
+      "file": "knowledge-base/dev-docs.md",
+      "anchor": "option-t-vs-t-serde-default",
+      "updated": "2026-05-29"
+    },
+    {
+      "id": "kb-fanout-push-preview-sibling-check",
+      "title": "Push preview 須考慮 SKILL.md 以外的檔案變動",
+      "type": "knowledge",
+      "status": "active",
+      "confidence": "confirmed",
+      "keywords": ["push", "preview", "NoOp", "sibling", "copy_bundled_siblings", "dirty", "fan-out"],
+      "appliesWhen": "修改 push/sync 流程、新增需要隨 push 同步的檔案類型、或評估 NoOp 快速路徑是否安全時",
+      "file": "knowledge-base/dev-docs.md",
+      "anchor": "push-preview-sibling-check",
+      "updated": "2026-05-29"
     }
   ]
 }

@@ -112,6 +112,7 @@ mod tests {
             targets: Vec::new(),
             last_sync: std::collections::BTreeMap::new(),
             agent_fields,
+            siblings_dirty: false,
         }
     }
 

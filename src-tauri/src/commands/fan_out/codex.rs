@@ -117,6 +117,7 @@ mod tests {
             targets: Vec::new(),
             last_sync: std::collections::BTreeMap::new(),
             agent_fields,
+            siblings_dirty: false,
         }
     }
 
@@ -177,6 +178,7 @@ mod tests {
             targets: Vec::new(),
             last_sync: std::collections::BTreeMap::new(),
             agent_fields: std::collections::BTreeMap::new(),
+            siblings_dirty: false,
         };
         CodexRenderer.render(&skill, &tmp).unwrap();
         assert!(!tmp.join("bare").join("agents").exists());

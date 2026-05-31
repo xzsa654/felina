@@ -24,9 +24,10 @@ import SkillImportBanner from "./SkillImportBanner";
 import SkillImportWizard from "./SkillImportWizard";
 import TargetEditor from "./TargetEditor";
 import CoverageMatrix from "./CoverageMatrix";
-import SyncInfoBar from "./SyncInfoBar";
+// SyncInfoBar retained-for-reference — sync status now shown in Target Chips
 import SyncPreviewDialog from "./SyncPreviewDialog";
 import DeletePolicyDialog from "./DeletePolicyDialog";
+import CreateSkillDialog from "./CreateSkillDialog";
 import ResizableHandle from "./ResizableHandle";
 
 import ManagedInventory from "$lib/components/projects/ManagedInventory";
@@ -74,6 +75,7 @@ export default function SkillsPage() {
   const [activeSkill, setActiveSkill] = useState<CanonicalSkill | null>(null);
   const [brokenRaw, setBrokenRaw] = useState<{ name: string; content: string; path?: string } | null>(null);
   const [creatingNew, setCreatingNew] = useState(false);
+  const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [wizardOpen, setWizardOpen] = useState(false);
   const [reloading, setReloading] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<{
@@ -348,11 +350,7 @@ export default function SkillsPage() {
             </button>
             <button
               type="button"
-              onClick={() => {
-                setPendingTargets([]);
-                setCreatingNew(true);
-                setSelectedName(null);
-              }}
+              onClick={() => setCreateDialogOpen(true)}
               className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded bg-accent text-white hover:bg-accent-hover"
             >
               <Plus size={12} /> {t(locale, "skills.newSkill")}
@@ -384,16 +382,7 @@ export default function SkillsPage() {
           </div>
         )}
 
-        {viewMode === "list" && selectedSkill && selectedSkill.targets.length > 0 && (
-          <SyncInfoBar
-            key={selectedSkill.name}
-            skillName={selectedSkill.name}
-            targets={selectedSkill.targets}
-            lastSync={selectedSkill.lastSync}
-            knownProjects={knownProjects}
-            locale={locale}
-          />
-        )}
+        {/* SyncInfoBar removed — sync status is now shown inline in Target Chips */}
 
         {viewMode === "summary" ? (
           <div className="flex-1 min-h-0 border border-border rounded overflow-auto">
@@ -491,31 +480,39 @@ export default function SkillsPage() {
                   onDelete={handleDelete}
                 />
               ) : activeSkill ? (
-                <div className="flex flex-col">
-                  <div className="px-4 pt-4">
-                    <TargetEditor
-                      skillName={activeSkill.canonicalId || activeSkill.name}
-                      projectPath={projectPath ?? null}
-                      targets={selectedSkill?.targets ?? activeSkill.targets}
-                      knownProjects={knownProjects}
-                    />
-                  </div>
-                  <SkillEditor
-                    skill={activeSkill}
-                    onSaved={(name, normalizedFrom) => {
-                      if (normalizedFrom) {
-                        setNameAdvisory(
-                          t(locale, "skills.editor.nameNormalized", {
-                            from: normalizedFrom,
-                            to: name,
-                          }),
-                        );
-                      }
-                      void loadEntries();
-                    }}
-                    onDelete={handleDelete}
-                  />
-                </div>
+                <SkillEditor
+                  skill={activeSkill}
+                  targets={selectedSkill?.targets ?? activeSkill.targets}
+                  projectPath={projectPath ?? null}
+                  knownProjects={knownProjects}
+                  lastSync={selectedSkill?.lastSync}
+                  siblingsDirty={selectedSkill?.siblingsDirty}
+                  onTargetsChange={() => void loadEntries()}
+                  onSaved={(name, normalizedFrom) => {
+                    if (normalizedFrom) {
+                      setNameAdvisory(
+                        t(locale, "skills.editor.nameNormalized", {
+                          from: normalizedFrom,
+                          to: name,
+                        }),
+                      );
+                    }
+                    void loadEntries();
+                  }}
+                  onDelete={handleDelete}
+                  onRename={async (newName) => {
+                    try {
+                      const currentName = activeSkill.canonicalId || activeSkill.name;
+                      await api.canonicalSkills.rename(currentName, newName);
+                      await loadEntries();
+                      setSelectedName(newName);
+                      const updated = await api.canonicalSkills.read(newName);
+                      setActiveSkill(updated);
+                    } catch (e) {
+                      setNameAdvisory(String(e));
+                    }
+                  }}
+                />
               ) : (
                 <div className="flex items-center justify-center h-full text-sm text-text-secondary p-8">
                   {t(locale, "skills.selectOrCreate")}
@@ -582,6 +579,19 @@ export default function SkillsPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {createDialogOpen && (
+        <CreateSkillDialog
+          projectPath={projectPath ?? null}
+          onCreated={async (name) => {
+            setCreateDialogOpen(false);
+            await loadEntries();
+            setCreatingNew(false);
+            setSelectedName(name);
+          }}
+          onClose={() => setCreateDialogOpen(false)}
+        />
       )}
 
       {browseProject && (

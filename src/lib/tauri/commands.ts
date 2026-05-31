@@ -22,7 +22,7 @@ import type {
   AgentPathsConfig,
   KnownProject,
   SkillTarget,
-  OrphanFile,
+  RenameResult,
   SkillFieldDefinition,
   AgentId,
   SkillScope,
@@ -37,6 +37,7 @@ import type {
   TargetRemovalPolicy,
   DriftStatus,
   PullDiffPreview,
+  SiblingResolution,
 } from "$lib/types";
 import type {
   AgentId as TokenAgentId,
@@ -140,6 +141,8 @@ export const api = {
     delete: (name: string) => invoke<void>("canonical_skills_delete", { name }),
     deleteWithPolicy: (name: string, policy: CanonicalDeletePolicy) =>
       invoke<CanonicalSkillDeleteResult>("canonical_skills_delete_with_policy", { name, policy }),
+    rename: (oldName: string, newName: string) =>
+      invoke<RenameResult>("canonical_skill_rename", { oldName, newName }),
   },
 
   // Fan-out sync (canonical → agent-native dirs). Push destinations come
@@ -173,8 +176,8 @@ export const api = {
   },
 
   skillPull: {
-    fromTarget: (canonicalId: string, targetKey: string) =>
-      invoke<void>("skill_pull_from_target", { canonicalId, targetKey }),
+    fromTarget: (canonicalId: string, targetKey: string, siblingResolutions?: SiblingResolution[]) =>
+      invoke<void>("skill_pull_from_target", { canonicalId, targetKey, siblingResolutions: siblingResolutions ?? null }),
     preview: (canonicalId: string, targetKey: string) =>
       invoke<PullDiffPreview>("skill_pull_preview", { canonicalId, targetKey }),
   },
@@ -235,15 +238,6 @@ export const api = {
       }),
     readContent: (skillName: string, targetKey: string) =>
       invoke<string>("skill_target_read_content", { skillName, targetKey }),
-  },
-
-  // Orphan prune. Project paths to scan are derived from the skill's own
-  // targets, so callers only supply the skill name.
-  skillPrune: {
-    scan: (skillName: string) =>
-      invoke<OrphanFile[]>("skill_prune_orphans_scan", { skillName }),
-    apply: (skillName: string, orphans: OrphanFile[]) =>
-      invoke<void>("skill_prune_orphans_apply", { skillName, orphans }),
   },
 
   // Settings → Agent Paths.
@@ -393,7 +387,24 @@ export const api = {
     getAgentQuotaSnapshot: () =>
       invoke<import("$lib/types").QuotaSnapshot>("get_agent_quota_snapshot"),
   },
+
+  skillLibrary: {
+    export: (outputPath: string) =>
+      invoke<void>("skill_library_export", { outputPath }),
+    import: (inputPath: string) =>
+      invoke<SkillLibraryImportResult>("skill_library_import", { inputPath }),
+    reset: () => invoke<SkillLibraryResetResult>("skill_library_reset"),
+  },
 } as const;
+
+export interface SkillLibraryImportResult {
+  imported: number;
+  skipped: number;
+}
+
+export interface SkillLibraryResetResult {
+  deleted: number;
+}
 
 export interface DiskUsageReport {
   total_bytes: number;
