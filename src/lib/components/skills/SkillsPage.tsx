@@ -490,43 +490,36 @@ export default function SkillsPage() {
                   onDelete={handleDelete}
                 />
               ) : activeSkill ? (
-                <div className="flex flex-col">
-                  <div className="px-4 pt-4">
-                    <TargetEditor
-                      skillName={activeSkill.canonicalId || activeSkill.name}
-                      projectPath={projectPath ?? null}
-                      targets={selectedSkill?.targets ?? activeSkill.targets}
-                      knownProjects={knownProjects}
-                    />
-                  </div>
-                  <SkillEditor
-                    skill={activeSkill}
-                    onSaved={(name, normalizedFrom) => {
-                      if (normalizedFrom) {
-                        setNameAdvisory(
-                          t(locale, "skills.editor.nameNormalized", {
-                            from: normalizedFrom,
-                            to: name,
-                          }),
-                        );
-                      }
-                      void loadEntries();
-                    }}
-                    onDelete={handleDelete}
-                    onRename={async (newName) => {
-                      try {
-                        const currentName = activeSkill.canonicalId || activeSkill.name;
-                        await api.canonicalSkills.rename(currentName, newName);
-                        await loadEntries();
-                        setSelectedName(newName);
-                        const updated = await api.canonicalSkills.read(newName);
-                        setActiveSkill(updated);
-                      } catch (e) {
-                        setNameAdvisory(String(e));
-                      }
-                    }}
-                  />
-                </div>
+                <SkillEditor
+                  skill={activeSkill}
+                  targets={selectedSkill?.targets ?? activeSkill.targets}
+                  projectPath={projectPath ?? null}
+                  knownProjects={knownProjects}
+                  onSaved={(name, normalizedFrom) => {
+                    if (normalizedFrom) {
+                      setNameAdvisory(
+                        t(locale, "skills.editor.nameNormalized", {
+                          from: normalizedFrom,
+                          to: name,
+                        }),
+                      );
+                    }
+                    void loadEntries();
+                  }}
+                  onDelete={handleDelete}
+                  onRename={async (newName) => {
+                    try {
+                      const currentName = activeSkill.canonicalId || activeSkill.name;
+                      await api.canonicalSkills.rename(currentName, newName);
+                      await loadEntries();
+                      setSelectedName(newName);
+                      const updated = await api.canonicalSkills.read(newName);
+                      setActiveSkill(updated);
+                    } catch (e) {
+                      setNameAdvisory(String(e));
+                    }
+                  }}
+                />
               ) : (
                 <div className="flex items-center justify-center h-full text-sm text-text-secondary p-8">
                   {t(locale, "skills.selectOrCreate")}

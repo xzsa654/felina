@@ -392,6 +392,10 @@ const en = {
         repoint: "Repoint — Change the project folder a target points to. Useful when a project has been moved or renamed on disk.",
       },
     },
+    targetChips: {
+      expand: "Expand targets",
+      collapse: "Collapse",
+    },
     renameDialog: {
       title: "Rename Skill",
       placeholder: "new-name",
