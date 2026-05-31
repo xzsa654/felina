@@ -278,6 +278,7 @@ const en = {
       bodyLabel: "Body (Markdown)",
       bodyEdit: "Edit",
       bodyPreview: "Preview",
+      bodySplit: "Split",
       bodyPlaceholder: "# When to use this skill\n\nDescribe the workflow.",
       rawTitle: "Repair broken skill: {name}",
       rawHint: "This skill's frontmatter could not be parsed, so it cannot be pushed. Edit the raw SKILL.md below and save to re-validate.",
