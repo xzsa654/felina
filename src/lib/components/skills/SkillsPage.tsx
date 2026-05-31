@@ -24,7 +24,7 @@ import SkillImportBanner from "./SkillImportBanner";
 import SkillImportWizard from "./SkillImportWizard";
 import TargetEditor from "./TargetEditor";
 import CoverageMatrix from "./CoverageMatrix";
-import SyncInfoBar from "./SyncInfoBar";
+// SyncInfoBar retained-for-reference — sync status now shown in Target Chips
 import SyncPreviewDialog from "./SyncPreviewDialog";
 import DeletePolicyDialog from "./DeletePolicyDialog";
 import CreateSkillDialog from "./CreateSkillDialog";
@@ -382,17 +382,7 @@ export default function SkillsPage() {
           </div>
         )}
 
-        {viewMode === "list" && selectedSkill && selectedSkill.targets.length > 0 && (
-          <SyncInfoBar
-            key={selectedSkill.name}
-            skillName={selectedSkill.name}
-            targets={selectedSkill.targets}
-            lastSync={selectedSkill.lastSync}
-            knownProjects={knownProjects}
-            locale={locale}
-            siblingsDirty={selectedSkill.siblingsDirty}
-          />
-        )}
+        {/* SyncInfoBar removed — sync status is now shown inline in Target Chips */}
 
         {viewMode === "summary" ? (
           <div className="flex-1 min-h-0 border border-border rounded overflow-auto">
@@ -495,6 +485,9 @@ export default function SkillsPage() {
                   targets={selectedSkill?.targets ?? activeSkill.targets}
                   projectPath={projectPath ?? null}
                   knownProjects={knownProjects}
+                  lastSync={selectedSkill?.lastSync}
+                  siblingsDirty={selectedSkill?.siblingsDirty}
+                  onTargetsChange={() => void loadEntries()}
                   onSaved={(name, normalizedFrom) => {
                     if (normalizedFrom) {
                       setNameAdvisory(

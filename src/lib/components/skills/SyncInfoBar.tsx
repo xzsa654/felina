@@ -1,41 +1,21 @@
+/* eslint-disable -- retained-for-reference: sync status now shown in Target Chips via sync-status-utils.ts */
 import { useMemo, useState } from "react";
 import { t } from "$lib/i18n";
 import type { Locale } from "$lib/i18n";
 import type { KnownProject, SkillTarget } from "$lib/types";
 import type { LastSyncEntry } from "$lib/types/skills";
-import { isProjectMissing } from "$lib/utils/path";
-
-type SyncStatus = "synced" | "pending" | "missing";
+import {
+  classifyTarget,
+  STATUS_CONFIG,
+  STATUS_ORDER,
+  targetKey,
+  type SyncStatus,
+} from "./sync-status-utils";
 
 interface StatusGroup {
   status: SyncStatus;
   targets: { target: SkillTarget; entry: LastSyncEntry | undefined; key: string }[];
 }
-
-function targetKey(tgt: SkillTarget): string {
-  return tgt.scope === "global"
-    ? `${tgt.agent}:global`
-    : `${tgt.agent}:project:${tgt.project ?? ""}`;
-}
-
-function classifyTarget(
-  tgt: SkillTarget,
-  entry: LastSyncEntry | undefined,
-  knownProjects: KnownProject[],
-): SyncStatus {
-  if (tgt.scope === "project" && isProjectMissing(knownProjects, tgt.project ?? "")) {
-    return "missing";
-  }
-  return entry ? "synced" : "pending";
-}
-
-const STATUS_ORDER: SyncStatus[] = ["synced", "pending", "missing"];
-
-const STATUS_CONFIG: Record<SyncStatus, { icon: string; chipClass: string }> = {
-  synced: { icon: "✓", chipClass: "text-success border-success/30 bg-success/5" },
-  pending: { icon: "—", chipClass: "text-warning border-warning/30 bg-warning/5" },
-  missing: { icon: "!", chipClass: "text-danger border-danger/30 bg-danger/5" },
-};
 
 export default function SyncInfoBar({
   skillName,

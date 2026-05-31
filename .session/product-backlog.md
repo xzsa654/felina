@@ -147,6 +147,21 @@ Scope:
 - 讓第三方 Agent（如 OpenCode）也能透過 UI 設定獲得專屬欄位的支援。
 - 作為 `third-party-agent-path-configuration` 之後的進階客製化功能。
 
+### os-level-file-watcher-sync
+
+| Field | Value |
+|---|---|
+| type | suggestion |
+| status | not-committed |
+| flagged | 2026-06-01 |
+| last-seen | 2026-06-01 |
+| description | 導入 Rust `notify` 實作 OS-level 檔案監控，取代前端綁定視窗 focus 的輪詢，達成外部修改「即時且零效能浪費」的無縫同步體驗。 |
+
+Scope:
+- 在 Tauri 後端啟動時，註冊監聽 `~/.felina/skills/` 及已追蹤專案的 agent 目錄。
+- 外部編輯器修改檔案時，透過 Tauri Event 即時推播給前端。
+- 前端解除 window focus 與 visibilitychange 綁定的全域重整，改由 Event 觸發局部資料刷新（搭配 SWR 模式確保體驗順滑）。
+
 ---
 
 ## Phase 3 — Skill Community

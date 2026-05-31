@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { FolderOpen, Pencil, Save, Trash2 } from "lucide-react";
-import { ChevronUp } from "lucide-react";
 import type { CanonicalSkill, KnownProject, SkillTarget } from "$lib/types";
+import type { LastSyncEntry } from "$lib/types/skills";
 import RenameSkillDialog from "./RenameSkillDialog";
 import TargetChips from "./TargetChips";
-import TargetEditor from "./TargetEditor";
+import TargetPopover from "./TargetPopover";
+import AddTargetDialog from "./AddTargetDialog";
 import { api } from "$lib/tauri/commands";
 import { openPath } from "$lib/tauri/shell";
 import { useSkillsStore } from "$lib/stores/skills-store";
@@ -40,6 +41,10 @@ interface Props {
   knownProjects?: KnownProject[];
   /** Called when targets change (e.g. after add/remove/repoint). */
   onTargetsChange?: () => void;
+  /** Per-target last sync data for status display in Target Chips. */
+  lastSync?: Record<string, LastSyncEntry>;
+  /** Whether any sibling skill has unsaved changes. */
+  siblingsDirty?: boolean;
 }
 
 interface ExtraRow {
@@ -71,10 +76,11 @@ function makeRowId(): string {
  * Body:
  *   - Plain textarea, no syntax highlighting (per Non-Goals).
  */
-export default function SkillEditor({ skill, brokenRaw, onSaved, onCancel, onDelete, onRename, targets: targetsProp, projectPath, knownProjects }: Props) {
+export default function SkillEditor({ skill, brokenRaw, onSaved, onCancel, onDelete, onRename, targets: targetsProp, projectPath, knownProjects, lastSync, siblingsDirty, onTargetsChange }: Props) {
   const locale = useLocaleStore((s) => s.locale);
   const upsertEntry = useSkillsStore((s) => s.upsertEntry);
   const loadEntries = useSkillsStore((s) => s.loadEntries);
+  const driftMap = useSkillsStore((s) => s.driftMap);
 
   const isNew = skill === null;
   const canonicalId = skill?.canonicalId ?? "";
@@ -91,7 +97,9 @@ export default function SkillEditor({ skill, brokenRaw, onSaved, onCancel, onDel
   const syncingScroll = useRef(false);
   const [containerWidth, setContainerWidth] = useState(0);
   const [renameOpen, setRenameOpen] = useState(false);
-  const [targetsExpanded, setTargetsExpanded] = useState(false);
+  const [popoverTargetIndex, setPopoverTargetIndex] = useState<number | null>(null);
+  const [popoverAnchorRect, setPopoverAnchorRect] = useState<DOMRect | null>(null);
+  const [addTargetOpen, setAddTargetOpen] = useState(false);
   const [extras, setExtras] = useState<ExtraRow[]>(() => initExtras(skill));
   const [agentFields, setAgentFields] = useState<Record<string, unknown>>(
     () => skill?.agentFields ?? {},
@@ -409,33 +417,62 @@ export default function SkillEditor({ skill, brokenRaw, onSaved, onCancel, onDel
         </div>
       )}
 
-      {/* ------- Target Chips / TargetEditor ------- */}
+      {/* ------- Target Chips + Popover ------- */}
       {!isNew && targetsProp && (
-        targetsExpanded ? (
-          <div className="mt-2 max-h-[200px] overflow-y-auto">
-            <div className="flex items-center justify-between mb-1">
-              <button
-                type="button"
-                onClick={() => setTargetsExpanded(false)}
-                className="inline-flex items-center gap-1 text-xs text-text-secondary hover:text-text-primary"
-              >
-                <ChevronUp size={12} /> {t(locale, "skills.targetChips.collapse")}
-              </button>
-            </div>
-            <TargetEditor
-              skillName={canonicalId}
-              projectPath={projectPath ?? null}
-              targets={targetsProp}
-              knownProjects={knownProjects}
-            />
-          </div>
-        ) : (
+        <>
+          <h4 className="text-xs font-semibold uppercase tracking-wide text-text-secondary mt-3">
+            {t(locale, "skills.targets.title")}
+          </h4>
           <TargetChips
             targets={targetsProp}
-            onExpand={() => setTargetsExpanded(true)}
-            onAdd={() => setTargetsExpanded(true)}
+            lastSync={lastSync ?? {}}
+            knownProjects={knownProjects ?? []}
+            siblingsDirty={siblingsDirty ?? false}
+            driftMap={driftMap[canonicalId]}
+            onChipClick={(index) => {
+              if (popoverTargetIndex === index) {
+                setPopoverTargetIndex(null);
+                setPopoverAnchorRect(null);
+              } else {
+                setPopoverTargetIndex(index);
+                const chip = document.querySelector(`[data-target-chip="${index}"]`);
+                setPopoverAnchorRect(chip?.getBoundingClientRect() ?? null);
+              }
+            }}
+            onAdd={() => {
+              setPopoverTargetIndex(null);
+              setAddTargetOpen(true);
+            }}
           />
-        )
+          {popoverTargetIndex !== null && targetsProp[popoverTargetIndex] && (
+            <TargetPopover
+              skillName={canonicalId}
+              target={targetsProp[popoverTargetIndex]}
+              targetIndex={popoverTargetIndex}
+              allTargets={targetsProp}
+              lastSync={lastSync ?? {}}
+              knownProjects={knownProjects ?? []}
+              anchorRect={popoverAnchorRect}
+              onClose={() => {
+                setPopoverTargetIndex(null);
+                setPopoverAnchorRect(null);
+              }}
+              onTargetsChange={onTargetsChange}
+            />
+          )}
+          {addTargetOpen && (
+            <AddTargetDialog
+              projectPath={projectPath ?? null}
+              existingTargets={targetsProp}
+              onAdd={async (target) => {
+                await api.skillTargets.set(canonicalId, [...targetsProp, target]);
+                await loadEntries();
+                onTargetsChange?.();
+              }}
+              onClose={() => setAddTargetOpen(false)}
+            />
+          )}
+        </>
       )}
 
       {/* ------- Tab Bar ------- */}
