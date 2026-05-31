@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
-import { ChevronDown, ChevronRight, FolderOpen, Save, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronRight, FolderOpen, Pencil, Save, Trash2 } from "lucide-react";
 import type { CanonicalSkill } from "$lib/types";
+import RenameSkillDialog from "./RenameSkillDialog";
 import { api } from "$lib/tauri/commands";
 import { openPath } from "$lib/tauri/shell";
 import { useSkillsStore } from "$lib/stores/skills-store";
@@ -26,6 +27,8 @@ interface Props {
   onCancel?: () => void;
   /** Optional delete callback for existing skills; renders in the header next to Save. */
   onDelete?: () => void;
+  /** Optional rename callback for existing skills. */
+  onRename?: (newName: string) => void;
 }
 
 interface ExtraRow {
@@ -57,7 +60,7 @@ function makeRowId(): string {
  * Body:
  *   - Plain textarea, no syntax highlighting (per Non-Goals).
  */
-export default function SkillEditor({ skill, brokenRaw, onSaved, onCancel, onDelete }: Props) {
+export default function SkillEditor({ skill, brokenRaw, onSaved, onCancel, onDelete, onRename }: Props) {
   const locale = useLocaleStore((s) => s.locale);
   const upsertEntry = useSkillsStore((s) => s.upsertEntry);
   const loadEntries = useSkillsStore((s) => s.loadEntries);
@@ -71,6 +74,7 @@ export default function SkillEditor({ skill, brokenRaw, onSaved, onCancel, onDel
   const [description, setDescription] = useState(skill?.description ?? "");
   const [body, setBody] = useState(skill?.body ?? "");
   const [bodyMode, setBodyMode] = useState<"edit" | "preview">("edit");
+  const [renameOpen, setRenameOpen] = useState(false);
   const [extras, setExtras] = useState<ExtraRow[]>(() => initExtras(skill));
   const [agentFields, setAgentFields] = useState<Record<string, unknown>>(
     () => skill?.agentFields ?? {},
@@ -276,6 +280,16 @@ export default function SkillEditor({ skill, brokenRaw, onSaved, onCancel, onDel
               {t(locale, "skills.editor.cancel")}
             </button>
           )}
+          {!isNew && onRename && (
+            <button
+              type="button"
+              onClick={() => setRenameOpen(true)}
+              className="inline-flex items-center gap-1 text-xs px-2 py-1.5 rounded text-text-secondary hover:text-text-primary hover:bg-bg-secondary"
+              title={t(locale, "skills.editor.renameTitle")}
+            >
+              <Pencil size={12} /> {t(locale, "skills.editor.rename")}
+            </button>
+          )}
           {!isNew && onDelete && (
             <button
               type="button"
@@ -448,6 +462,17 @@ export default function SkillEditor({ skill, brokenRaw, onSaved, onCancel, onDel
         )}
       </section>
 
+      {onRename && (
+        <RenameSkillDialog
+          open={renameOpen}
+          currentName={canonicalId}
+          onConfirm={(newName) => {
+            setRenameOpen(false);
+            onRename(newName);
+          }}
+          onCancel={() => setRenameOpen(false)}
+        />
+      )}
     </div>
   );
 }

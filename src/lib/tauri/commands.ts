@@ -22,6 +22,7 @@ import type {
   AgentPathsConfig,
   KnownProject,
   SkillTarget,
+  RenameResult,
   SkillFieldDefinition,
   AgentId,
   SkillScope,
@@ -140,6 +141,8 @@ export const api = {
     delete: (name: string) => invoke<void>("canonical_skills_delete", { name }),
     deleteWithPolicy: (name: string, policy: CanonicalDeletePolicy) =>
       invoke<CanonicalSkillDeleteResult>("canonical_skills_delete_with_policy", { name, policy }),
+    rename: (oldName: string, newName: string) =>
+      invoke<RenameResult>("canonical_skill_rename", { oldName, newName }),
   },
 
   // Fan-out sync (canonical → agent-native dirs). Push destinations come

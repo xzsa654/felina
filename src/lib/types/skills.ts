@@ -323,6 +323,14 @@ export interface KnownProject {
 }
 
 
+export interface RenameResult {
+  oldName: string;
+  newName: string;
+  commitHash: string;
+  targetsCleaned: number;
+  targetsFailed: string[];
+}
+
 // ── Skill field catalog ──────────────────────────────────────────
 
 export type OutputLocation = "skillFrontmatter" | "codexOpenaiYaml";

@@ -513,6 +513,18 @@ export default function SkillsPage() {
                       void loadEntries();
                     }}
                     onDelete={handleDelete}
+                    onRename={async (newName) => {
+                      try {
+                        const currentName = activeSkill.canonicalId || activeSkill.name;
+                        await api.canonicalSkills.rename(currentName, newName);
+                        await loadEntries();
+                        setSelectedName(newName);
+                        const updated = await api.canonicalSkills.read(newName);
+                        setActiveSkill(updated);
+                      } catch (e) {
+                        setNameAdvisory(String(e));
+                      }
+                    }}
                   />
                 </div>
               ) : (
