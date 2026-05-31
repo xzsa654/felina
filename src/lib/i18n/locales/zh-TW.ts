@@ -275,6 +275,8 @@ const zhTW: TranslationDict = {
       valuePlaceholder: "high  /  [\"Read\",\"Edit\"]  /  true",
       removeRow: "移除列",
       addField: "新增欄位",
+      tabContent: "內容",
+      tabSettings: "設定",
       bodyLabel: "內容（Markdown）",
       bodyEdit: "編輯",
       bodyPreview: "預覽",
