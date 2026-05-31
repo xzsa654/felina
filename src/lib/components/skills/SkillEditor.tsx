@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { FolderOpen, Pencil, Save, Trash2 } from "lucide-react";
-import type { CanonicalSkill } from "$lib/types";
+import { ChevronUp } from "lucide-react";
+import type { CanonicalSkill, KnownProject, SkillTarget } from "$lib/types";
 import RenameSkillDialog from "./RenameSkillDialog";
+import TargetChips from "./TargetChips";
+import TargetEditor from "./TargetEditor";
 import { api } from "$lib/tauri/commands";
 import { openPath } from "$lib/tauri/shell";
 import { useSkillsStore } from "$lib/stores/skills-store";
@@ -29,6 +32,14 @@ interface Props {
   onDelete?: () => void;
   /** Optional rename callback for existing skills. */
   onRename?: (newName: string) => void;
+  /** Target list for the skill (passed to TargetChips / TargetEditor). */
+  targets?: SkillTarget[];
+  /** Project path context for TargetEditor. */
+  projectPath?: string | null;
+  /** Known projects for TargetEditor project picker. */
+  knownProjects?: KnownProject[];
+  /** Called when targets change (e.g. after add/remove/repoint). */
+  onTargetsChange?: () => void;
 }
 
 interface ExtraRow {
@@ -60,7 +71,7 @@ function makeRowId(): string {
  * Body:
  *   - Plain textarea, no syntax highlighting (per Non-Goals).
  */
-export default function SkillEditor({ skill, brokenRaw, onSaved, onCancel, onDelete, onRename }: Props) {
+export default function SkillEditor({ skill, brokenRaw, onSaved, onCancel, onDelete, onRename, targets: targetsProp, projectPath, knownProjects }: Props) {
   const locale = useLocaleStore((s) => s.locale);
   const upsertEntry = useSkillsStore((s) => s.upsertEntry);
   const loadEntries = useSkillsStore((s) => s.loadEntries);
@@ -75,6 +86,7 @@ export default function SkillEditor({ skill, brokenRaw, onSaved, onCancel, onDel
   const [body, setBody] = useState(skill?.body ?? "");
   const [bodyMode, setBodyMode] = useState<"edit" | "preview">("edit");
   const [renameOpen, setRenameOpen] = useState(false);
+  const [targetsExpanded, setTargetsExpanded] = useState(false);
   const [extras, setExtras] = useState<ExtraRow[]>(() => initExtras(skill));
   const [agentFields, setAgentFields] = useState<Record<string, unknown>>(
     () => skill?.agentFields ?? {},
@@ -358,6 +370,35 @@ export default function SkillEditor({ skill, brokenRaw, onSaved, onCancel, onDel
         <div className="text-xs text-danger bg-danger-dim border border-danger/30 rounded px-3 py-2 mt-2">
           {error}
         </div>
+      )}
+
+      {/* ------- Target Chips / TargetEditor ------- */}
+      {!isNew && targetsProp && (
+        targetsExpanded ? (
+          <div className="mt-2 max-h-[200px] overflow-y-auto">
+            <div className="flex items-center justify-between mb-1">
+              <button
+                type="button"
+                onClick={() => setTargetsExpanded(false)}
+                className="inline-flex items-center gap-1 text-xs text-text-secondary hover:text-text-primary"
+              >
+                <ChevronUp size={12} /> {t(locale, "skills.targetChips.collapse")}
+              </button>
+            </div>
+            <TargetEditor
+              skillName={canonicalId}
+              projectPath={projectPath ?? null}
+              targets={targetsProp}
+              knownProjects={knownProjects}
+            />
+          </div>
+        ) : (
+          <TargetChips
+            targets={targetsProp}
+            onExpand={() => setTargetsExpanded(true)}
+            onAdd={() => setTargetsExpanded(true)}
+          />
+        )
       )}
 
       {/* ------- Tab Bar ------- */}

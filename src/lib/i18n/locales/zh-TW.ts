@@ -394,6 +394,10 @@ const zhTW: TranslationDict = {
         repoint: "重新指向 — 變更目標指向的專案資料夾。適用於專案已搬移或更名的情況。",
       },
     },
+    targetChips: {
+      expand: "展開同步目標",
+      collapse: "收合",
+    },
     renameDialog: {
       title: "重新命名 Skill",
       placeholder: "新名稱",
