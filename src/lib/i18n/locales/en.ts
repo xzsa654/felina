@@ -273,6 +273,8 @@ const en = {
       valuePlaceholder: "high  /  [\"Read\",\"Edit\"]  /  true",
       removeRow: "Remove row",
       addField: "Add field",
+      tabContent: "Content",
+      tabSettings: "Settings",
       bodyLabel: "Body (Markdown)",
       bodyEdit: "Edit",
       bodyPreview: "Preview",

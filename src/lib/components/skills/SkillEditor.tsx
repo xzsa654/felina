@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { ChevronDown, ChevronRight, FolderOpen, Pencil, Save, Trash2 } from "lucide-react";
+import { FolderOpen, Pencil, Save, Trash2 } from "lucide-react";
 import type { CanonicalSkill } from "$lib/types";
 import RenameSkillDialog from "./RenameSkillDialog";
 import { api } from "$lib/tauri/commands";
@@ -79,7 +79,7 @@ export default function SkillEditor({ skill, brokenRaw, onSaved, onCancel, onDel
   const [agentFields, setAgentFields] = useState<Record<string, unknown>>(
     () => skill?.agentFields ?? {},
   );
-  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<"content" | "settings">("content");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [rawContent, setRawContent] = useState(brokenRaw?.content ?? "");
@@ -92,7 +92,7 @@ export default function SkillEditor({ skill, brokenRaw, onSaved, onCancel, onDel
     setBodyMode("edit");
     setExtras(initExtras(skill));
     setAgentFields(skill?.agentFields ?? {});
-    setAdvancedOpen(false);
+    setActiveTab("content");
     setError(null);
   }, [skill?.canonicalId, skill?.body, isNew]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -124,6 +124,14 @@ export default function SkillEditor({ skill, brokenRaw, onSaved, onCancel, onDel
   }
 
   const nameError = useMemo(() => validateName(name, locale), [name, locale]);
+  const isDirty = useMemo(() => {
+    if (isNew) return false;
+    return (
+      description !== (skill?.description ?? "") ||
+      body !== (skill?.body ?? "") ||
+      JSON.stringify(agentFields) !== JSON.stringify(skill?.agentFields ?? {})
+    );
+  }, [description, body, agentFields, skill, isNew]);
   // The name field is editable only for new skills; an existing skill's
   // disabled, display-only name must not gate Save (a parsed name with e.g. a
   // space would otherwise wedge the editor — storage uses the canonical id).
@@ -262,13 +270,29 @@ export default function SkillEditor({ skill, brokenRaw, onSaved, onCancel, onDel
   }
 
   return (
-    <div className="flex flex-col gap-4 p-4">
-      {/* ------- Header: editor actions (Save + optional Delete) ------- */}
-      <div className="flex items-center justify-between gap-2 border-b border-border pb-3">
-        <div className="text-xs text-text-secondary truncate">
-          {isNew
-            ? t(locale, "skills.editor.creatingNew")
-            : t(locale, "skills.editor.editing", { name: skill?.name ?? "" })}
+    <div className="flex flex-col h-full">
+      {/* ------- Sticky: Document Header + Tab Bar ------- */}
+      <div className="sticky top-0 z-10 bg-bg-primary px-4 pt-4">
+      {/* ------- Document Header ------- */}
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex-1 min-w-0">
+          {isNew ? (
+            <div className="flex flex-col gap-1">
+              <input
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                className="text-2xl font-bold bg-transparent border-b border-transparent focus:border-accent focus:outline-none w-full placeholder:text-text-muted"
+                placeholder={t(locale, "skills.editor.namePlaceholder")}
+              />
+              {nameError && <span className="text-xs text-danger">{nameError}</span>}
+            </div>
+          ) : (
+            <h1 className="text-2xl font-bold truncate">
+              {name}
+              {isDirty && <span className="text-accent ml-1">*</span>}
+            </h1>
+          )}
         </div>
         <div className="flex items-center gap-2 shrink-0">
           {isNew && onCancel && (
@@ -311,156 +335,155 @@ export default function SkillEditor({ skill, brokenRaw, onSaved, onCancel, onDel
           </button>
         </div>
       </div>
+      <textarea
+        ref={(el) => {
+          if (el) {
+            el.style.height = "auto";
+            el.style.height = `${el.scrollHeight}px`;
+          }
+        }}
+        value={description}
+        onChange={(e) => {
+          setDescription(e.target.value);
+          const el = e.target;
+          el.style.height = "auto";
+          el.style.height = `${el.scrollHeight}px`;
+        }}
+        rows={1}
+        className="w-full mt-1 text-sm text-text-secondary bg-transparent border-b border-transparent focus:border-accent focus:outline-none resize-none placeholder:text-text-muted"
+        placeholder={t(locale, "skills.editor.descriptionPlaceholder")}
+      />
 
       {error && (
-        <div className="text-xs text-danger bg-danger-dim border border-danger/30 rounded px-3 py-2">
+        <div className="text-xs text-danger bg-danger-dim border border-danger/30 rounded px-3 py-2 mt-2">
           {error}
         </div>
       )}
 
-      {/* ------- Properties ------- */}
-      <section className="flex flex-col gap-3">
-        <h3 className="text-xs font-semibold uppercase tracking-wide text-text-secondary">
-          {t(locale, "skills.editor.properties")}
-        </h3>
-
-        <label className="flex flex-col gap-1 text-sm">
-          <span className="text-text-secondary">{t(locale, "skills.editor.name")}</span>
-          <input
-            type="text"
-            value={name}
-            disabled={!isNew}
-            onChange={(e) => setName(e.target.value)}
-            className="w-full px-2 py-1.5 rounded bg-bg-primary border border-border text-sm focus:outline-none focus:border-accent disabled:opacity-60"
-            placeholder={t(locale, "skills.editor.namePlaceholder")}
-          />
-          {isNew && nameError && <span className="text-xs text-danger">{nameError}</span>}
-          {!isNew && (
-            <span className="text-xs text-text-secondary">
-              {t(locale, "skills.editor.renameHint")}
-            </span>
-          )}
-        </label>
-
-        <label className="flex flex-col gap-1 text-sm">
-          <span className="text-text-secondary">{t(locale, "skills.editor.description")}</span>
-          <textarea
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            rows={2}
-            className="w-full px-2 py-1.5 rounded bg-bg-primary border border-border text-sm focus:outline-none focus:border-accent"
-            placeholder={t(locale, "skills.editor.descriptionPlaceholder")}
-          />
-        </label>
-
-      </section>
-
-      {/* ------- Advanced (collapsed by default) ------- */}
-      <section className="flex flex-col gap-2">
+      {/* ------- Tab Bar ------- */}
+      <div className="flex gap-4 border-b border-border mt-3">
         <button
           type="button"
-          onClick={() => setAdvancedOpen((v) => !v)}
-          className="flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-text-secondary hover:text-text-primary"
+          onClick={() => setActiveTab("content")}
+          className={`pb-2 text-xs font-medium transition-colors ${
+            activeTab === "content"
+              ? "border-b-2 border-accent text-text-primary"
+              : "text-text-muted hover:text-text-secondary"
+          }`}
         >
-          {advancedOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-          {t(locale, "skills.editor.advancedFields")}
+          {t(locale, "skills.editor.tabContent")}
         </button>
-        {advancedOpen && (
-          <div className="flex flex-col gap-3">
-            <AgentFieldsEditor
-              agentFields={agentFields}
-              targets={skill?.targets ?? []}
-              onChange={setAgentFields}
-            />
-            {extras.length > 0 && (
-              <div className="flex flex-col gap-2">
-                <p className="text-xs text-text-secondary">
-                  {t(locale, "skills.editor.advancedHint")}
-                </p>
-                {extras.map((row, idx) => (
-                  <div key={row.id} className="flex items-center gap-2">
-                    <input
-                      type="text"
-                      value={row.key}
-                      onChange={(e) =>
-                        setExtras((prev) =>
-                          prev.map((r, i) => (i === idx ? { ...r, key: e.target.value } : r)),
-                        )
-                      }
-                      placeholder={t(locale, "skills.editor.keyPlaceholder")}
-                      className="px-2 py-1 rounded bg-bg-primary border border-border text-xs w-1/3"
-                    />
-                    <input
-                      type="text"
-                      value={row.value}
-                      onChange={(e) =>
-                        setExtras((prev) =>
-                          prev.map((r, i) => (i === idx ? { ...r, value: e.target.value } : r)),
-                        )
-                      }
-                      placeholder={t(locale, "skills.editor.valuePlaceholder")}
-                      className="px-2 py-1 rounded bg-bg-primary border border-border text-xs flex-1"
-                    />
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setExtras((prev) => prev.filter((_, i) => i !== idx))
-                      }
-                      className="p-1 text-text-secondary hover:text-danger"
-                      title={t(locale, "skills.editor.removeRow")}
-                    >
-                      <Trash2 size={14} />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-      </section>
+        <button
+          type="button"
+          onClick={() => setActiveTab("settings")}
+          className={`pb-2 text-xs font-medium transition-colors ${
+            activeTab === "settings"
+              ? "border-b-2 border-accent text-text-primary"
+              : "text-text-muted hover:text-text-secondary"
+          }`}
+        >
+          {t(locale, "skills.editor.tabSettings")}
+        </button>
+      </div>
+      </div>
 
-      {/* ------- Body ------- */}
-      <section className="flex flex-col gap-2">
-        <div className="flex items-center justify-between gap-3">
-          <h3 className="text-xs font-semibold uppercase tracking-wide text-text-secondary">
-            {t(locale, "skills.editor.bodyLabel")}
-          </h3>
-          <div className="flex gap-1 bg-bg-tertiary rounded-lg p-1">
-            <button
-              type="button"
-              onClick={() => setBodyMode("edit")}
-              className={`px-3 py-1 text-xs rounded-md transition-colors ${
-                bodyMode === "edit" ? "bg-bg-secondary text-text-primary" : "text-text-muted hover:text-text-secondary"
-              }`}
-            >
-              {t(locale, "skills.editor.bodyEdit")}
-            </button>
-            <button
-              type="button"
-              onClick={() => setBodyMode("preview")}
-              className={`px-3 py-1 text-xs rounded-md transition-colors ${
-                bodyMode === "preview" ? "bg-bg-secondary text-text-primary" : "text-text-muted hover:text-text-secondary"
-              }`}
-            >
-              {t(locale, "skills.editor.bodyPreview")}
-            </button>
+      {/* ------- Scrollable Tab Content ------- */}
+      <div className="flex-1 overflow-y-auto px-4 pb-4">
+      {activeTab === "content" ? (
+        <section className="flex flex-col gap-2 mt-3">
+          <div className="flex items-center justify-between gap-3">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-text-secondary">
+              {t(locale, "skills.editor.bodyLabel")}
+            </h3>
+            <div className="flex gap-1 bg-bg-tertiary rounded-lg p-1">
+              <button
+                type="button"
+                onClick={() => setBodyMode("edit")}
+                className={`px-3 py-1 text-xs rounded-md transition-colors ${
+                  bodyMode === "edit" ? "bg-bg-secondary text-text-primary" : "text-text-muted hover:text-text-secondary"
+                }`}
+              >
+                {t(locale, "skills.editor.bodyEdit")}
+              </button>
+              <button
+                type="button"
+                onClick={() => setBodyMode("preview")}
+                className={`px-3 py-1 text-xs rounded-md transition-colors ${
+                  bodyMode === "preview" ? "bg-bg-secondary text-text-primary" : "text-text-muted hover:text-text-secondary"
+                }`}
+              >
+                {t(locale, "skills.editor.bodyPreview")}
+              </button>
+            </div>
           </div>
-        </div>
-        {bodyMode === "preview" ? (
-          <MarkdownPreview
-            markdown={body}
-            className="min-h-[22rem] w-full rounded border border-border bg-bg-primary px-3 py-2 text-sm"
+          {bodyMode === "preview" ? (
+            <MarkdownPreview
+              markdown={body}
+              className="min-h-[22rem] w-full rounded border border-border bg-bg-primary px-3 py-2 text-sm"
+            />
+          ) : (
+            <textarea
+              value={body}
+              onChange={(e) => setBody(e.target.value)}
+              rows={16}
+              className="w-full block resize-y px-3 py-2 rounded bg-bg-primary border border-border text-sm font-mono focus:outline-none focus:border-accent"
+              placeholder={t(locale, "skills.editor.bodyPlaceholder")}
+            />
+          )}
+        </section>
+      ) : (
+        <section className="flex flex-col gap-4 mt-3">
+          <AgentFieldsEditor
+            agentFields={agentFields}
+            targets={skill?.targets ?? []}
+            onChange={setAgentFields}
           />
-        ) : (
-          <textarea
-            value={body}
-            onChange={(e) => setBody(e.target.value)}
-            rows={16}
-            className="w-full block resize-y px-3 py-2 rounded bg-bg-primary border border-border text-sm font-mono focus:outline-none focus:border-accent"
-            placeholder={t(locale, "skills.editor.bodyPlaceholder")}
-          />
-        )}
-      </section>
+          {extras.length > 0 && (
+            <div className="flex flex-col gap-2">
+              <p className="text-xs text-text-secondary">
+                {t(locale, "skills.editor.advancedHint")}
+              </p>
+              {extras.map((row, idx) => (
+                <div key={row.id} className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={row.key}
+                    onChange={(e) =>
+                      setExtras((prev) =>
+                        prev.map((r, i) => (i === idx ? { ...r, key: e.target.value } : r)),
+                      )
+                    }
+                    placeholder={t(locale, "skills.editor.keyPlaceholder")}
+                    className="px-2 py-1 rounded bg-bg-primary border border-border text-xs w-1/3"
+                  />
+                  <input
+                    type="text"
+                    value={row.value}
+                    onChange={(e) =>
+                      setExtras((prev) =>
+                        prev.map((r, i) => (i === idx ? { ...r, value: e.target.value } : r)),
+                      )
+                    }
+                    placeholder={t(locale, "skills.editor.valuePlaceholder")}
+                    className="px-2 py-1 rounded bg-bg-primary border border-border text-xs flex-1"
+                  />
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setExtras((prev) => prev.filter((_, i) => i !== idx))
+                    }
+                    className="p-1 text-text-secondary hover:text-danger"
+                    title={t(locale, "skills.editor.removeRow")}
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
+      </div>
 
       {onRename && (
         <RenameSkillDialog
