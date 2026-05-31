@@ -347,12 +347,8 @@ const en = {
     },
     targets: {
       title: "Targets",
-      pruneOrphans: "Prune orphans",
       addTarget: "Add target",
       empty: "No targets yet — add one to push this skill.",
-      noOrphans: "No orphans found.",
-      scanFailed: "Scan failed: {error}",
-      pruneFailed: "Prune failed: {error}",
       auto: "Auto",
       autoTitle: "Auto-push on save",
       manual: "Manual",
@@ -434,11 +430,6 @@ const en = {
       cancel: "Cancel",
       confirm: "Delete",
       failed: "Delete failed: {error}",
-    },
-    pruneDialog: {
-      title: "Prune orphan files",
-      message: "Delete {count} orphaned agent-side file(s)?\n\n{paths}",
-      confirm: "Delete",
     },
     importBanner: {
       detected: "{n} existing skills detected",

@@ -73,16 +73,22 @@ Architecture note:
 | type | suggestion |
 | status | not-committed |
 | flagged | 2026-05-20 |
-| last-seen | 2026-05-29 |
-| description | Per-target 客製化：canonical 推到某 project 後，使用者手改的部分自動與未來主檔更新進行 3-way merge 保留。 |
+| last-seen | 2026-05-30 |
+| description | Per-target 客製化：canonical 推到某 project 後，使用者手改的部分自動與未來主檔更新進行 3-way merge 保留。目前尚未出現明確的客製化 skill 需求，待觀察。 |
 
-Design route (2026-05-28 discuss 定案, 2026-05-29 更新):
+Design route (2026-05-28 discuss 定案, 2026-05-29 更新, 2026-05-30 補齊前置):
 - 採用行級字串合併 (Git-style Diff)，廢棄「整段替換格式」的 MVP 構想。
 - 底層使用 Rust `git2` (libgit2) crate 進行 `git2::Merge::merge_file`。
 - 若發生合併衝突，由 `git2` 產生標準 `<<<<<<<` 標記，並在前端實作 Conflict Resolution UI 供使用者決策。
 - 依賴 `local-versioning-and-snapshot-layer`（已完成 2026-05-29）提供的 Base Snapshot 作為 3-way merge 的基礎。
 - `pull-diff-preview`（已完成 2026-05-29）提供了 `similar` crate 行級 diff + inline diff viewer + `PullConfirmDialog` diff 渲染元件，可直接複用於 Conflict Resolution UI。
+- `sibling-drift-detection`（已完成 2026-05-29）擴展 drift 偵測至 sibling 檔案，提供 per-target sibling hash map baseline。
+- `sibling-pull-sync`（已完成 2026-05-29）擴展 pull 流程支援 sibling 檔案同步回 canonical，含衝突處理策略選擇。
+- `sibling-push-cleanup`（已完成 2026-05-30）push 時清除 canonical 已移除的孤兒 sibling。
 - 拆分為兩階段：Part 1 pull-diff-preview ✅ → Part 2 forked-target-overlay（本項）。
+
+Notes:
+- 2026-05-30 討論：針對 per-project 進行客製化 skill 的頻率很低，此 item 暫定不一定會施作（但前置的 git diff 相關機制已完成）。
 
 <!-- local-versioning-and-snapshot-layer: archived 2026-05-29, removed per backlog rules -->
 
@@ -93,45 +99,38 @@ Design route (2026-05-28 discuss 定案, 2026-05-29 更新):
 | type | suggestion |
 | status | not-committed |
 | flagged | 2026-05-27 |
-| last-seen | 2026-05-28 |
-| description | Fan-out 匯出時搭配各 agent 官方 skill 驗證工具做品質檢查，補強現有 YAML schema 驗證。 |
+| last-seen | 2026-05-31 |
+| description | Fan-out 匯出時搭配各 agent 官方 skill 驗證工具做品質檢查，補強現有 YAML schema 驗證。同時涵蓋各 agent 建立 skill 時的路徑規範參考。 |
 
 Notes:
 - Codex 有官方 skill 驗證腳本：`C:/Users/A11410004/.codex/skills/.system/skill-creator/scripts/quick_validate.py`
 - Gemini 有 skill-creator 內建規範：`C:/Users/A11410004/AppData/Roaming/npm/node_modules/@google/gemini-cli/bundle/builtin/skill-creator/SKILL.md`
+- Codex 建立 skill 的路徑參考（來自 Codex skill-creator 規範）：
+  - Workspace: `<project>/.codex/skills/{skill_name}/SKILL.md`
+  - Global: `~/.codex/skills/{skill_name}/SKILL.md`
+- Gemini 建立 skill 的路徑參考（來自 Gemini skill-creator 規範）：
+  - Workspace: `<project>/.agents/skills/{skill_name}/SKILL.md`
+  - Global: `~/.gemini/antigravity-cli/skills/{skill_name}/SKILL.md`
+  - Shared: `~/.gemini/skills/{skill_name}/SKILL.md`
 - Schema 驗結構，官方腳本驗內容規範，兩者互補。
-
-### skill-creation-destination-model
-
-| Field | Value |
-|---|---|
-| type | planned-change |
-| status | parked |
-| flagged | 2026-05-28 |
-| last-seen | 2026-05-28 |
-| description | Create new skill 時跳出簡化版 Dialog，要求輸入名稱與選擇初始同步目標 (Target)，避免新手忘記設定。 |
-
-Design route (2026-05-28 discuss 定案):
-- 點擊「新增 Skill」時跳出精簡的 Create Dialog。
-- 包含「Skill Name」輸入框 (自動對應到 `skill.name`)。
-- 包含「Initial Target」選單 (直接複用現有的 Add Target 元件，可選 Global、特定 Project 或 None)。
-- 建立完成後，自動在背景綁定 Target 並轉導至編輯器畫面。
-- 取代原本在對話框內嘗試解釋 Workspace/Global 落點的複雜化做法。
 
 ### third-party-agent-path-configuration
 
 | Field | Value |
 |---|---|
 | type | planned-change |
-| status | not-committed |
+| status | planned |
 | flagged | 2026-05-28 |
-| last-seen | 2026-05-28 |
+| last-seen | 2026-05-30 |
 | description | 使用者可透過 Felina Settings 手動新增無限多組第三方 agent 的路徑 (Global / Project)，使其成為動態 Map 支援。 |
 
 Design route (2026-05-28 discuss 定案):
 - 將後端的 `AgentPathsConfig` 從寫死三家改為動態 HashMap。
 - 這些手動新增的第三方 Agent 預設採用標準 YAML 結構匯出，不帶有特定代理的專屬欄位。
 - 實作極輕量化：單純負責將 Canonical 檔案轉存到指定的路徑。
+
+Notes:
+- 2026-05-30 討論：這屬於可添加的加分項，不影響主要施作方向，但優先度略高於其他 suggestion。
 
 ### dynamic-agent-field-catalog
 
@@ -140,7 +139,7 @@ Design route (2026-05-28 discuss 定案):
 | type | suggestion |
 | status | not-committed |
 | flagged | 2026-05-28 |
-| last-seen | 2026-05-28 |
+| last-seen | 2026-05-30 |
 | description | 將各家 Agent 的特有 YAML 欄位定義下放至 Felina Settings，讓進階使用者能自行擴充，不再寫死於程式碼。 |
 
 Scope:
@@ -159,8 +158,8 @@ Scope:
 | type | suggestion |
 | status | not-committed |
 | flagged | 2026-05-20 |
-| last-seen | 2026-05-28 |
-| blocked-by | resolve-multi-source-skill-import; skill-creation-destination-model |
+| last-seen | 2026-05-30 |
+| blocked-by | — |
 | description | 公司內部 Skill 社群化 marketplace。使用者可將 Felina canonical Skill 發佈到內網 Market，同仁可搜尋、查看版本、安裝回自己的 Felina canonical storage，再透過既有 fan-out 同步到各 agent target。 |
 
 Scope:
@@ -179,15 +178,6 @@ Notes:
 
 ## UX / General
 
-### contextual-help-button
-
-| Field | Value |
-|---|---|
-| type | suggestion |
-| status | not-committed |
-| flagged | 2026-05-27 |
-| last-seen | 2026-05-28 |
-| description | 右上角增加說明按鈕，解釋比較無法馬上理解的按鈕含義與操作概念。全站性 UX 改善，不限特定 Phase。 |
 
 ### temporary-nav-surface-simplification
 
@@ -196,7 +186,7 @@ Notes:
 | type | suggestion |
 | status | not-committed |
 | flagged | 2026-05-28 |
-| last-seen | 2026-05-28 |
+| last-seen | 2026-05-30 |
 | description | 暫時隱藏 Settings / Templates 等尚未成熟或非主線頁面，使前端主導覽只保留 Skills、Projects、Tokens、Session。 |
 
 Scope:

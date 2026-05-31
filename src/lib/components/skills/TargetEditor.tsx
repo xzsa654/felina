@@ -1,14 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AlertTriangle, Eye, FolderOpen, HelpCircle, Plus, Search, Trash2, X } from "lucide-react";
+import { AlertTriangle, Eye, FolderOpen, HelpCircle, Plus, Trash2, X } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
-import type { KnownProject, OrphanFile, SkillTarget } from "$lib/types";
+import type { KnownProject, SkillTarget } from "$lib/types";
 import { api } from "$lib/tauri/commands";
 import { openPath } from "$lib/tauri/shell";
 import { useSkillsStore } from "$lib/stores/skills-store";
 import { useLocaleStore } from "$lib/stores/locale";
 import { t } from "$lib/i18n";
 import { isProjectMissing, normalizeProjectPath } from "$lib/utils/path";
-import ConfirmDialog from "$lib/components/shared/ConfirmDialog";
 import InfoDialog from "$lib/components/shared/InfoDialog";
 import MarkdownPreview from "$lib/components/shared/MarkdownPreview";
 import AddTargetDialog from "./AddTargetDialog";
@@ -66,8 +65,7 @@ export default function TargetEditor({ skillName, projectPath, targets, onTarget
   const refreshDriftScan = useSkillsStore((s) => s.refreshDriftScan);
   const driftMap = useSkillsStore((s) => s.driftMap);
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [pruneOrphans, setPruneOrphans] = useState<OrphanFile[] | null>(null);
-  const [pruneMessage, setPruneMessage] = useState<string | null>(null);
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [pendingRemove, setPendingRemove] = useState<SkillTarget | null>(null);
   const [removing, setRemoving] = useState(false);
   const [contentModal, setContentModal] = useState<{
@@ -167,34 +165,6 @@ export default function TargetEditor({ skillName, projectPath, targets, onTarget
     void save([...targets, target]);
   }
 
-  async function handlePruneScan() {
-    try {
-      const orphans = await api.skillPrune.scan(skillName);
-      if (orphans.length === 0) {
-        setPruneMessage(t(locale, "skills.targets.noOrphans"));
-        setTimeout(() => setPruneMessage(null), 2000);
-      } else {
-        setPruneOrphans(orphans);
-      }
-    } catch (e) {
-      setPruneMessage(t(locale, "skills.targets.scanFailed", { error: String(e) }));
-      setTimeout(() => setPruneMessage(null), 3000);
-    }
-  }
-
-  async function handlePruneConfirm() {
-    if (!pruneOrphans) return;
-    const confirmed = [...pruneOrphans];
-    setPruneOrphans(null);
-    try {
-      await api.skillPrune.apply(skillName, confirmed);
-      await loadEntries();
-    } catch (e) {
-      setPruneMessage(t(locale, "skills.targets.pruneFailed", { error: String(e) }));
-      setTimeout(() => setPruneMessage(null), 3000);
-    }
-  }
-
   async function handleRemovePolicy(policy: TargetRemovalPolicy) {
     const target = pendingRemove;
     if (!target) return;
@@ -202,18 +172,18 @@ export default function TargetEditor({ skillName, projectPath, targets, onTarget
     try {
       const result = await api.skillTargets.remove(skillName, target, policy);
       if (!result.targetRemoved && result.deleteResult && !result.deleteResult.success) {
-        setPruneMessage(
+        setStatusMessage(
           t(locale, "skills.targets.removeFailed", {
             error: result.deleteResult.error ?? result.deleteResult.path,
           }),
         );
-        setTimeout(() => setPruneMessage(null), 5000);
+        setTimeout(() => setStatusMessage(null), 5000);
       }
       setPendingRemove(null);
       await loadEntries();
     } catch (e) {
-      setPruneMessage(t(locale, "skills.targets.removeFailed", { error: String(e) }));
-      setTimeout(() => setPruneMessage(null), 5000);
+      setStatusMessage(t(locale, "skills.targets.removeFailed", { error: String(e) }));
+      setTimeout(() => setStatusMessage(null), 5000);
     } finally {
       setRemoving(false);
     }
@@ -226,8 +196,8 @@ export default function TargetEditor({ skillName, projectPath, targets, onTarget
       await api.skillTargets.repoint(skillName, target, normalizeProjectPath(dir));
       await loadEntries();
     } catch (e) {
-      setPruneMessage(t(locale, "skills.targets.repointFailed", { error: String(e) }));
-      setTimeout(() => setPruneMessage(null), 5000);
+      setStatusMessage(t(locale, "skills.targets.repointFailed", { error: String(e) }));
+      setTimeout(() => setStatusMessage(null), 5000);
     }
   }
 
@@ -258,15 +228,6 @@ export default function TargetEditor({ skillName, projectPath, targets, onTarget
           </button>
         </div>
         <div className="flex items-center gap-1">
-          {!buffered && (
-            <button
-              type="button"
-              onClick={() => void handlePruneScan()}
-              className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded border border-border text-text-secondary hover:text-text-primary hover:border-accent"
-            >
-              <Search size={12} /> {t(locale, "skills.targets.pruneOrphans")}
-            </button>
-          )}
           <button
             type="button"
             onClick={() => setDialogOpen(true)}
@@ -277,8 +238,8 @@ export default function TargetEditor({ skillName, projectPath, targets, onTarget
         </div>
       </div>
 
-      {pruneMessage && (
-        <div className="text-xs text-text-secondary italic">{pruneMessage}</div>
+      {statusMessage && (
+        <div className="text-xs text-text-secondary italic">{statusMessage}</div>
       )}
 
       {targets.length === 0 ? (
@@ -401,8 +362,8 @@ export default function TargetEditor({ skillName, projectPath, targets, onTarget
                       onClick={() => {
                         if (dest?.exists) {
                           openPath(dest.path).catch((e) => {
-                            setPruneMessage(String(e));
-                            setTimeout(() => setPruneMessage(null), 5000);
+                            setStatusMessage(String(e));
+                            setTimeout(() => setStatusMessage(null), 5000);
                           });
                         }
                       }}
@@ -441,21 +402,6 @@ export default function TargetEditor({ skillName, projectPath, targets, onTarget
         />
       )}
 
-      <ConfirmDialog
-        open={pruneOrphans !== null}
-        title={t(locale, "skills.pruneDialog.title")}
-        message={
-          pruneOrphans
-            ? t(locale, "skills.pruneDialog.message", {
-                count: pruneOrphans.length,
-                paths: pruneOrphans.map((o) => o.path).join("\n"),
-              })
-            : ""
-        }
-        confirmLabel={t(locale, "skills.pruneDialog.confirm")}
-        onconfirm={() => void handlePruneConfirm()}
-        oncancel={() => setPruneOrphans(null)}
-      />
       <TargetRemovalDialog
         open={pendingRemove !== null}
         target={pendingRemove}

@@ -322,13 +322,6 @@ export interface KnownProject {
   sources: ProjectSource[];
 }
 
-export interface OrphanFile {
-  path: string;
-  agent: AgentId;
-  scope: SkillScope;
-  /** Originating project path when `scope === "project"`; absent for global. */
-  project?: string;
-}
 
 // ── Skill field catalog ──────────────────────────────────────────
 

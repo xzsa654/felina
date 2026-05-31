@@ -662,52 +662,6 @@ code:
 -->
 
 ---
-### Requirement: Explicit Orphan Prune
-
-The system SHALL provide an explicit action that scans for and removes orphaned agent-side skill files for a given canonical skill. An orphan SHALL be defined as an agent-side `SKILL.md` (under an agent skill directory resolved for the skill's reachable scopes) belonging to the skill but whose corresponding target is absent from the current target list or is in `detached` or `disabled` state. The scan SHALL return the list of orphan paths without deleting anything. Deletion SHALL occur only after explicit user confirmation and SHALL remove each confirmed orphan together with its skill subdirectory, isolating per-file failures so that one failed deletion does not abort the others. The system SHALL NOT delete agent-side files automatically when a target is toggled to Detached or Disabled.
-
-#### Scenario: Scan identifies orphaned agent files
-
-- **WHEN** a skill's target list no longer contains a gemini target but a gemini agent directory still holds that skill's `SKILL.md`
-- **THEN** the scan SHALL include that gemini `SKILL.md` path in its result
-- **AND** the scan SHALL NOT include agent files for targets still present and tracked in the list
-
-#### Scenario: Prune deletes only confirmed orphans
-
-- **WHEN** the scan returns two orphan paths and the user confirms deletion of both
-- **THEN** the system SHALL delete both orphan files and their skill subdirectories
-- **AND** agent files for targets remaining in the list SHALL NOT be deleted
-
-#### Scenario: Toggling Detached does not auto-delete
-
-- **WHEN** the user sets a target's state to Detached
-- **THEN** the corresponding agent-side `SKILL.md` SHALL remain on disk
-- **AND** removal SHALL require running the explicit prune action with confirmation
-
-<!-- @trace
-source: known-projects-and-multi-target
-updated: 2026-05-23
-code:
-  - src/lib/components/skills/SkillList.tsx
-  - src/lib/stores/skills-store.ts
-  - src-tauri/Cargo.toml
-  - src-tauri/src/commands/known_projects.rs
-  - src/lib/components/skills/SkillsPage.tsx
-  - src/lib/components/skills/PendingPushBar.tsx
-  - src-tauri/src/commands/canonical_skills.rs
-  - src/lib/components/skills/TargetEditor.tsx
-  - src-tauri/src/lib.rs
-  - src/lib/components/skills/SkillEditor.tsx
-  - src/lib/tauri/commands.ts
-  - src-tauri/src/commands/fan_out/mod.rs
-  - src/lib/types/index.ts
-  - src-tauri/src/commands/mod.rs
-  - .session/product-backlog.md
-  - src/lib/types/skills.ts
-  - src/lib/components/skills/AddTargetDialog.tsx
--->
-
----
 ### Requirement: Origin-Project Degradation
 
 Project-scope target existence SHALL be determined by actual filesystem existence of the target's project path, NOT by Known Projects list membership (an explicitly-saved L3 entry persists in `known-projects.json` after its folder is renamed or deleted, so list membership cannot detect on-disk removal). The `known_projects_list` command SHALL annotate each returned project with an `exists` boolean computed via a filesystem stat (`Path::exists()`), without adding a new command. This stat SHALL be evaluated whenever the list is loaded — on Skills page mount, on manual Reload, on window focus regain, and after target/push operations change the skill entries — and SHALL NOT use a file watcher or polling.
@@ -851,12 +805,12 @@ Deleting a canonical skill SHALL require the user to choose one of three policie
 
 Removing a target row from a skill's target list SHALL require the user to choose Remove target only, Remove target and delete file, or Cancel. Remove target only SHALL remove the target from sync-meta and SHALL leave the resolved agent-side skill directory on disk. Remove target and delete file SHALL remove the target from sync-meta and attempt to delete only that target's resolved agent-side skill directory. Cancel SHALL leave the target list and agent-side files unchanged. When the removed target had a `last_sync` entry, the system SHALL remove that entry from sync-meta after the target row is removed.
 
-#### Scenario: Remove target only creates an orphan
+#### Scenario: Remove target only leaves files on disk
 
 - **GIVEN** skill `shared-util` has a Gemini project target whose agent-side skill directory exists
 - **WHEN** the user removes the target and chooses Remove target only
 - **THEN** the target row is removed from the sync-meta target list
-- **AND** the Gemini agent-side skill directory remains on disk as an orphan eligible for explicit orphan prune
+- **AND** the Gemini agent-side skill directory remains on disk
 
 #### Scenario: Remove target and delete file deletes only that target destination
 
@@ -868,10 +822,25 @@ Removing a target row from a skill's target list SHALL require the user to choos
 
 #### Scenario: Cancel target removal preserves state
 
-- **GIVEN** skill `shared-util` has a target row selected for removal
 - **WHEN** the user chooses Cancel in the target removal confirmation
-- **THEN** the target row remains in sync-meta
-- **AND** no agent-side file is deleted
+- **THEN** the target list and all agent-side files remain unchanged
+
+
+<!-- @trace
+source: remove-prune-orphans-button
+updated: 2026-05-31
+code:
+  - src/lib/types/index.ts
+  - src-tauri/src/lib.rs
+  - src/lib/tauri/commands.ts
+  - src/lib/i18n/locales/en.ts
+  - src/lib/i18n/locales/zh-TW.ts
+  - src-tauri/src/commands/canonical_skills.rs
+  - src/lib/types/skills.ts
+  - src/lib/components/skills/TargetEditor.tsx
+  - .session/felina_development_report.md
+  - .session/product-backlog.md
+-->
 
 ---
 ### Requirement: Missing Project Target Repoint

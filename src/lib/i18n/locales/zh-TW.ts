@@ -349,12 +349,8 @@ const zhTW: TranslationDict = {
     },
     targets: {
       title: "同步目標",
-      pruneOrphans: "清除孤立檔案",
       addTarget: "新增同步目標",
       empty: "尚未設定同步目標，新增後即可推送此 Skill。",
-      noOrphans: "未發現孤立檔。",
-      scanFailed: "掃描失敗：{error}",
-      pruneFailed: "清理失敗：{error}",
       auto: "自動",
       autoTitle: "儲存後自動推送",
       manual: "手動",
@@ -436,11 +432,6 @@ const zhTW: TranslationDict = {
       cancel: "取消",
       confirm: "刪除",
       failed: "刪除失敗：{error}",
-    },
-    pruneDialog: {
-      title: "清理孤立檔案",
-      message: "刪除 {count} 個孤立的 agent 端檔案？\n\n{paths}",
-      confirm: "刪除",
     },
     importBanner: {
       detected: "偵測到 {n} 個現有 skill",

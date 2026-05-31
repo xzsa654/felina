@@ -22,7 +22,6 @@ import type {
   AgentPathsConfig,
   KnownProject,
   SkillTarget,
-  OrphanFile,
   SkillFieldDefinition,
   AgentId,
   SkillScope,
@@ -236,15 +235,6 @@ export const api = {
       }),
     readContent: (skillName: string, targetKey: string) =>
       invoke<string>("skill_target_read_content", { skillName, targetKey }),
-  },
-
-  // Orphan prune. Project paths to scan are derived from the skill's own
-  // targets, so callers only supply the skill name.
-  skillPrune: {
-    scan: (skillName: string) =>
-      invoke<OrphanFile[]>("skill_prune_orphans_scan", { skillName }),
-    apply: (skillName: string, orphans: OrphanFile[]) =>
-      invoke<void>("skill_prune_orphans_apply", { skillName, orphans }),
   },
 
   // Settings → Agent Paths.

@@ -72,7 +72,6 @@ export type {
   SkillTarget,
   ProjectSource,
   KnownProject,
-  OrphanFile,
   SkillFieldDefinition,
   FieldAgent,
   DriftStatus,
