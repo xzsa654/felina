@@ -1103,6 +1103,95 @@ pub struct SkillTargetRepointResult {
     pub dirty: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RenameResult {
+    pub old_name: String,
+    pub new_name: String,
+    pub commit_hash: String,
+    pub targets_cleaned: u32,
+    pub targets_failed: Vec<String>,
+}
+
+#[tauri::command]
+pub fn canonical_skill_rename(old_name: String, new_name: String) -> Result<RenameResult, String> {
+    validate_skill_name(&new_name)?;
+
+    let dir = canonical_skills_dir();
+    let old_dir = dir.join(&old_name);
+    let new_dir = dir.join(&new_name);
+
+    if !old_dir.is_dir() {
+        return Err(format!("skill not found: {old_name}"));
+    }
+    if new_dir.exists() {
+        return Err(format!("skill already exists: {new_name}"));
+    }
+
+    let commit_hash = super::snapshot::rename_skill(&old_name, &new_name)?;
+
+    let skill_md_path = new_dir.join("SKILL.md");
+    let raw = fs::read_to_string(&skill_md_path)
+        .map_err(|e| format!("failed to read SKILL.md after rename: {e}"))?;
+    let (fm_text, body) = split_frontmatter(&raw);
+    let mut fm: serde_yaml::Value = serde_yaml::from_str(&fm_text)
+        .map_err(|e| format!("frontmatter YAML parse failed: {e}"))?;
+    if let serde_yaml::Value::Mapping(ref mut map) = fm {
+        map.insert(
+            serde_yaml::Value::String("name".into()),
+            serde_yaml::Value::String(new_name.clone()),
+        );
+    }
+    let fm_yaml = serde_yaml::to_string(&fm)
+        .map_err(|e| format!("failed to serialize frontmatter: {e}"))?;
+    let fm_trimmed = fm_yaml.trim_end_matches('\n');
+    let body_normalized = if body.ends_with('\n') {
+        body.to_string()
+    } else {
+        format!("{body}\n")
+    };
+    let out = format!("---\n{fm_trimmed}\n---\n{body_normalized}");
+    fs::write(&skill_md_path, &out)
+        .map_err(|e| format!("failed to write updated SKILL.md: {e}"))?;
+
+    let skill = parse_skill_md(&out)?;
+    let (meta, _) = read_sync_meta_v2(&new_dir, &skill);
+
+    let mut targets_cleaned: u32 = 0;
+    let mut targets_failed: Vec<String> = Vec::new();
+
+    for target in &meta.targets {
+        match resolve_target_skill_dir(&old_name, target) {
+            Ok(old_agent_dir) if old_agent_dir.is_dir() => {
+                if let Err(e) = fs::remove_dir_all(&old_agent_dir) {
+                    targets_failed.push(format!("{}: {e}", old_agent_dir.display()));
+                } else {
+                    targets_cleaned += 1;
+                }
+            }
+            Ok(_) => {}
+            Err(e) => {
+                targets_failed.push(format!("resolve error: {e}"));
+            }
+        }
+    }
+
+    let mut updated_meta = meta.clone();
+    updated_meta.dirty = true;
+    updated_meta.last_sync.clear();
+    let _ = write_sync_meta_v2(&new_dir, &updated_meta);
+
+    super::snapshot::commit_skill_changes(&new_name).ok();
+
+    Ok(RenameResult {
+        old_name,
+        new_name,
+        commit_hash,
+        targets_cleaned,
+        targets_failed,
+    })
+}
+
 /// Delete a canonical skill directory and everything inside it.
 #[tauri::command]
 pub fn canonical_skills_delete(name: String) -> Result<(), String> {
@@ -2158,6 +2247,124 @@ Hello.\n";
             anth_dir.join("SKILL.md").is_file(),
             "detached toggle must NOT auto-delete agent file",
         );
+    }
+
+    #[test]
+    fn rename_succeeds_and_updates_frontmatter() {
+        let tmp = tempdir();
+        let _g = override_felina_home(&tmp);
+
+        let mut fm = serde_yaml::Mapping::new();
+        fm.insert("name".into(), "old-skill".into());
+        fm.insert("description".into(), "test".into());
+        fm.insert(
+            "agents".into(),
+            serde_yaml::Value::Sequence(vec!["anthropic".into()]),
+        );
+        canonical_skills_write(
+            "old-skill".into(),
+            serde_yaml::Value::Mapping(fm),
+            "body content".into(),
+            None,
+        )
+        .unwrap();
+
+        let result = canonical_skill_rename("old-skill".into(), "new-skill".into()).unwrap();
+        assert_eq!(result.old_name, "old-skill");
+        assert_eq!(result.new_name, "new-skill");
+        assert_eq!(result.commit_hash.len(), 40);
+
+        assert!(!tmp.join(".felina").join("skills").join("old-skill").exists());
+        let new_dir = tmp.join(".felina").join("skills").join("new-skill");
+        assert!(new_dir.join("SKILL.md").is_file());
+
+        let raw = fs::read_to_string(new_dir.join("SKILL.md")).unwrap();
+        let skill = parse_skill_md(&raw).unwrap();
+        assert_eq!(skill.name, "new-skill");
+
+        let meta_raw = fs::read_to_string(new_dir.join(".felina-sync-meta.json")).unwrap();
+        let meta: SyncMetaV2 = serde_json::from_str(&meta_raw).unwrap();
+        assert!(meta.dirty);
+        assert!(meta.last_sync.is_empty());
+    }
+
+    #[test]
+    fn rename_rejects_duplicate_name() {
+        let tmp = tempdir();
+        let _g = override_felina_home(&tmp);
+
+        for name in ["skill-a", "skill-b"] {
+            let mut fm = serde_yaml::Mapping::new();
+            fm.insert("name".into(), name.into());
+            fm.insert("description".into(), "test".into());
+            fm.insert(
+                "agents".into(),
+                serde_yaml::Value::Sequence(vec!["anthropic".into()]),
+            );
+            canonical_skills_write(
+                name.into(),
+                serde_yaml::Value::Mapping(fm),
+                "body".into(),
+                None,
+            )
+            .unwrap();
+        }
+
+        let err = canonical_skill_rename("skill-a".into(), "skill-b".into()).unwrap_err();
+        assert!(err.contains("already exists"), "err={err}");
+    }
+
+    #[test]
+    fn rename_rejects_path_traversal() {
+        let tmp = tempdir();
+        let _g = override_felina_home(&tmp);
+
+        let mut fm = serde_yaml::Mapping::new();
+        fm.insert("name".into(), "safe".into());
+        fm.insert("description".into(), "test".into());
+        fm.insert(
+            "agents".into(),
+            serde_yaml::Value::Sequence(vec!["anthropic".into()]),
+        );
+        canonical_skills_write(
+            "safe".into(),
+            serde_yaml::Value::Mapping(fm),
+            "body".into(),
+            None,
+        )
+        .unwrap();
+
+        for bad in ["../escape", "foo/bar", "foo\\bar", ".hidden"] {
+            let err = canonical_skill_rename("safe".into(), bad.into()).unwrap_err();
+            assert!(
+                err.contains("skill name") || err.contains("disallowed"),
+                "bad={bad:?} err={err}"
+            );
+        }
+    }
+
+    #[test]
+    fn rename_rejects_empty_name() {
+        let tmp = tempdir();
+        let _g = override_felina_home(&tmp);
+
+        let mut fm = serde_yaml::Mapping::new();
+        fm.insert("name".into(), "exists".into());
+        fm.insert("description".into(), "test".into());
+        fm.insert(
+            "agents".into(),
+            serde_yaml::Value::Sequence(vec!["anthropic".into()]),
+        );
+        canonical_skills_write(
+            "exists".into(),
+            serde_yaml::Value::Mapping(fm),
+            "body".into(),
+            None,
+        )
+        .unwrap();
+
+        let err = canonical_skill_rename("exists".into(), "".into()).unwrap_err();
+        assert!(err.contains("empty"), "err={err}");
     }
 
     #[test]

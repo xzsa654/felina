@@ -72,6 +72,7 @@ export type {
   SkillTarget,
   ProjectSource,
   KnownProject,
+  RenameResult,
   SkillFieldDefinition,
   FieldAgent,
   DriftStatus,
