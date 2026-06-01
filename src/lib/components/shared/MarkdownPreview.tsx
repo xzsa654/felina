@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { marked } from "marked";
+import { renderWithSourceMap } from "$lib/utils/markdown-source-map";
 
 interface Props {
   markdown: string;
@@ -7,7 +7,7 @@ interface Props {
 }
 
 export default function MarkdownPreview({ markdown, className }: Props) {
-  const html = useMemo(() => marked(markdown || "") as string, [markdown]);
+  const html = useMemo(() => renderWithSourceMap(markdown), [markdown]);
 
   return (
     <div
