@@ -90,11 +90,19 @@ export default function SkillEditor({ skill, brokenRaw, onSaved, onCancel, onDel
   const [name, setName] = useState(isNew ? "" : (skill?.name ?? ""));
   const [description, setDescription] = useState(skill?.description ?? "");
   const [body, setBody] = useState(skill?.body ?? "");
-  const [bodyMode, setBodyMode] = useState<"edit" | "preview" | "split">("edit");
+  const [bodyMode, setBodyModeRaw] = useState<"edit" | "preview" | "split">(() => {
+    const saved = localStorage.getItem("felina:bodyMode");
+    return saved === "preview" || saved === "split" ? saved : "edit";
+  });
+  const setBodyMode = (mode: "edit" | "preview" | "split") => {
+    setBodyModeRaw(mode);
+    localStorage.setItem("felina:bodyMode", mode);
+  };
   const contentRef = useRef<HTMLDivElement>(null);
   const splitEditorRef = useRef<HTMLTextAreaElement>(null);
   const splitPreviewRef = useRef<HTMLDivElement>(null);
   const syncingScroll = useRef(false);
+  const headerCollapsed = bodyMode !== "edit";
   const [containerWidth, setContainerWidth] = useState(0);
   const [renameOpen, setRenameOpen] = useState(false);
   const [popoverTargetIndex, setPopoverTargetIndex] = useState<number | null>(null);
@@ -114,7 +122,8 @@ export default function SkillEditor({ skill, brokenRaw, onSaved, onCancel, onDel
     setName(isNew ? "" : (skill?.name ?? ""));
     setDescription(skill?.description ?? "");
     setBody(skill?.body ?? "");
-    setBodyMode("edit");
+    const saved = localStorage.getItem("felina:bodyMode");
+    setBodyModeRaw(saved === "preview" || saved === "split" ? saved : "edit");
     setExtras(initExtras(skill));
     setAgentFields(skill?.agentFields ?? {});
     setActiveTab("content");
@@ -148,14 +157,50 @@ export default function SkillEditor({ skill, brokenRaw, onSaved, onCancel, onDel
   function handleSplitScroll(source: "editor" | "preview") {
     if (syncingScroll.current) return;
     syncingScroll.current = true;
-    const from = source === "editor" ? splitEditorRef.current : splitPreviewRef.current;
-    const to = source === "editor" ? splitPreviewRef.current : splitEditorRef.current;
-    if (from && to) {
-      const maxFrom = from.scrollHeight - from.clientHeight;
-      const ratio = maxFrom > 0 ? from.scrollTop / maxFrom : 0;
-      const maxTo = to.scrollHeight - to.clientHeight;
-      to.scrollTop = ratio * maxTo;
+
+    const editor = splitEditorRef.current;
+    const preview = splitPreviewRef.current;
+    if (!editor || !preview) {
+      requestAnimationFrame(() => { syncingScroll.current = false; });
+      return;
     }
+
+    if (source === "editor") {
+      const atBottom = editor.scrollTop + editor.clientHeight >= editor.scrollHeight - 2;
+      if (atBottom) {
+        preview.scrollTop = preview.scrollHeight;
+      } else {
+        const lineHeight = parseFloat(getComputedStyle(editor).lineHeight) || 16;
+        const topLine = Math.floor(editor.scrollTop / lineHeight) + 1;
+        const els = preview.querySelectorAll<HTMLElement>("[data-source-line]");
+        let best: HTMLElement | null = null;
+        for (const el of els) {
+          const ln = parseInt(el.dataset.sourceLine || "0", 10);
+          if (ln <= topLine) best = el;
+          else break;
+        }
+        if (best) best.scrollIntoView({ block: "start", behavior: "instant" });
+      }
+    } else {
+      const atBottom = preview.scrollTop + preview.clientHeight >= preview.scrollHeight - 2;
+      if (atBottom) {
+        editor.scrollTop = editor.scrollHeight;
+      } else {
+        const els = preview.querySelectorAll<HTMLElement>("[data-source-line]");
+        const previewTop = preview.scrollTop;
+        let best: HTMLElement | null = null;
+        for (const el of els) {
+          if (el.offsetTop <= previewTop + 4) best = el;
+          else break;
+        }
+        if (best) {
+          const ln = parseInt(best.dataset.sourceLine || "1", 10);
+          const lineHeight = parseFloat(getComputedStyle(editor).lineHeight) || 16;
+          editor.scrollTop = (ln - 1) * lineHeight;
+        }
+      }
+    }
+
     requestAnimationFrame(() => { syncingScroll.current = false; });
   }
 
@@ -330,7 +375,8 @@ export default function SkillEditor({ skill, brokenRaw, onSaved, onCancel, onDel
     <div className="flex flex-col h-full">
       {/* ------- Sticky: Document Header + Tab Bar ------- */}
       <div className="sticky top-0 z-10 bg-bg-primary px-4 pt-4">
-      {/* ------- Document Header ------- */}
+      {/* ------- Document Header (collapsible on scroll) ------- */}
+      <div className={`overflow-hidden transition-all duration-200 ${headerCollapsed ? "max-h-0 opacity-0" : "max-h-[500px] opacity-100"}`}>
       <div className="flex items-center justify-between gap-4">
         <div className="flex-1 min-w-0">
           {isNew ? (
@@ -475,6 +521,7 @@ export default function SkillEditor({ skill, brokenRaw, onSaved, onCancel, onDel
         </>
       )}
 
+      </div>
       {/* ------- Tab Bar ------- */}
       <div className="flex gap-4 border-b border-border mt-3">
         <button
