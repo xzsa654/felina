@@ -103,8 +103,8 @@ const BODY_PREVIEW_BYTES: usize = 240;
 /// Count agent-native skill subdirectories for each known location.
 ///
 /// For Gemini, we probe BOTH the spec-default path and the Antigravity CLI
-/// path (`~/.gemini/antigravity/skills/`) and sum them — gemini-cli's
-/// June 18 2026 consumer sunset means users may have skills in either tree.
+/// path (`~/.gemini/antigravity-cli/skills/`) and sum them — users may
+/// have skills in either tree.
 /// Derive the scan scope from an optional project path: `None` means scan
 /// global agent dirs; `Some(path)` means scan that project's agent dirs.
 /// Canonical destination is always global; scope-of-write is determined
@@ -128,7 +128,7 @@ pub fn skill_import_scan_quick(project_path: Option<String>) -> Result<ImportSca
     // Gemini: spec-default + Antigravity fallback (distinct names across both).
     let mut gemini = skill_names_at_pair(scope, project_path.as_deref(), &cfg.gemini)?;
     if scope == SkillScope::Global {
-        let antigravity = expand_user_path("~/.gemini/antigravity/skills");
+        let antigravity = expand_user_path("~/.gemini/antigravity-cli/skills");
         gemini.extend(skill_names_at(&antigravity));
     }
 
@@ -208,7 +208,7 @@ pub fn skill_import_scan(project_path: Option<String>) -> Result<Vec<ImportCandi
     }
     // Antigravity Gemini extra path (global only).
     if scope == SkillScope::Global {
-        let antigravity = expand_user_path("~/.gemini/antigravity/skills");
+        let antigravity = expand_user_path("~/.gemini/antigravity-cli/skills");
         collect_candidates_in(&antigravity, AgentId::Gemini, &canonical_dir, &mut out);
     }
 
