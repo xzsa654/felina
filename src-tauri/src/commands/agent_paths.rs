@@ -6,12 +6,8 @@
 //!
 //! On Gemini defaults: as of 2026-05-21 Google is sunsetting `gemini-cli`
 //! (June 18 2026 for consumer access) in favour of Antigravity CLI, which
-//! uses `~/.gemini/antigravity/skills/` global + `.agents/skills/` project.
-//! We ship the current `agent-skills-schema` spec defaults (`.gemini/skills/`
-//! with `.agents/skills/` alias) and rely on (a) the import scanner probing
-//! the Antigravity path additionally (skill_import.rs) and (b) this Settings
-//! override to bridge the transition. Spec text can be patched as a
-//! follow-up.
+//! uses `~/.gemini/antigravity-cli/skills/` global + `.agents/skills/` project.
+//! We now ship the Antigravity CLI path as the default.
 
 use crate::paths;
 use serde::{Deserialize, Serialize};
@@ -47,8 +43,8 @@ impl AgentPathsConfig {
                 project_relative: ".agents/skills".into(),
             },
             gemini: AgentPathPair {
-                global: "~/.gemini/skills".into(),
-                project_relative: ".gemini/skills".into(),
+                global: "~/.gemini/antigravity-cli/skills".into(),
+                project_relative: ".agents/skills".into(),
             },
         }
     }

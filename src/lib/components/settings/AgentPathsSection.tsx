@@ -14,13 +14,13 @@ const AGENT_HINTS: Record<AgentId, string> = {
   anthropic: "Anthropic Claude reads ~/.claude/skills/ and project .claude/skills/.",
   codex: "Codex reads ~/.agents/skills/ and project .agents/skills/.",
   gemini:
-    "Gemini-CLI uses ~/.gemini/skills/; Antigravity CLI uses ~/.gemini/antigravity/skills/. Override here when migrating.",
+    "Antigravity CLI uses ~/.gemini/antigravity-cli/skills/. Override here if needed.",
 };
 
 const DEFAULTS_FALLBACK: AgentPathsConfig = {
   anthropic: { global: "~/.claude/skills", projectRelative: ".claude/skills" },
   codex: { global: "~/.agents/skills", projectRelative: ".agents/skills" },
-  gemini: { global: "~/.gemini/skills", projectRelative: ".gemini/skills" },
+  gemini: { global: "~/.gemini/antigravity-cli/skills", projectRelative: ".agents/skills" },
 };
 
 /**
