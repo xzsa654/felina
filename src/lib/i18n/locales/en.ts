@@ -226,6 +226,8 @@ const en = {
       pushTitle: "Push this skill to its agent targets",
       hasUnpushed: "Has unpushed changes",
       drifted: "Some targets have been modified externally",
+      groupActionRequired: "Action Required",
+      groupAllSkills: "All Skills",
     },
     pull: {
       button: "Pull",
