@@ -228,6 +228,8 @@ const zhTW: TranslationDict = {
       pushTitle: "將此 skill 推送到它的同步目標",
       hasUnpushed: "有尚未推送的變更",
       drifted: "部分目標已在外部被修改",
+      groupActionRequired: "需要處理",
+      groupAllSkills: "所有技能",
     },
     pull: {
       button: "Pull",
