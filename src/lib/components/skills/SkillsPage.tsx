@@ -21,7 +21,7 @@ import SkillList from "./SkillList";
 import SkillEditor from "./SkillEditor";
 import PendingPushBar from "./PendingPushBar";
 import SkillImportBanner from "./SkillImportBanner";
-import SkillImportWizard from "./SkillImportWizard";
+import ImportStagingDialog from "./import/ImportStagingDialog";
 import TargetEditor from "./TargetEditor";
 import CoverageMatrix from "./CoverageMatrix";
 // SyncInfoBar retained-for-reference — sync status now shown in Target Chips
@@ -529,7 +529,7 @@ export default function SkillsPage() {
       </PageBody>
 
       {wizardOpen && (
-        <SkillImportWizard
+        <ImportStagingDialog
           projectPath={projectPath ?? null}
           onClose={() => setWizardOpen(false)}
         />

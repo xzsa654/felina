@@ -12,7 +12,9 @@
 use crate::paths;
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::path::{Component, Path};
+use std::path::{Component, Path, PathBuf};
+
+pub const GEMINI_LEGACY_GLOBAL: &str = "~/.gemini/skills";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -47,6 +49,31 @@ impl AgentPathsConfig {
                 project_relative: ".agents/skills".into(),
             },
         }
+    }
+
+    /// Extra global paths to probe for a given agent beyond its configured
+    /// `pair.global`. Covers legacy paths that users may still have skills in.
+    /// Returns only paths that differ from the configured global (no duplicates).
+    pub fn extra_global_paths(
+        &self,
+        agent: crate::commands::canonical_skills::AgentId,
+        expand: impl Fn(&str) -> PathBuf,
+    ) -> Vec<PathBuf> {
+        let legacy: &[&str] = match agent {
+            crate::commands::canonical_skills::AgentId::Gemini => &[GEMINI_LEGACY_GLOBAL],
+            _ => &[],
+        };
+        let pair = match agent {
+            crate::commands::canonical_skills::AgentId::Anthropic => &self.anthropic,
+            crate::commands::canonical_skills::AgentId::Codex => &self.codex,
+            crate::commands::canonical_skills::AgentId::Gemini => &self.gemini,
+        };
+        let configured = expand(&pair.global);
+        legacy
+            .iter()
+            .map(|p| expand(p))
+            .filter(|p| *p != configured)
+            .collect()
     }
 }
 
