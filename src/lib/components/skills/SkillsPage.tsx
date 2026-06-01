@@ -386,7 +386,11 @@ export default function SkillsPage() {
 
         {viewMode === "summary" ? (
           <div className="flex-1 min-h-0 border border-border rounded overflow-auto">
-            <CoverageMatrix entries={entries} knownProjects={knownProjects} />
+            <CoverageMatrix
+              entries={entries}
+              knownProjects={knownProjects}
+              onSkillClick={(name) => { setViewMode("list"); setSelectedName(name); }}
+            />
           </div>
         ) : (
           <Group

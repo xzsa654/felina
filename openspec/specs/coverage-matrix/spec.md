@@ -8,15 +8,21 @@ TBD - created by archiving change 'cross-project-push-and-coverage'. Update Purp
 
 ### Requirement: Coverage Matrix View
 
-The Skills page SHALL provide a Summary view-mode alongside the existing List view-mode, toggled via a view-mode control in the page header. When Summary mode is active, the page SHALL render a skill × target grid where each row represents a canonical skill and each column represents a unique target combination (agent × scope × project). Each cell SHALL display the sync state of that skill-target pair using the following icons:
+The Skills page SHALL provide a Summary view-mode alongside the existing List view-mode, toggled via a view-mode control in the page header. When Summary mode is active, the page SHALL render a skill x target grid where each row represents a canonical skill and each column represents a unique target combination (agent x scope x project).
 
-- `✓` — synced: a `lastSync` entry exists for this target and the skill is not dirty
-- `●` — dirty: a `lastSync` entry exists but the skill is dirty
-- `—` — not synced: the target exists in the skill's target list but no `lastSync` entry is present
-- `○` — disabled: the target exists but `enabled` is false
-- empty — the skill has no target matching this column
+Each cell SHALL display the sync state of that skill-target pair using status Badge components instead of plain text symbols. Each Badge SHALL be a rounded-full element with semantic theme background and text colors:
+
+- Synced: checkmark icon with bg-success/10 text-success
+- Dirty: filled circle icon with bg-warning/10 text-warning
+- Not synced: dash icon with bg-bg-secondary/30 text-text-secondary
+- Disabled: open circle icon with bg-bg-secondary/20 text-text-tertiary
+- Empty: no Badge rendered
+
+Data rows SHALL NOT use grid lines or cell borders. Instead, rows SHALL use hover:bg-bg-secondary/20 with group hover to provide visual row tracking. The header row SHALL retain a bottom border as the sole divider between header and data rows.
 
 Column headers SHALL display the agent name and scope label. For project-scope targets, the column header SHALL show the last path segment as a short project name. Rows SHALL be sorted alphabetically by skill name.
+
+Skill names in the first column SHALL be interactive: they SHALL display cursor-pointer styling and a hover text color change. When clicked, the system SHALL switch the view mode to List and select the clicked skill for editing. The CoverageMatrix component SHALL accept an onSkillClick callback prop of type (name: string) => void for this purpose.
 
 When no skills exist, the Summary view SHALL display an empty state message.
 
@@ -25,12 +31,24 @@ When no skills exist, the Summary view SHALL display an empty state message.
 - **GIVEN** the Skills page is showing List mode with 3 canonical skills
 - **WHEN** the user clicks the Summary toggle
 - **THEN** the page renders a grid with 3 rows (one per skill) and columns for each unique target across all skills
+- **AND** data rows have no visible grid lines or cell borders
 
-#### Scenario: Cell reflects sync state
+#### Scenario: Cell reflects sync state with Badge
 
-- **GIVEN** skill "my-skill" has a target `anthropic:global` with a `lastSync` entry and `dirty` is false
+- **GIVEN** skill "my-skill" has a target anthropic:global with a lastSync entry and dirty is false
 - **WHEN** the Coverage Matrix renders
-- **THEN** the cell at row "my-skill", column "anthropic / global" displays `✓`
+- **THEN** the cell at row "my-skill", column "anthropic / global" displays a rounded Badge with checkmark icon in success color
+
+#### Scenario: Row hover highlight
+
+- **WHEN** the user hovers over a data row in the Coverage Matrix
+- **THEN** the entire row SHALL display a subtle background highlight (bg-bg-secondary/20)
+
+#### Scenario: Skill name click navigates to editor
+
+- **GIVEN** the Coverage Matrix is displayed with skill "code-review" in a row
+- **WHEN** the user clicks the "code-review" skill name
+- **THEN** the view mode switches to List and the "code-review" skill is selected and expanded in the SkillEditor
 
 #### Scenario: Empty skills list
 
@@ -38,26 +56,36 @@ When no skills exist, the Summary view SHALL display an empty state message.
 - **WHEN** Summary mode is active
 - **THEN** the grid area displays "No skills to display"
 
+
 <!-- @trace
-source: cross-project-push-and-coverage
-updated: 2026-05-24
+source: skill-editor-coverage-matrix
+updated: 2026-06-01
 code:
-  - src/lib/utils/path.ts
-  - src/lib/components/skills/AddTargetDialog.tsx
-  - src/lib/components/skills/SkillsPage.tsx
-  - src/lib/components/skills/CoverageMatrix.tsx
-  - src-tauri/Cargo.toml
-  - src-tauri/capabilities/default.json
-  - src/lib/components/skills/TargetEditor.tsx
-  - src/lib/types/skills.ts
-  - package.json
-  - src-tauri/gen/schemas/desktop-schema.json
-  - src-tauri/gen/schemas/capabilities.json
-  - src-tauri/src/commands/known_projects.rs
-  - src-tauri/src/lib.rs
-  - src-tauri/gen/schemas/acl-manifests.json
   - .session/product-backlog.md
-  - src-tauri/gen/schemas/windows-schema.json
+  - src/lib/components/settings/AgentPathsSection.tsx
+  - .session/skill-editor-ui-adjustment-report.md
+  - src/lib/assets/antigravity.png
+  - src/lib/components/skills/TargetChips.tsx
+  - src/lib/components/skills/SkillsPage.tsx
+  - src-tauri/src/commands/skill_import.rs
+  - src/lib/assets/claude.svg
+  - .session/agent-skill-market-complete.md
+  - tests/loader.mjs
+  - src-tauri/src/lib.rs
+  - src/lib/components/skills/SkillList.tsx
+  - src-tauri/src/commands/canonical_skills.rs
+  - src-tauri/src/commands/agent_paths.rs
+  - src/lib/components/skills/SkillEditor.tsx
+  - src/lib/components/skills/TargetEditor.tsx
+  - src/lib/components/skills/sync-status-utils.ts
+  - src/lib/i18n/locales/zh-TW.ts
+  - src/lib/components/skills/TargetPopover.tsx
+  - src/lib/assets/codex.png
+  - src/lib/components/skills/SyncInfoBar.tsx
+  - src/lib/components/skills/CoverageMatrix.tsx
+  - src/lib/i18n/locales/en.ts
+tests:
+  - tests/sync-status-utils.test.ts
 -->
 
 ---

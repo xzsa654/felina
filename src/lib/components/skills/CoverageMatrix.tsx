@@ -1,4 +1,4 @@
-import { Fragment, useMemo } from "react";
+import { useMemo } from "react";
 import type {
   CanonicalSkill,
   DriftStatus,
@@ -57,12 +57,12 @@ const STATE_ICON: Record<SyncState, string> = {
 };
 
 const STATE_CLASS: Record<SyncState, string> = {
-  synced: "text-success",
-  dirty: "text-warning",
-  "not-synced": "text-text-secondary",
-  disabled: "text-text-secondary opacity-50",
+  synced: "text-success bg-success/10",
+  dirty: "text-warning bg-warning/10",
+  "not-synced": "text-text-secondary bg-bg-secondary/30",
+  disabled: "text-text-secondary opacity-50 bg-bg-secondary/20",
   "no-target": "",
-  drifted: "text-warning",
+  drifted: "text-warning bg-warning/10",
 };
 
 const STATE_TITLE: Record<SyncState, StateTranslationKey> = {
@@ -107,9 +107,10 @@ function buildColumns(skills: CanonicalSkill[], locale: Locale): ColumnDef[] {
 interface Props {
   entries: SkillListEntry[];
   knownProjects?: KnownProject[];
+  onSkillClick?: (name: string) => void;
 }
 
-export default function CoverageMatrix({ entries, knownProjects }: Props) {
+export default function CoverageMatrix({ entries, knownProjects, onSkillClick }: Props) {
   const locale = useLocaleStore((s) => s.locale);
   const driftMap = useSkillsStore((s) => s.driftMap);
   const skills = useMemo(
@@ -133,8 +134,22 @@ export default function CoverageMatrix({ entries, knownProjects }: Props) {
 
   return (
     <div className="h-full w-full overflow-auto text-xs">
+      {/* Column-highlight CSS for crosshair effect */}
+      <style>{`
+        .cm-cell { position: relative; }
+        .cm-cell:hover::after {
+          content: '';
+          position: absolute;
+          left: 0; right: 0;
+          top: -9999px; bottom: -9999px;
+          background: var(--color-accent);
+          opacity: 0.07;
+          pointer-events: none;
+          z-index: 0;
+        }
+      `}</style>
       <div
-        className="grid gap-px min-w-full"
+        className="grid min-w-full overflow-clip"
         style={{
           gridTemplateColumns: `minmax(180px, 1.5fr) repeat(${columns.length}, minmax(80px, 1fr))`,
         }}
@@ -154,11 +169,16 @@ export default function CoverageMatrix({ entries, knownProjects }: Props) {
         ))}
 
         {/* Data rows */}
-        {skills.map((skill) => (
-          <Fragment key={skill.name}>
+        {skills.map((skill, idx) => {
+          const stripe = idx % 2 === 1 ? "bg-bg-tertiary/50" : "";
+          return (
+          <div key={skill.name} className="group/row contents">
             <div
-              className="sticky left-0 bg-bg-primary px-2 py-1 border-b border-border/50 truncate z-10"
+              className={`sticky left-0 px-2 py-1 truncate z-10 group-hover/row:bg-accent/10 ${stripe || "bg-bg-primary"} ${
+                onSkillClick ? "cursor-pointer hover:text-accent" : ""
+              }`}
               title={skill.name}
+              onClick={onSkillClick ? () => onSkillClick(skill.name) : undefined}
             >
               {skill.name}
             </div>
@@ -176,23 +196,28 @@ export default function CoverageMatrix({ entries, knownProjects }: Props) {
               return (
                 <div
                   key={`${skill.name}-${col.key}`}
-                  className={`px-2 py-1 text-center border-b border-border/50 ${
-                    isProjectNotFound
-                      ? "text-danger"
-                      : STATE_CLASS[state]
-                  }`}
+                  className={`cm-cell px-2 py-1 text-center group-hover/row:bg-accent/10 ${stripe}`}
                   title={
                     isProjectNotFound
                       ? t(locale, "skills.projectNotFound")
                       : t(locale, STATE_TITLE[state])
                   }
                 >
-                  {isProjectNotFound ? "!" : STATE_ICON[state]}
+                  {state !== "no-target" && (
+                    <span
+                      className={`inline-flex items-center justify-center w-5 h-5 rounded-full text-[10px] font-medium ${
+                        isProjectNotFound ? "text-danger bg-danger/10" : STATE_CLASS[state]
+                      }`}
+                    >
+                      {isProjectNotFound ? "!" : STATE_ICON[state]}
+                    </span>
+                  )}
                 </div>
               );
             })}
-          </Fragment>
-        ))}
+          </div>
+          );
+        })}
       </div>
     </div>
   );
