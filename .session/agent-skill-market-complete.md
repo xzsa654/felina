@@ -59,16 +59,39 @@ Market 應該建立在 Felina 現有 canonical model 上，而不是另建一套
 - Publish 來源是 `~/.felina/skills/<skill-name>/` canonical skill directory。
 - Install 結果寫回 `~/.felina/skills/<skill-name>/`，再走現有 fan-out 流程。
 
-### Market Server
+### Market Server (技術棧選項探討)
 
-未來內網 server 可以採用：
+> 💡 **註**：以下技術棧仍在探討階段，實際方向尚未定案，將在 Phase 3 正式 proposal 中重新確認，不在目前立即實作。
 
-- Node.js + TypeScript + Fastify
-- PostgreSQL 儲存 metadata
-- MinIO 或公司既有 S3-compatible storage 儲存 package artifact
-- Microsoft Entra ID 驗證公司帳號
+基於「開源、免費、安全」的需求，目前有多種技術棧選項正在討論中：
 
-這是合理方向，但應在 Phase 3 正式 proposal 中重新確認，不在目前立即實作。
+#### 1. 資料庫 (DB) 選項
+- **PostgreSQL**：原定首選方案，企業級開源標準，具備極強的權限控制與豐富的 JSONB 支援。
+- **SQLite (+ Litestream)**：若內部使用者規模不大，此為極輕量、零維護成本的高安全選項（不對外暴露 Port），可搭配 Litestream 同步 S3 備份。
+- **MariaDB**：MySQL 的純開源替代方案，適合團隊既有技術背景。
+
+#### 2. 後端伺服器 (Server) 選項
+- **Rust (Axum / Actix-Web)**：極致安全。最大優勢是能與 Felina 桌面端共享同一個 Rust Crate (核心邏輯庫)，例如 package 驗證規則，達到前後端高度統一。
+- **Node.js + Fastify**：開發快速，生態系豐富的原定選項。
+- **Go (Golang)**：編譯為單一執行檔，部署簡便且內建強大安全的 HTTP 標準庫。
+
+#### 3. 檔案儲存與驗證
+- **檔案儲存**：**MinIO** 或公司既有的 S3-compatible storage，開源免費且安全。
+- **身份驗證**：Microsoft Entra ID。若需純開源替代方案，可評估 **Keycloak** 或 **Authelia** 等 SSO 服務。
+
+### 產品前端 UI 呈現概念 (Vision)
+
+未來的 Skill Market 前端呈現預計融合「供給端」與「需求端」，打造內部開源社群體驗：
+
+1. **使用者許願池 (Wishlist & Threads)**：
+   - 採用類似 Threads 的輕量化瀑布流，使用者可發布需求卡片。
+   - 具備 `+1 (Me Too)` 微互動機制推升熱度，並支援展開對話式討論串。
+   - 開發者可接單 (Claim) 並在完成後連結上架的 Skill，達成需求閉環。
+2. **Skills Hub (類似 Docker Hub)**：
+   - 無邊框大搜尋列與沉浸式發現體驗（Trending, Editor's Choice）。
+   - 詳情頁展示完整的 Markdown README、版本控制，以及顯眼的「一鍵安裝」按鈕，點擊後透過 Tauri 後端靜默無縫同步至本機。
+3. **個人/團隊主頁 (Creator Profile)**：
+   - 展示貢獻成就與影響力，促進內部技術流動與知識共享。
 
 ### Package Format
 
