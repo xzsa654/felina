@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router";
-import { ArrowRight, Check, ChevronDown, ChevronRight, Download, HelpCircle } from "lucide-react";
+import { ArrowRight, Check, Download, HelpCircle } from "lucide-react";
 import { api } from "$lib/tauri/commands";
 import type { AgentId, KnownProject } from "$lib/types";
 import ConfirmDialog from "$lib/components/shared/ConfirmDialog";
@@ -35,8 +35,9 @@ export default function ManagedInventory({ project, onChanged }: Props) {
   // before a per-row import silently overwrites one.
   const [globalNames, setGlobalNames] = useState<Set<string>>(new Set());
   const [pendingImport, setPendingImport] = useState<InventoryRow | null>(null);
-  const [expandedMulti, setExpandedMulti] = useState<Record<string, boolean>>({});
-  const [selectedSource, setSelectedSource] = useState<Record<string, number>>({});
+  const [drawerSkill, setDrawerSkill] = useState<string | null>(null);
+  const [drawerSelected, setDrawerSelected] = useState<number>(0);
+  const drawerRef = useRef<HTMLDivElement>(null);
   const [helpOpen, setHelpOpen] = useState(false);
 
   const projectPath = project?.path ?? null;
@@ -75,6 +76,24 @@ export default function ManagedInventory({ project, onChanged }: Props) {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (!drawerSkill) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setDrawerSkill(null);
+    }
+    function onClick(e: MouseEvent) {
+      if (drawerRef.current && !drawerRef.current.contains(e.target as Node)) {
+        setDrawerSkill(null);
+      }
+    }
+    document.addEventListener("keydown", onKey);
+    document.addEventListener("mousedown", onClick);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("mousedown", onClick);
+    };
+  }, [drawerSkill]);
 
   // Entry point: if a global master with the same name already exists,
   // importing would overwrite it — confirm first instead of silently
@@ -194,11 +213,11 @@ export default function ManagedInventory({ project, onChanged }: Props) {
               </h4>
               <div className="flex flex-col gap-1">
                 {discovered.map((row) => {
-                  const multiExpanded = row.deferred && row.candidate?.deferred && expandedMulti[row.skillName];
+                  const isMulti = row.deferred && row.candidate?.deferred;
+                  const isDrawerOpen = drawerSkill === row.skillName;
                   const multiSources = row.candidate?.deferred?.candidates ?? [];
-                  const chosenSource = selectedSource[row.skillName];
                   return (
-                    <div key={row.skillName}>
+                    <div key={row.skillName} ref={isDrawerOpen ? drawerRef : undefined}>
                       <div className="grid items-center px-3 py-2 hover:bg-bg-secondary/50 rounded" style={{ gridTemplateColumns: "auto 1fr 5rem 9rem", gap: "0.75rem" }}>
                         <span className="text-[10px] px-1.5 py-0.5 rounded bg-info/15 text-info">{t(locale, "projects.inventory.badgeNew")}</span>
                         <span className="font-mono text-text-primary truncate">{row.skillName}</span>
@@ -211,14 +230,21 @@ export default function ManagedInventory({ project, onChanged }: Props) {
                           })}
                         </div>
                         <div className="justify-self-end">
-                        {row.deferred && row.candidate?.deferred ? (
+                        {isMulti ? (
                           <button
                             type="button"
-                            onClick={() => setExpandedMulti((prev) => ({ ...prev, [row.skillName]: !prev[row.skillName] }))}
-                            className="inline-flex items-center gap-1 text-accent hover:text-accent-hover"
+                            onClick={() => {
+                              if (isDrawerOpen) {
+                                setDrawerSkill(null);
+                              } else {
+                                setDrawerSkill(row.skillName);
+                                setDrawerSelected(0);
+                              }
+                            }}
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded bg-accent text-white hover:bg-accent-hover"
                           >
-                            {expandedMulti[row.skillName] ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-                            {t(locale, "projects.inventory.multiSource")}
+                            <Download size={12} />
+                            {t(locale, "projects.inventory.importToGlobal")}
                           </button>
                         ) : (
                           <button
@@ -235,40 +261,46 @@ export default function ManagedInventory({ project, onChanged }: Props) {
                         )}
                         </div>
                       </div>
-                      {multiExpanded && (
-                        <div className="ml-6 mt-1 mb-2 flex flex-wrap gap-2 items-center">
-                          {multiSources.map((source, si) => (
-                            <label
-                              key={`${source.sourcePath}-${si}`}
-                              className={`inline-flex items-center gap-1.5 text-xs px-2 py-1 rounded border cursor-pointer ${
-                                chosenSource === si
-                                  ? "border-accent bg-accent/10 text-accent"
-                                  : "border-border bg-bg-primary text-text-secondary hover:border-accent/60"
-                              }`}
+                      {isDrawerOpen && (
+                        <div className="bg-bg-secondary/20 border border-border rounded mx-3 my-1 p-3">
+                          <p className="text-[11px] text-text-secondary mb-2">
+                            {t(locale, "projects.inventory.drawer.selectSource")}
+                          </p>
+                          <div className="flex flex-col gap-2">
+                            {multiSources.map((source, si) => (
+                              <button
+                                type="button"
+                                key={`${source.sourcePath}-${si}`}
+                                onClick={() => setDrawerSelected(si)}
+                                className={`flex items-center gap-3 bg-bg-secondary/30 border rounded p-3 cursor-pointer text-left transition-colors ${
+                                  drawerSelected === si
+                                    ? "border-accent ring-1 ring-accent"
+                                    : "border-border hover:border-accent"
+                                }`}
+                              >
+                                <img src={AGENT_ICON[source.sourceAgent] ?? ""} alt={source.sourceAgent} className="w-5 h-5 shrink-0" />
+                                <div className="min-w-0">
+                                  <span className="text-xs text-text-primary">{source.sourceAgent}</span>
+                                  <span className="block font-mono text-[10px] text-text-muted truncate" title={source.sourcePath}>
+                                    {source.sourcePath}
+                                  </span>
+                                </div>
+                              </button>
+                            ))}
+                          </div>
+                          <div className="flex justify-end mt-3">
+                            <button
+                              type="button"
+                              disabled={importing === row.skillName}
+                              onClick={() => void performMultiSourceImport(row, drawerSelected)}
+                              className="inline-flex items-center gap-1 px-3 py-1.5 rounded bg-accent text-white hover:bg-accent-hover disabled:opacity-60 text-xs"
                             >
-                              <input
-                                type="radio"
-                                name={`ms-${row.skillName}`}
-                                checked={chosenSource === si}
-                                onChange={() => setSelectedSource((prev) => ({ ...prev, [row.skillName]: si }))}
-                              />
-                              <img src={AGENT_ICON[source.sourceAgent] ?? ""} alt={source.sourceAgent} className="w-3.5 h-3.5" />
-                              <span className="font-mono text-[10px] text-text-muted truncate max-w-[12rem]" title={source.sourcePath}>
-                                {source.sourcePath}
-                              </span>
-                            </label>
-                          ))}
-                          <button
-                            type="button"
-                            disabled={chosenSource === undefined || importing === row.skillName}
-                            onClick={() => { if (chosenSource !== undefined) void performMultiSourceImport(row, chosenSource); }}
-                            className="inline-flex items-center gap-1 px-2 py-1 rounded bg-accent text-white hover:bg-accent-hover disabled:opacity-60 text-xs"
-                          >
-                            <Download size={12} />
-                            {importing === row.skillName
-                              ? t(locale, "projects.inventory.importing")
-                              : t(locale, "projects.inventory.importToGlobal")}
-                          </button>
+                              <Download size={12} />
+                              {importing === row.skillName
+                                ? t(locale, "projects.inventory.importing")
+                                : t(locale, "projects.inventory.drawer.confirmImport")}
+                            </button>
+                          </div>
                         </div>
                       )}
                     </div>

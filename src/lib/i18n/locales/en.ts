@@ -593,6 +593,10 @@ const en = {
       sectionDiscovered: "Discovered",
       sectionManaged: "Managed",
       badgeNew: "new",
+      drawer: {
+        selectSource: "This skill was found under multiple agent directories. Choose which version to import:",
+        confirmImport: "Confirm Import",
+      },
       help: {
         title: "About Managed Inventory",
         multiSource: "Multi-source — This skill was found under more than one agent directory (e.g. both .claude/skills/ and .gemini/skills/). Because the contents may differ, you need to choose which agent's version to import as the canonical master.",
