@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { AlertTriangle, Trash2 } from "lucide-react";
-import type { KnownProject, ProjectSource } from "$lib/types";
+import type { KnownProject } from "$lib/types";
 import { api } from "$lib/tauri/commands";
 import ConfirmDialog from "$lib/components/shared/ConfirmDialog";
 import { useLocaleStore } from "$lib/stores/locale";
@@ -15,11 +15,6 @@ interface Props {
   onRemoved: () => void;
 }
 
-const SOURCE_KEY: Record<ProjectSource, "projects.list.source.cwd" | "projects.list.source.detected" | "projects.list.source.saved"> = {
-  cwd: "projects.list.source.cwd",
-  detected: "projects.list.source.detected",
-  saved: "projects.list.source.saved",
-};
 
 /**
  * Left column of the Projects view: the Known Projects list. Entries are
@@ -67,17 +62,13 @@ export default function ProjectsList({ projects, loaded, selectedPath, onSelect,
         return (
           <li
             key={p.path}
-            className={`flex items-stretch border-b border-border/50 ${
-              selected
-                ? "bg-accent/10"
-                : "hover:bg-bg-secondary"
-            }`}
+            className="flex items-stretch"
           >
             <button
               type="button"
               onClick={() => onSelect(p.path)}
-              className={`flex-1 min-w-0 text-left px-3 py-2 ${
-                selected ? "text-text-primary" : "text-text-secondary hover:text-text-primary"
+              className={`flex-1 min-w-0 text-left mx-2 rounded-md px-3 py-2 transition-colors ${
+                selected ? "bg-bg-secondary text-text-primary" : "text-text-secondary hover:bg-bg-secondary/50 hover:text-text-primary"
               }`}
             >
               <div className="flex items-center justify-between gap-2">
@@ -95,16 +86,6 @@ export default function ProjectsList({ projects, loaded, selectedPath, onSelect,
               </div>
               <div className="text-[11px] text-text-muted truncate" title={p.path}>
                 {p.path}
-              </div>
-              <div className="flex gap-1 mt-1">
-                {p.sources.map((s) => (
-                  <span
-                    key={s}
-                    className="text-[10px] px-1.5 py-0.5 rounded bg-bg-secondary border border-border text-text-muted"
-                  >
-                    {t(locale, SOURCE_KEY[s])}
-                  </span>
-                ))}
               </div>
             </button>
             {removable && (

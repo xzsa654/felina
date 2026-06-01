@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { FolderOpen, Loader2, RefreshCw } from "lucide-react";
+import { Group, Panel, useDefaultLayout } from "react-resizable-panels";
 import { PageBody, PageHeader } from "$lib/components/shared/PageScaffold";
 import { useProjectContextStore } from "$lib/stores/project-context";
 import { useLocaleStore } from "$lib/stores/locale";
@@ -9,6 +10,7 @@ import type { KnownProject } from "$lib/types";
 import { normalizeProjectPath } from "$lib/utils/path";
 import ProjectsList from "./ProjectsList";
 import ManagedInventory from "./ManagedInventory";
+import ResizableHandle from "$lib/components/skills/ResizableHandle";
 
 /**
  * Projects top-level view (scope-model-simplification). A per-project
@@ -76,6 +78,7 @@ export default function ProjectsPage() {
   }
 
   const selectedProject = projects.find((p) => p.path === selectedPath) ?? null;
+  const projectsLayout = useDefaultLayout({ id: "felina-projects-layout" });
 
   return (
     <>
@@ -100,8 +103,21 @@ export default function ProjectsPage() {
         }
       />
       <PageBody>
-        <div className="grid grid-cols-[280px_minmax(0,1fr)] gap-4 h-full min-h-0">
-          <div className="border border-border rounded overflow-y-auto">
+        <Group
+          orientation="horizontal"
+          defaultLayout={projectsLayout.defaultLayout}
+          onLayoutChanged={projectsLayout.onLayoutChanged}
+          id="felina-projects-layout"
+          className="flex-1 min-h-0"
+        >
+          <Panel
+            id="projects-list"
+            defaultSize="25%"
+            minSize="15%"
+            maxSize="50%"
+            collapsible
+            className="border border-border rounded overflow-y-auto"
+          >
             <ProjectsList
               projects={projects}
               loaded={loaded}
@@ -109,14 +125,17 @@ export default function ProjectsPage() {
               onSelect={setSelectedPath}
               onRemoved={() => void refresh()}
             />
-          </div>
-          <div className="border border-border rounded overflow-y-auto">
+          </Panel>
+
+          <ResizableHandle />
+
+          <Panel id="project-detail" className="border border-border rounded overflow-hidden">
             <ManagedInventory
               project={selectedProject}
               onChanged={() => void refresh()}
             />
-          </div>
-        </div>
+          </Panel>
+        </Group>
       </PageBody>
     </>
   );
