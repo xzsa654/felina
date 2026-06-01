@@ -277,6 +277,7 @@ const en = {
       addField: "Add field",
       tabContent: "Content",
       tabSettings: "Settings",
+
       bodyLabel: "Body (Markdown)",
       bodyEdit: "Edit",
       bodyPreview: "Preview",

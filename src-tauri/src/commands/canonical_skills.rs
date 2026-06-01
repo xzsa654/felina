@@ -192,9 +192,9 @@ fn take_required_string(map: &mut serde_yaml::Mapping, key: &str) -> Result<Stri
 }
 
 fn take_required_agents(map: &mut serde_yaml::Mapping) -> Result<Vec<AgentId>, String> {
-    let v = map
-        .remove(serde_yaml::Value::String("agents".to_string()))
-        .ok_or_else(|| "missing required frontmatter field: agents".to_string())?;
+    let Some(v) = map.remove(serde_yaml::Value::String("agents".to_string())) else {
+        return Ok(Vec::new());
+    };
     let seq = match v {
         serde_yaml::Value::Sequence(s) => s,
         other => {
@@ -1479,10 +1479,19 @@ Hello.\n";
     }
 
     #[test]
-    fn rejects_missing_required() {
-        let bad = "---\nname: x\ndescription: y\n---\nbody\n";
-        let err = parse_skill_md(bad).unwrap_err();
-        assert!(err.contains("agents"), "err was: {err}");
+    fn parse_skill_md_without_agents_returns_ok() {
+        let raw = "---\nname: my-skill\ndescription: A useful skill\n---\n# Body\n";
+        let s = parse_skill_md(raw).unwrap();
+        assert_eq!(s.name, "my-skill");
+        assert_eq!(s.description, "A useful skill");
+        assert!(s.agents.is_empty());
+    }
+
+    #[test]
+    fn parse_skill_md_with_agents_unchanged() {
+        let raw = "---\nname: x\ndescription: y\nagents:\n  - anthropic\n  - gemini\n---\nbody\n";
+        let s = parse_skill_md(raw).unwrap();
+        assert_eq!(s.agents, vec![AgentId::Anthropic, AgentId::Gemini]);
     }
 
     #[test]

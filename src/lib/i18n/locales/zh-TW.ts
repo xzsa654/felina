@@ -279,6 +279,7 @@ const zhTW: TranslationDict = {
       addField: "新增欄位",
       tabContent: "內容",
       tabSettings: "欄位設定",
+
       bodyLabel: "內容（Markdown）",
       bodyEdit: "編輯",
       bodyPreview: "預覽",
