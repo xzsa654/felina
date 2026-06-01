@@ -101,11 +101,11 @@ export default function AgentFieldsEditor({ agentFields, targets, onChange }: Pr
   return (
     <div className="flex flex-col gap-3">
       {sortedGroups.map(([agent, fields]) => {
-        const open = openGroups[agent] ?? false;
+        const open = openGroups[agent] ?? true;
         const values = getAgentValues(agent);
         const activeCount = Object.keys(values).length;
         return (
-          <div key={agent} className="border border-border rounded">
+          <div key={agent} className="bg-bg-secondary/30 border border-border rounded">
             <button
               type="button"
               onClick={() => setOpenGroups((prev) => ({ ...prev, [agent]: !open }))}
@@ -197,7 +197,7 @@ function FieldRow({
           <select
             value={value}
             onChange={(e) => onChangeValue(e.target.value)}
-            className="px-2 py-1 rounded bg-bg-primary border border-border text-xs flex-1"
+            className="px-2 py-1 rounded bg-bg-primary border border-border text-xs flex-1 focus:ring-1 focus:ring-accent"
           >
             <option value="">{t(locale, "skills.fields.selectValue")}</option>
             {def.enumValues.map((ev) => (
@@ -210,7 +210,7 @@ function FieldRow({
           <select
             value={value}
             onChange={(e) => onChangeValue(e.target.value)}
-            className="px-2 py-1 rounded bg-bg-primary border border-border text-xs flex-1"
+            className="px-2 py-1 rounded bg-bg-primary border border-border text-xs flex-1 focus:ring-1 focus:ring-accent"
           >
             <option value="">{t(locale, "skills.fields.selectValue")}</option>
             <option value="true">true</option>
@@ -222,7 +222,7 @@ function FieldRow({
             value={value}
             onChange={(e) => onChangeValue(e.target.value)}
             placeholder={placeholder}
-            className="px-2 py-1 rounded bg-bg-primary border border-border text-xs flex-1"
+            className="px-2 py-1 rounded bg-bg-primary border border-border text-xs flex-1 focus:ring-1 focus:ring-accent"
           />
         )}
         <button
