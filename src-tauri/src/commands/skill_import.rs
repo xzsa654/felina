@@ -125,11 +125,11 @@ pub fn skill_import_scan_quick(project_path: Option<String>) -> Result<ImportSca
 
     let anthropic = skill_names_at_pair(scope, project_path.as_deref(), &cfg.anthropic)?;
     let codex = skill_names_at_pair(scope, project_path.as_deref(), &cfg.codex)?;
-    // Gemini: spec-default + Antigravity fallback (distinct names across both).
     let mut gemini = skill_names_at_pair(scope, project_path.as_deref(), &cfg.gemini)?;
     if scope == SkillScope::Global {
-        let antigravity = expand_user_path("~/.gemini/antigravity-cli/skills");
-        gemini.extend(skill_names_at(&antigravity));
+        for extra in cfg.extra_global_paths(AgentId::Gemini, |p| expand_user_path(p)) {
+            gemini.extend(skill_names_at(&extra));
+        }
     }
 
     // Per-agent counts are distinct names within that agent's location(s).
@@ -206,10 +206,10 @@ pub fn skill_import_scan(project_path: Option<String>) -> Result<Vec<ImportCandi
         let dir = resolve_pair(scope, project_path.as_deref(), pair)?;
         collect_candidates_in(&dir, agent, &canonical_dir, &mut out);
     }
-    // Antigravity Gemini extra path (global only).
     if scope == SkillScope::Global {
-        let antigravity = expand_user_path("~/.gemini/antigravity-cli/skills");
-        collect_candidates_in(&antigravity, AgentId::Gemini, &canonical_dir, &mut out);
+        for extra in cfg.extra_global_paths(AgentId::Gemini, |p| expand_user_path(p)) {
+            collect_candidates_in(&extra, AgentId::Gemini, &canonical_dir, &mut out);
+        }
     }
 
     // Collapse to one row per skill name; mark multi-source names deferred.
