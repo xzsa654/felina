@@ -1,17 +1,20 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useRef, type ReactNode } from "react";
 import { RefreshCw } from "lucide-react";
-import type { QuotaSnapshot, AnthropicRateLimits, CodexRateLimits, GeminiRateLimits } from "$lib/types";
+import type { AnthropicRateLimits, CodexRateLimits, GeminiRateLimits, QuotaSnapshot } from "$lib/types";
 import type { Locale } from "$lib/i18n";
-import { api, type BudgetSettings } from "$lib/tauri/commands";
 import { TokenUsageSkeleton } from "./TokensPageSkeleton";
+import {
+  useAgentQuotaSnapshot,
+  useBudgetSettings,
+  useSetBudgetSettings,
+} from "../hooks/useTokenQueries";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function timeAgoShort(d: Date): string {
   const s = Math.floor((Date.now() - d.getTime()) / 1000);
   if (s < 10) return "just now";
-  if (s < 60) return `${s}s ago`;
-  return `${Math.floor(s / 60)}m ago`;
+  return `${s}s ago`;
 }
 
 function formatReset(iso: string | null): string {
@@ -41,9 +44,6 @@ function ProgressBar({ pct }: { pct: number }) {
     </div>
   );
 }
-
-/** Bar without a label — for weekly (we don't have a hard limit to show %) */
-
 
 // ── Agent cards ───────────────────────────────────────────────────────────────
 
@@ -134,149 +134,120 @@ function GeminiCard({ limits }: { limits: GeminiRateLimits }) {
   );
 }
 
-// ── Module-level cache — survives route changes ───────────────────────────────
-let _quotaCache: QuotaSnapshot | null = null;
-let _quotaLastUpdated: Date | null = null;
-let _quotaNextAllowed: Date | null = null;
-let _quotaTtlSeconds: number | null = null;
+// ── QuotaContent ──────────────────────────────────────────────────────────────
+// Keyed on ttlSeconds so TanStack Query re-initialises its internal timers
+// (staleTime / refetchInterval) when TTL changes, without triggering a fetch
+// because refetchOnMount is false and the queryKey is unchanged.
+
+interface QuotaData {
+  snapshot: QuotaSnapshot;
+  lastUpdated: Date | null;
+  isInCooldown: boolean;
+  isFetching: boolean;
+  refetch: () => void;
+}
+
+function QuotaContent({
+  ttlSeconds,
+  children,
+}: {
+  ttlSeconds: number;
+  children: (data: QuotaData) => ReactNode;
+}) {
+  const mountedAt = useRef(Date.now());
+  const quotaQuery = useAgentQuotaSnapshot(ttlSeconds);
+
+  if (quotaQuery.isPending) {
+    return <TokenUsageSkeleton />;
+  }
+
+  const snapshot = quotaQuery.data;
+  if (!snapshot) return null;
+
+  const effectiveUpdatedAt = Math.max(quotaQuery.dataUpdatedAt, mountedAt.current);
+  const lastUpdated = new Date(effectiveUpdatedAt);
+  const nextAllowed = new Date(snapshot.next_refresh_at);
+  const isInCooldown = new Date() < nextAllowed;
+
+  return <>{children({ snapshot, lastUpdated, isInCooldown, isFetching: quotaQuery.isFetching, refetch: () => quotaQuery.refetch() })}</>;
+}
+
+// ── Module-level TTL override ────────────────────────────────────────────────
+// Survives route changes so a user's TTL choice isn't lost when navigating.
+let _optimisticTtl: number | null = null;
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 export default function AgentQuotaPanel({ locale: _locale }: { locale: Locale }) {
-  const [snapshot, setSnapshot] = useState<QuotaSnapshot | null>(_quotaCache);
-  const [loading, setLoading] = useState(_quotaCache === null);
-  const [lastUpdated, setLastUpdated] = useState<Date | null>(_quotaLastUpdated);
-  const [nextAllowed, setNextAllowed] = useState<Date | null>(_quotaNextAllowed);
-  const [quotaTtlSeconds, setQuotaTtlSeconds] = useState<number>(_quotaTtlSeconds ?? 180);
   const [, tick] = useState(0);
-
-  const doFetch = useCallback(async (showLoading = false) => {
-    if (showLoading) setLoading(true);
-    try {
-      const data = await api.tokenAnalytics.getAgentQuotaSnapshot();
-      // Merge: keep previous non-null values if the new fetch returned empty data
-      // (e.g. transient token refresh causing null utilization during 30s auto-refresh).
-      setSnapshot((prev) => {
-        const base = prev ?? _quotaCache;
-        if (!base) { _quotaCache = data; return data; }
-        const hasNewClaude = data.anthropic_limits.available &&
-          data.anthropic_limits.five_hour.utilization != null;
-        const hasNewCodex = data.codex_limits.available &&
-          data.codex_limits.primary_pct != null;
-        const merged = {
-          fetched_at: data.fetched_at,
-          expires_at: data.expires_at,
-          next_refresh_at: data.next_refresh_at,
-          stale: data.stale,
-          anthropic_limits: hasNewClaude ? data.anthropic_limits : base.anthropic_limits,
-          codex_limits:     hasNewCodex  ? data.codex_limits     : base.codex_limits,
-          gemini_limits:    data.gemini_limits.available
-                              ? data.gemini_limits
-                              : base.gemini_limits,
-        };
-        _quotaCache = merged;
-        return merged;
-      });
-      const fetchedAt = new Date(data.fetched_at);
-      const nextRefreshAt = new Date(data.next_refresh_at);
-      _quotaLastUpdated = fetchedAt;
-      _quotaNextAllowed = nextRefreshAt;
-      setLastUpdated(fetchedAt);
-      setNextAllowed(nextRefreshAt);
-    } catch { /* silently ignore */ }
-    finally { setLoading(false); }
+  useEffect(() => {
+    const t = setInterval(() => tick((n) => n + 1), 1000);
+    return () => clearInterval(t);
   }, []);
 
-  useEffect(() => {
-    let cancelled = false;
-    api.budget.get()
-      .then((settings) => {
-        if (cancelled) return;
-        _quotaTtlSeconds = settings.quota_ttl_seconds;
-        setQuotaTtlSeconds(settings.quota_ttl_seconds);
-      })
-      .catch(() => {});
-    return () => { cancelled = true; };
-  }, []);
+  const budgetQuery = useBudgetSettings();
+  const budgetTtl = budgetQuery.data?.quota_ttl_seconds;
 
-  const saveQuotaTtl = useCallback(async (seconds: number) => {
-    const next = Math.min(60 * 60, Math.max(30, seconds));
-    _quotaTtlSeconds = next;
-    setQuotaTtlSeconds(next);
-    const current: BudgetSettings = await api.budget.get();
-    await api.budget.set(
-      current.daily_limit,
-      current.monthly_limit,
-      current.plan_type,
-      next,
-    );
-    await doFetch(true);
-  }, [doFetch]);
-
-  useEffect(() => {
-    doFetch(_quotaCache === null);
-    const t = setInterval(() => tick((n) => n + 1), 30_000);
-    return () => { clearInterval(t); };
-  }, [doFetch]);
-
-  useEffect(() => {
-    if (!nextAllowed) return;
-    const delay = nextAllowed.getTime() - Date.now();
-    if (delay <= 0) return;
-    const timer = setTimeout(doFetch, delay);
-    return () => clearTimeout(timer);
-  }, [doFetch, nextAllowed]);
-
-  if (loading) {
-    return <TokenUsageSkeleton />;
+  // If the budget query has caught up, release the optimistic override.
+  if (_optimisticTtl != null && budgetTtl != null && _optimisticTtl === budgetTtl) {
+    _optimisticTtl = null;
   }
 
-  if (!snapshot) return null;
+  const ttlSeconds = _optimisticTtl ?? budgetTtl ?? 60;
+  const saveQuotaTtlMutation = useSetBudgetSettings();
 
   return (
-    <div className="bg-bg-secondary border border-border rounded-lg p-5">
-      <div className="flex items-center justify-between mb-5">
-        <h3 className="text-sm font-semibold text-text-primary">Token 用量</h3>
-        <div className="flex items-center gap-2">
-          <label className="flex items-center gap-1 text-[10px] text-text-muted">
-            TTL
-            <select
-              className="h-6 px-1.5 text-[10px] bg-bg-tertiary border border-border rounded text-text-secondary focus:outline-none focus:border-accent"
-              value={quotaTtlSeconds}
-              onChange={(e) => { void saveQuotaTtl(Number(e.target.value)); }}
-              title="Quota refresh TTL. Lower values may hit provider rate limits."
-            >
-              <option value={60}>1m</option>
-              <option value={180}>3m</option>
-              <option value={300}>5m</option>
-              <option value={900}>15m</option>
-            </select>
-          </label>
-          {lastUpdated && (
-            <span className="text-[10px] text-text-muted">
-              {snapshot?.stale ? "Cached" : "Last updated"}: {timeAgoShort(lastUpdated)}
-            </span>
-          )}
-          <button
-            onClick={() => {
-              const now = new Date();
-              if (nextAllowed && now < nextAllowed) return;
-              doFetch(true);
-            }}
-            disabled={!!(nextAllowed && new Date() < nextAllowed)}
-            className="p-1 rounded hover:bg-bg-tertiary transition-colors text-text-muted hover:text-text-secondary disabled:opacity-30 disabled:cursor-not-allowed"
-            title={nextAllowed && new Date() < nextAllowed ? `冷卻中，請稍後再試` : "重新整理"}
-          >
-            <RefreshCw size={12} />
-          </button>
-        </div>
-      </div>
+    <QuotaContent key={ttlSeconds} ttlSeconds={ttlSeconds}>
+      {({ snapshot, lastUpdated, isInCooldown, isFetching, refetch }) => (
+        <div className="bg-bg-secondary border border-border rounded-lg p-5">
+          <div className="flex items-center justify-between mb-5">
+            <h3 className="text-sm font-semibold text-text-primary">Token 用量</h3>
+            <div className="flex items-center gap-2">
+              <label className="flex items-center gap-1 text-[10px] text-text-muted">
+                TTL
+                <select
+                  className="h-6 px-1.5 text-[10px] bg-bg-tertiary border border-border rounded text-text-secondary focus:outline-none focus:border-accent"
+                  value={ttlSeconds}
+                  onChange={(e) => {
+                    const seconds = Math.min(60 * 60, Math.max(30, Number(e.target.value)));
+                    _optimisticTtl = seconds;
+                    saveQuotaTtlMutation.mutate({ quotaTtlSeconds: seconds });
+                  }}
+                  title="Quota refresh TTL. Lower values may hit provider rate limits."
+                >
+                  <option value={30}>30s</option>
+                  <option value={60}>60s</option>
+                  <option value={90}>90s</option>
+                  <option value={120}>120s</option>
+                  <option value={150}>150s</option>
+                </select>
+              </label>
+              {lastUpdated && (
+                <span className="text-[10px] text-text-muted">
+                  {snapshot.stale ? "Cached" : "Last updated"}: {timeAgoShort(lastUpdated)}
+                </span>
+              )}
+              <button
+                onClick={() => {
+                  if (isInCooldown) return;
+                  refetch();
+                }}
+                disabled={isInCooldown}
+                className="p-1 rounded hover:bg-bg-tertiary transition-colors text-text-muted hover:text-text-secondary disabled:opacity-30 disabled:cursor-not-allowed"
+                title={isInCooldown ? "冷卻中，請稍後再試" : "重新整理"}
+              >
+                <RefreshCw size={12} className={isFetching ? "animate-spin" : ""} />
+              </button>
+            </div>
+          </div>
 
-      <div className="grid sm:grid-cols-3 gap-6">
-        <ClaudeCard limits={snapshot.anthropic_limits} />
-        <div className="pl-6 border-l border-border"><CodexCard limits={snapshot.codex_limits} /></div>
-        <div className="pl-6 border-l border-border"><GeminiCard limits={snapshot.gemini_limits} /></div>
-      </div>
-    </div>
+          <div className="grid sm:grid-cols-3 gap-6">
+            <ClaudeCard limits={snapshot.anthropic_limits} />
+            <div className="pl-6 border-l border-border"><CodexCard limits={snapshot.codex_limits} /></div>
+            <div className="pl-6 border-l border-border"><GeminiCard limits={snapshot.gemini_limits} /></div>
+          </div>
+        </div>
+      )}
+    </QuotaContent>
   );
 }

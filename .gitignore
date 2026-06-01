@@ -21,3 +21,4 @@ openspec/.vector-search.db*
 
 # Handoff
 .session/handoff
+.clauge-worktrees/

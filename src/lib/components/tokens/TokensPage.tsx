@@ -1,10 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useSearchParams } from "react-router";
-import { api } from "$lib/tauri/commands";
-import type {
-  TokenAnalytics,
-  CacheEfficiency,
-} from "$lib/types";
+import type { CacheEfficiency } from "$lib/types";
 import { useLocaleStore } from "$lib/stores/locale";
 import { t } from "$lib/i18n";
 import { PageBody } from "$lib/components/shared/PageScaffold";
@@ -31,21 +27,13 @@ import {
   classifyDataResolution,
   getTokenComposition,
 } from "./token-insights";
+import {
+  useTokenAnalytics,
+  useRefreshTokenData,
+} from "./hooks/useTokenQueries";
 
 type Tab = "overview" | "daily" | "models";
 type DatePreset = "all" | "today" | "days7" | "days30" | "days90";
-
-// ── Module-level cache ────────────────────────────────────────────────────────
-// Survives route changes so the page feels instant when revisiting.
-// Cleared by refresh or when datePreset changes.
-interface PageCache {
-  analytics: TokenAnalytics;
-  analyticsDaily: TokenAnalytics;
-  cacheEfficiency: CacheEfficiency;
-  datePreset: DatePreset;
-  dailyPreset: DatePreset;
-}
-let _cache: PageCache | null = null;
 
 const DATE_PRESETS: { key: DatePreset; days: number | null }[] = [
   { key: "all", days: null },
@@ -92,30 +80,78 @@ export default function TokensPage() {
   const [datePreset, setDatePreset] = useState<DatePreset>("all");
   const [dailyPreset, setDailyPreset] = useState<DatePreset>("all");
 
-  const [analytics, setAnalytics] = useState<TokenAnalytics | null>(null);
-  const [analyticsDaily, setAnalyticsDaily] = useState<TokenAnalytics | null>(null);
-  const [cacheEfficiency, setCacheEfficiency] = useState<CacheEfficiency | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  // Prevents StrictMode's double-invocation of effects from firing 2× fetches.
-  const isFetchingRef = useRef(false);
+  // ── Queries ───────────────────────────────────────────────────────────────
 
-  function getDateBounds(days: number | null): { dateStart?: number; dateEnd?: number } {
-    if (days === null) return {};
-    const dateEnd = Math.floor(Date.now() / 1000);
-    return { dateStart: dateEnd - days * 86400, dateEnd };
-  }
+  const monthlyDays = DATE_PRESETS.find((p) => p.key === datePreset)!.days;
+  const dailyDays = DATE_PRESETS.find((p) => p.key === dailyPreset)!.days;
 
-  function cacheEfficiencyFromDaily(ad: TokenAnalytics): CacheEfficiency {
-    const totalInput = ad.total_input_tokens + ad.total_cache_read_tokens;
-    return {
-      total_input_tokens: ad.total_input_tokens,
-      cache_read_tokens: ad.total_cache_read_tokens,
-      cache_write_tokens: ad.total_cache_write_tokens,
-      cache_hit_ratio: totalInput > 0 ? ad.total_cache_read_tokens / totalInput : 0,
-      cache_cost_saved: ad.total_cache_read_tokens / 1_000_000 * (3.0 - 0.3),
-    };
-  }
+  const monthlyQuery = useTokenAnalytics({
+    granularity: "monthly",
+    days: monthlyDays,
+    sourceOverride: datePreset === "all" ? undefined : "auto_dated",
+    isToday: datePreset === "today",
+  });
+
+  const dailyQuery = useTokenAnalytics({
+    granularity: "daily",
+    days: dailyDays,
+    sourceOverride: "auto_dated",
+    isToday: dailyPreset === "today",
+  });
+
+  const refreshMutation = useRefreshTokenData();
+
+  // ── Auto-refresh when switching to "today" ────────────────────────────────
+
+  const isToday = datePreset === "today" || dailyPreset === "today";
+  const prevTodayRef = useRef(false);
+
+  useEffect(() => {
+    if (isToday && !prevTodayRef.current) {
+      refreshMutation.mutate();
+    }
+    prevTodayRef.current = isToday;
+  }, [isToday]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── searchParams sync ─────────────────────────────────────────────────────
+
+  useEffect(() => {
+    const nextTab = parseTab(searchParams.get("tab"));
+    const nextDate = parseDate(searchParams.get("date"));
+    const resolvedTab = nextTab ?? (nextDate ? "daily" : null);
+    if (resolvedTab) {
+      setActiveTab((current) => (current === resolvedTab ? current : resolvedTab));
+    }
+    setSelectedDailyDate(nextDate);
+  }, [searchParams]);
+
+  // ── Derived data ──────────────────────────────────────────────────────────
+
+  const analytics = monthlyQuery.data ?? null;
+  const analyticsDaily = dailyQuery.data ?? null;
+  const cacheEfficiency: CacheEfficiency | null = dailyQuery.data
+    ? (() => {
+        const totalInput = dailyQuery.data.total_input_tokens + dailyQuery.data.total_cache_read_tokens;
+        return {
+          total_input_tokens: dailyQuery.data.total_input_tokens,
+          cache_read_tokens: dailyQuery.data.total_cache_read_tokens,
+          cache_write_tokens: dailyQuery.data.total_cache_write_tokens,
+          cache_hit_ratio: totalInput > 0 ? dailyQuery.data.total_cache_read_tokens / totalInput : 0,
+          cache_cost_saved: (dailyQuery.data.total_cache_read_tokens / 1_000_000) * (3.0 - 0.3),
+        };
+      })()
+    : null;
+  const isPending = monthlyQuery.isPending || dailyQuery.isPending;
+  const queryError = monthlyQuery.error ?? dailyQuery.error;
+
+  const dataResolution = classifyDataResolution(
+    analyticsDaily?.time_series ?? [],
+    analyticsDaily?.hourly_heatmap ?? [],
+  );
+  const composition = getTokenComposition(analytics);
+  const canShowTemporalCharts = dataResolution.hasDatedBuckets;
+
+  // ── Handlers ──────────────────────────────────────────────────────────────
 
   function updateTokenSearchParams(next: { tab?: Tab; date?: string | null }) {
     setSearchParams((current) => {
@@ -147,144 +183,10 @@ export default function TokensPage() {
     return `/tokens?tab=daily&date=${encodeURIComponent(date)}`;
   }
 
-  async function fetchAnalyticsSnapshot(
-    nextDatePreset: DatePreset,
-    nextDailyPreset: DatePreset,
-    refreshFirst: boolean,
-  ): Promise<PageCache> {
-    if (refreshFirst) {
-      await api.tokenAnalytics.refresh();
-    }
-
-    const bounds = getDateBounds(DATE_PRESETS.find((p) => p.key === nextDatePreset)!.days);
-    const dailyBounds = getDateBounds(DATE_PRESETS.find((p) => p.key === nextDailyPreset)!.days);
-    const [monthly, ad] = await Promise.all([
-      api.tokenAnalytics.get({ granularity: "monthly", ...bounds,
-        sourceOverride: nextDatePreset === "all" ? undefined : "auto_dated" }),
-      api.tokenAnalytics.get({ granularity: "daily", ...dailyBounds,
-        sourceOverride: "auto_dated" }),
-    ]);
-
-    return {
-      analytics: monthly,
-      analyticsDaily: ad,
-      cacheEfficiency: cacheEfficiencyFromDaily(ad),
-      datePreset: nextDatePreset,
-      dailyPreset: nextDailyPreset,
-    };
-  }
-
-  async function handleRefresh() {
-    if (isFetchingRef.current) return;
-    isFetchingRef.current = true;
-    _cache = null;
-    setAnalytics(null);
-    setAnalyticsDaily(null);
-    setCacheEfficiency(null);
-    setLoading(true);
-    setError(null);
-
-    try {
-      const snapshot = await fetchAnalyticsSnapshot(datePreset, dailyPreset, true);
-      setAnalytics(snapshot.analytics);
-      setAnalyticsDaily(snapshot.analyticsDaily);
-      setCacheEfficiency(snapshot.cacheEfficiency);
-      _cache = snapshot;
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setLoading(false);
-      isFetchingRef.current = false;
-    }
-  }
-
-  // Main data fetch — runs when datePreset changes.
-  useEffect(() => {
-    // StrictMode mounts twice; skip the second if first is already running.
-    if (isFetchingRef.current) return;
-    isFetchingRef.current = true;
-
-    let cancelled = false;
-
-    // Clear stale cache when preset changes.
-    if (_cache && (_cache.datePreset !== datePreset || _cache.dailyPreset !== dailyPreset)) _cache = null;
-
-    // If cache hit → show skeleton for one paint then swap in cached data.
-    const cached = _cache?.datePreset === datePreset && _cache.dailyPreset === dailyPreset ? _cache : null;
-    if (cached) {
-      // rAF schedules BEFORE next paint; setTimeout(0) inside ensures
-      // the skeleton is actually visible for at least one frame.
-      const raf = requestAnimationFrame(() => {
-        const timer = setTimeout(() => {
-          if (cancelled) return;
-          setAnalytics(cached.analytics);
-          setAnalyticsDaily(cached.analyticsDaily);
-          setCacheEfficiency(cached.cacheEfficiency);
-          setLoading(false);
-          isFetchingRef.current = false;
-        }, 0);
-        return () => clearTimeout(timer);
-      });
-      return () => { cancelled = true; cancelAnimationFrame(raf); isFetchingRef.current = false; };
-    }
-
-    // No cache → defer fetch start until after skeleton is painted.
-    // rAF fires before the next paint; setTimeout(0) inside pushes it
-    // to the following task so the browser has painted the skeleton first.
-    let rafId: number;
-    let timerId: ReturnType<typeof setTimeout>;
-
-    rafId = requestAnimationFrame(() => {
-      timerId = setTimeout(async () => {
-        if (cancelled) return;
-
-        setLoading(true);
-        setError(null);
-
-        try {
-          const snapshot = await fetchAnalyticsSnapshot(datePreset, dailyPreset, false);
-          if (cancelled) return;
-          setAnalytics(snapshot.analytics);
-          setAnalyticsDaily(snapshot.analyticsDaily);
-          setCacheEfficiency(snapshot.cacheEfficiency);
-          _cache = snapshot;
-        } catch (e) {
-          if (!cancelled) setError(String(e));
-        } finally {
-          if (!cancelled) setLoading(false);
-          isFetchingRef.current = false;
-        }
-      }, 0);
-    });
-
-    return () => {
-      cancelled = true;
-      cancelAnimationFrame(rafId);
-      clearTimeout(timerId);
-      isFetchingRef.current = false;
-    };
-  }, [datePreset, dailyPreset]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  useEffect(() => {
-    const nextTab = parseTab(searchParams.get("tab"));
-    const nextDate = parseDate(searchParams.get("date"));
-    const resolvedTab = nextTab ?? (nextDate ? "daily" : null);
-    if (resolvedTab) {
-      setActiveTab((current) => (current === resolvedTab ? current : resolvedTab));
-    }
-    setSelectedDailyDate(nextDate);
-  }, [searchParams]);
-
-  const dataResolution = classifyDataResolution(
-    analyticsDaily?.time_series ?? [],
-    analyticsDaily?.hourly_heatmap ?? [],
-  );
-  const composition = getTokenComposition(analytics);
-  const canShowTemporalCharts = dataResolution.hasDatedBuckets;
+  // ── Render ────────────────────────────────────────────────────────────────
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      {/* Top bar + Tab bar (single row with border-b) */}
       <div className="px-6 pt-5 flex-shrink-0">
         <div className="flex items-center justify-between mb-3">
           <h1 className="text-xl font-semibold text-text-primary">{t(locale, "tokens.title")}</h1>
@@ -318,13 +220,13 @@ export default function TokensPage() {
                 {preset.key === "all" && (
                   <button
                     type="button"
-                    onClick={handleRefresh}
-                    disabled={loading}
+                    onClick={() => refreshMutation.mutate()}
+                    disabled={refreshMutation.isPending}
                     title={t(locale, "tokens.refresh")}
                     aria-label={t(locale, "tokens.refresh")}
                     className="inline-flex h-7 w-7 items-center justify-center rounded border border-border bg-bg-secondary text-text-muted shadow-sm transition-colors hover:bg-bg-hover hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-60"
                   >
-                    <RefreshCw size={13} className={loading ? "animate-spin" : ""} />
+                    <RefreshCw size={13} className={refreshMutation.isPending ? "animate-spin" : ""} />
                   </button>
                 )}
                 <button
@@ -347,13 +249,13 @@ export default function TokensPage() {
       <div className="flex-1 overflow-y-auto">
         <PageBody>
           <div className="px-6 py-4 space-y-4">
-            {error && (
+            {queryError && (
               <div className="px-4 py-2 bg-danger-dim border border-danger/30 rounded-md text-sm text-danger">
-                {error}
+                {String(queryError)}
               </div>
             )}
 
-            {loading ? (
+            {isPending ? (
               <TokensPageSkeletonForTab tab={activeTab} />
             ) : analytics ? (
               <>

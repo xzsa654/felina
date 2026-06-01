@@ -5,6 +5,7 @@ import Sidebar from "$lib/components/layout/Sidebar";
 import UpdateBanner from "$lib/components/layout/UpdateBanner";
 import CommandPalette from "$lib/components/shared/CommandPalette";
 import OnboardingWelcome from "$lib/components/shared/OnboardingWelcome";
+import ShapeGrid from "$lib/components/shared/ShapeGrid/ShapeGrid";
 
 const SkillsPage = lazy(() => import("$lib/components/skills/SkillsPage"));
 const ProjectsPage = lazy(() => import("$lib/components/projects/ProjectsPage"));
@@ -30,9 +31,20 @@ function AppLayout() {
       <OnboardingWelcome />
       <div className="flex h-screen w-screen">
         <Sidebar />
-        <main className="flex flex-col flex-1 min-w-0">
+        <main className="relative flex flex-col flex-1 min-w-0">
+          <div className="absolute inset-0 opacity-15 pointer-events-none z-0">
+            <ShapeGrid
+              speed={0.3}
+              squareSize={40}
+              direction="diagonal"
+              shape="hexagon"
+              borderColor="#3a3a3a"
+              hoverFillColor="#6366f1"
+              hoverTrailAmount={4}
+            />
+          </div>
           <UpdateBanner />
-          <div className="flex-1 overflow-hidden flex flex-col min-h-0">
+          <div className="relative z-10 flex-1 overflow-hidden flex flex-col min-h-0">
             <Outlet />
           </div>
         </main>
