@@ -590,6 +590,9 @@ const en = {
       importing: "Importing…",
       present: "present",
       absent: "absent",
+      sectionDiscovered: "Discovered",
+      sectionManaged: "Managed",
+      badgeNew: "new",
       help: {
         title: "About Managed Inventory",
         multiSource: "Multi-source — This skill was found under more than one agent directory (e.g. both .claude/skills/ and .gemini/skills/). Because the contents may differ, you need to choose which agent's version to import as the canonical master.",

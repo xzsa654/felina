@@ -592,6 +592,9 @@ const zhTW: TranslationDict = {
       importing: "匯入中…",
       present: "存在",
       absent: "不存在",
+      sectionDiscovered: "已發現",
+      sectionManaged: "已託管",
+      badgeNew: "new",
       help: {
         title: "關於託管清單",
         multiSource: "多來源 — 此 Skill 在多個 Agent 目錄中都被偵測到（例如同時存在於 .claude/skills/ 和 .gemini/skills/）。由於各版本內容可能不同，您需要選擇要以哪個 Agent 的版本匯入作為主檔。",
