@@ -274,6 +274,7 @@ const en = {
       keyPlaceholder: "effort",
       valuePlaceholder: "high  /  [\"Read\",\"Edit\"]  /  true",
       removeRow: "Remove row",
+      addProperty: "Add property",
       addField: "Add field",
       tabContent: "Content",
       tabSettings: "Settings",

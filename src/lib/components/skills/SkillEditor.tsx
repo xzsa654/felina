@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { FolderOpen, Pencil, Save, Trash2 } from "lucide-react";
+import { FolderOpen, Pencil, Plus, Save, Trash2 } from "lucide-react";
 import type { CanonicalSkill, KnownProject, SkillTarget } from "$lib/types";
 import type { LastSyncEntry } from "$lib/types/skills";
 import RenameSkillDialog from "./RenameSkillDialog";
@@ -397,12 +397,12 @@ export default function SkillEditor({ skill, brokenRaw, onSaved, onCancel, onDel
             </h1>
           )}
         </div>
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex gap-1 bg-bg-tertiary rounded-lg p-1 shrink-0">
           {isNew && onCancel && (
             <button
               type="button"
               onClick={onCancel}
-              className="text-xs px-3 py-1.5 rounded border border-border text-text-secondary hover:text-text-primary"
+              className="px-3 py-1 text-xs rounded-md transition-colors text-text-muted hover:text-text-secondary"
             >
               {t(locale, "skills.editor.cancel")}
             </button>
@@ -411,7 +411,7 @@ export default function SkillEditor({ skill, brokenRaw, onSaved, onCancel, onDel
             <button
               type="button"
               onClick={() => setRenameOpen(true)}
-              className="inline-flex items-center gap-1 text-xs px-2 py-1.5 rounded text-text-secondary hover:text-text-primary hover:bg-bg-secondary"
+              className="inline-flex items-center gap-1 px-3 py-1 text-xs rounded-md transition-colors text-text-muted hover:text-text-secondary"
               title={t(locale, "skills.editor.renameTitle")}
             >
               <Pencil size={12} /> {t(locale, "skills.editor.rename")}
@@ -421,7 +421,7 @@ export default function SkillEditor({ skill, brokenRaw, onSaved, onCancel, onDel
             <button
               type="button"
               onClick={onDelete}
-              className="inline-flex items-center gap-1 text-xs px-2 py-1.5 rounded text-danger hover:bg-danger-dim"
+              className="inline-flex items-center gap-1 px-3 py-1 text-xs rounded-md transition-colors text-danger hover:bg-danger-dim"
               title={t(locale, "skills.editor.deleteTitle")}
             >
               <Trash2 size={12} /> {t(locale, "skills.editor.delete")}
@@ -431,7 +431,7 @@ export default function SkillEditor({ skill, brokenRaw, onSaved, onCancel, onDel
             type="button"
             disabled={!canSave}
             onClick={handleSave}
-            className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded bg-accent text-white hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed"
+            className="inline-flex items-center gap-1.5 px-3 py-1 text-xs rounded-md transition-colors bg-accent text-white hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <Save size={12} />
             {saving ? t(locale, "skills.editor.saving") : t(locale, "skills.editor.save")}
@@ -628,11 +628,11 @@ export default function SkillEditor({ skill, brokenRaw, onSaved, onCancel, onDel
             targets={skill?.targets ?? []}
             onChange={setAgentFields}
           />
-          {extras.length > 0 && (
-            <div className="flex flex-col gap-2">
-              <p className="text-xs text-text-secondary">
-                {t(locale, "skills.editor.advancedHint")}
-              </p>
+          <div className="bg-bg-secondary/30 border border-border rounded">
+            <div className="px-3 py-2 text-xs font-medium text-text-primary">
+              {t(locale, "skills.editor.advancedHint")}
+            </div>
+            <div className="px-3 pb-3 flex flex-col gap-2">
               {extras.map((row, idx) => (
                 <div key={row.id} className="flex items-center gap-2">
                   <input
@@ -644,7 +644,7 @@ export default function SkillEditor({ skill, brokenRaw, onSaved, onCancel, onDel
                       )
                     }
                     placeholder={t(locale, "skills.editor.keyPlaceholder")}
-                    className="px-2 py-1 rounded bg-bg-primary border border-border text-xs w-1/3"
+                    className="px-2 py-1 rounded bg-bg-primary border border-border text-xs w-1/3 focus:ring-1 focus:ring-accent"
                   />
                   <input
                     type="text"
@@ -655,7 +655,7 @@ export default function SkillEditor({ skill, brokenRaw, onSaved, onCancel, onDel
                       )
                     }
                     placeholder={t(locale, "skills.editor.valuePlaceholder")}
-                    className="px-2 py-1 rounded bg-bg-primary border border-border text-xs flex-1"
+                    className="px-2 py-1 rounded bg-bg-primary border border-border text-xs flex-1 focus:ring-1 focus:ring-accent"
                   />
                   <button
                     type="button"
@@ -669,8 +669,17 @@ export default function SkillEditor({ skill, brokenRaw, onSaved, onCancel, onDel
                   </button>
                 </div>
               ))}
+              <button
+                type="button"
+                onClick={() =>
+                  setExtras((prev) => [...prev, { id: `extra-${Date.now()}`, key: "", value: "" }])
+                }
+                className="self-start inline-flex items-center gap-1 text-xs px-2 py-1 rounded border border-border text-text-secondary hover:text-text-primary hover:border-accent"
+              >
+                <Plus size={12} /> {t(locale, "skills.editor.addProperty")}
+              </button>
             </div>
-          )}
+          </div>
         </section>
       )}
       </div>
