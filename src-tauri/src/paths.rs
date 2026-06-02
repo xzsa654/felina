@@ -105,6 +105,18 @@ pub fn global_rules_dir() -> PathBuf {
     claude_home().join("rules")
 }
 
+/// Normalize a filesystem path **for UI display only**. Replaces `\` with `/`
+/// and trims trailing forward slashes. Preserves case verbatim — display paths
+/// keep their original case so the user sees `C:/MyProject/...`, not
+/// `c:/myproject/...`.
+///
+/// Display only — for identity / dedup use `known_projects::normalize_path`,
+/// which additionally casefolds on Windows for stable matching.
+pub(crate) fn normalize_display_path(p: &str) -> String {
+    let replaced = p.replace('\\', "/");
+    replaced.trim_end_matches('/').to_string()
+}
+
 /// Resolve a Claude Code project hash (folder name under
 /// `~/.claude/projects/`) back to its original cwd.
 ///
@@ -332,6 +344,26 @@ mod tests {
         );
         // Anchored under the user's home directory.
         assert!(p.starts_with(dirs::home_dir().expect("home dir")));
+    }
+
+    #[test]
+    fn normalize_display_path_replaces_backslashes_and_trims_trailing_slashes() {
+        assert_eq!(normalize_display_path("C:\\a\\b\\"), "C:/a/b");
+    }
+
+    #[test]
+    fn normalize_display_path_handles_mixed_separators() {
+        assert_eq!(normalize_display_path("C:/a\\b"), "C:/a/b");
+    }
+
+    #[test]
+    fn normalize_display_path_handles_empty_string() {
+        assert_eq!(normalize_display_path(""), "");
+    }
+
+    #[test]
+    fn normalize_display_path_preserves_case() {
+        assert_eq!(normalize_display_path("C:\\Foo"), "C:/Foo");
     }
 
     #[test]
