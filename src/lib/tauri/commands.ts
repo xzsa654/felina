@@ -1,14 +1,11 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
-  Settings,
-  SettingsScope,
   StatsCache,
   ProjectInfo,
   MemoryFile,
   InstructionFile,
   SkillInfo,
   RuleFile,
-  HookEventConfig,
   TokenAnalytics,
   ModelBreakdown,
   CacheEfficiency,
@@ -46,17 +43,10 @@ import type {
   HistorySessionsPage,
 } from "$lib/types/token-analytics";
 
-// Retained-for-reference wrappers (hooks / instructions / mcp / rules / budget / stats):
+// Retained-for-reference wrappers (instructions / rules / budget / stats):
 // backend modules + frontend pages are kept on disk but unregistered from invoke_handler.
 // Calling these at runtime will fail until the corresponding command is re-registered.
 export const api = {
-  settings: {
-    read: (scope: SettingsScope, projectPath?: string) =>
-      invoke<Settings>("read_settings", { scope, projectPath }),
-    write: (scope: SettingsScope, settings: Settings, projectPath?: string) =>
-      invoke<void>("write_settings", { scope, projectPath, settings }),
-  },
-
   stats: {
     get: () => invoke<StatsCache>("get_stats"),
     computeLive: () => invoke<StatsCache>("compute_live_stats"),
@@ -64,13 +54,6 @@ export const api = {
 
   projects: {
     list: () => invoke<ProjectInfo[]>("list_projects"),
-  },
-
-  hooks: {
-    get: (scope: SettingsScope, projectPath?: string) =>
-      invoke<Record<string, HookEventConfig[]>>("get_hooks", { scope, projectPath }),
-    set: (scope: SettingsScope, hooks: Record<string, HookEventConfig[]>, projectPath?: string) =>
-      invoke<void>("set_hooks", { scope, projectPath, hooks }),
   },
 
   memory: {
@@ -105,16 +88,6 @@ export const api = {
       invoke<void>("write_instructions", { scope, projectPath, content }),
     readReference: (basePath: string, reference: string) =>
       invoke<string>("read_referenced_file", { basePath, reference }),
-  },
-
-  mcp: {
-    list: (scope: SettingsScope, projectPath?: string) =>
-      invoke<Record<string, unknown>>("list_mcp_servers", { scope, projectPath }),
-    upsert: (scope: SettingsScope, name: string, config: unknown, projectPath?: string) =>
-      invoke<void>("upsert_mcp_server", { scope, projectPath, name, config }),
-    delete: (scope: SettingsScope, name: string, projectPath?: string) =>
-      invoke<void>("delete_mcp_server", { scope, projectPath, name }),
-    getCloudMcps: () => invoke<string[]>("get_cloud_mcps"),
   },
 
   // Multi-agent canonical skills. Canonical master files live exclusively

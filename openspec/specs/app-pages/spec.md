@@ -8,44 +8,60 @@ TBD - created by archiving change 'cleanup-glyphic-base'. Update Purpose after a
 
 ### Requirement: Registered Pages
 
-The desktop app SHALL register exactly six pages in its navigation: `skills`, `settings`, `templates`, `tokens`, `memory`, and `history`. The route table in `src/router.tsx`, the `NAV_ITEMS` array and `Page` type union in `src/lib/stores/navigation.ts`, and the `PAGE_TITLES` / `PAGE_DESCRIPTIONS` maps in `src/lib/components/layout/Header.tsx` MUST all be consistent and contain exactly these six entries and no others.
+The desktop app SHALL register exactly the following pages in its navigation: `skills`, `projects`, `tokens`, `memory`, and `history`. The route table in `src/router.tsx`, the `NAV_ITEMS` array and `Page` type union in `src/lib/stores/navigation.ts` MUST all be consistent and contain exactly these entries (excluding any retained-for-reference modules, which MUST NOT appear in navigation). The legacy `settings` and `templates` pages MUST NOT appear in any of these sources.
 
 #### Scenario: User opens the app
 
 - **WHEN** the user launches the app via `npm run tauri dev` or the bundled binary
-- **THEN** the Sidebar SHALL display nav items only for `skills`, `settings`, `templates`, `tokens`, `memory`, and `history`
+- **THEN** the Sidebar SHALL display nav items only for `skills`, `projects`, `tokens`, `memory`, and `history`
 - **AND** each nav item SHALL navigate to its route defined in `src/router.tsx`
 
 #### Scenario: Navigation registration sources are consistent
 
-- **WHEN** an inspector compares the route paths in `src/router.tsx`, the `NAV_ITEMS` ids and `Page` type members in `src/lib/stores/navigation.ts`, and the keys of `PAGE_TITLES` / `PAGE_DESCRIPTIONS` in `src/lib/components/layout/Header.tsx`
-- **THEN** all four sources SHALL contain exactly the set `{skills, settings, templates, tokens, memory, history}`
-- **AND** none SHALL contain a page id outside this set
+- **WHEN** an inspector compares the route paths in `src/router.tsx` with the `NAV_ITEMS` ids and `Page` type members in `src/lib/stores/navigation.ts`
+- **THEN** all sources SHALL contain exactly the set `{skills, projects, tokens, memory, history}` for registered navigation pages
+- **AND** none SHALL contain `settings` or `templates` as a page id
 
-#### Scenario: User invokes the Command Palette
+#### Scenario: Legacy pages absent after removal
 
-- **WHEN** the user presses Cmd+K (macOS) or Ctrl+K (Windows/Linux)
-- **THEN** the palette SHALL list only the six registered pages as navigation targets
-- **AND** entries for any removed or retained-but-unregistered page MUST NOT appear
-
-##### Example: command palette navigation entries
-
-- **GIVEN** the History page is registered
-- **WHEN** the palette renders its navigation section from `NAV_ITEMS`
-- **THEN** the visible navigation entries are exactly: Skills & Agents, Settings, Templates, Tokens, Memory, History
+- **WHEN** an inspector greps the repository for `SettingsPage`, `TemplatesPage`, or `TemplateGallery` component references
+- **THEN** no active page module SHALL import or render them
+- **AND** the files `src/lib/components/settings/SettingsPage.tsx`, `src/lib/components/templates/TemplatesPage.tsx`, and `src/lib/components/shared/TemplateGallery.tsx` SHALL NOT exist
 
 
 <!-- @trace
-source: add-history-page
-updated: 2026-05-25
+source: remove-legacy-settings-templates-pages
+updated: 2026-06-03
 code:
-  - src/lib/components/memory/MemoryPage.tsx
-  - src/lib/components/layout/Header.tsx
-  - src/lib/components/settings/SettingsPage.tsx
-  - src/lib/i18n/locales/en.ts
+  - temp_proposal.md
+  - src-tauri/src/commands/settings.rs
+  - src-tauri/src/lib.rs
+  - src/lib/components/settings/GeneralSettings.tsx
+  - src/lib/types/settings.ts
+  - .session/product-backlog.md
+  - src/lib/components/skills/AddTargetDialog.tsx
+  - src-tauri/src/paths.rs
+  - src/lib/components/settings/EnvVarsEditor.tsx
+  - src/lib/types/index.ts
+  - src-tauri/src/commands/hooks.rs
+  - src/lib/components/mcp/McpPage.tsx
   - src/router.tsx
-  - src/lib/i18n/locales/zh-TW.ts
-  - src/lib/components/history/HistoryPage.tsx
+  - src/lib/components/settings/SettingsPage.tsx
+  - src/lib/types/hooks.ts
+  - src-tauri/src/commands/mcp.rs
+  - src/lib/components/shared/CommandPalette.tsx
+  - src/lib/components/shared/OnboardingWelcome.tsx
+  - src-tauri/src/commands/mod.rs
+  - src/lib/components/templates/TemplatesPage.tsx
+  - src/lib/tauri/commands.ts
+  - GEMINI.md
+  - src/lib/components/layout/Sidebar.tsx
+  - src/lib/components/shared/TemplateGallery.tsx
+  - src/lib/components/hooks/HookCard.tsx
+  - src/lib/components/hooks/HooksPage.tsx
+  - src/lib/stores/navigation.ts
+  - src/lib/components/settings/PermissionsEditor.tsx
+  - src/lib/utils/achievements.ts
 -->
 
 ---
@@ -824,40 +840,6 @@ code:
   - screenshots/dashboard.png
   - src-tauri/src/ctx/hook.rs
 -->
-
----
-### Requirement: Settings Page Agent Paths Section
-
-The Settings page SHALL NOT render the Agent Paths section. The Agent Paths section SHALL be rendered exclusively within the Felina Settings page at `/felina-settings`. All other Settings page behavior (Claude global/project/local settings read/write, Budget, Maintenance/Storage) SHALL remain unchanged.
-
-#### Scenario: Default agent paths shown
-
-- **WHEN** a user opens the Felina Settings page Agent Paths section without having set overrides
-- **THEN** the system SHALL display the schema-reference default paths for Anthropic, Codex, and Gemini
-- **AND** the section SHALL show exactly six path fields (global and project for each of the three agents)
-
-#### Scenario: Override changes fan-out target
-
-- **WHEN** a user changes the Gemini project path to the `.agents/skills/` alias and saves
-- **THEN** a subsequent push of a Gemini-targeted skill SHALL write to the new path
-- **AND** import detection SHALL scan the new path
-
-#### Scenario: Reject path traversal
-
-- **WHEN** a user enters a path containing a parent-directory traversal segment
-- **THEN** the system SHALL reject the value
-- **AND** the system SHALL retain the previous valid value and surface a warning
-
-#### Scenario: Fourth agent not configurable
-
-- **WHEN** a user views the Agent Paths section
-- **THEN** the system SHALL show configuration only for Anthropic, Codex, and Gemini
-- **AND** the section SHALL NOT present fields for any other agent
-
-#### Scenario: Agent Paths absent from Settings page
-
-- **WHEN** the user opens the Settings page at `/settings`
-- **THEN** the Agent Paths section SHALL NOT be rendered on that page
 
 ---
 ### Requirement: Page-Level i18n Coverage

@@ -29,7 +29,6 @@ import {
   Settings as SettingsIcon,
   Brain,
   Sparkles,
-  LayoutGrid,
   ExternalLink,
   GitBranch as GithubIcon,
   X as XIcon,
@@ -44,8 +43,6 @@ import logoUrl from "$lib/assets/logo.png";
 const ICON_MAP: Record<string, React.ComponentType<{ size?: number; className?: string }>> = {
   sparkles: Sparkles,
   folder: FolderOpen,
-  gear: SettingsIcon,
-  templates: LayoutGrid,
   tokens: Coins,
   brain: Brain,
   history: History,

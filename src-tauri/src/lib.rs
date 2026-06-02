@@ -97,9 +97,6 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
-            // Settings
-            commands::settings::read_settings,
-            commands::settings::write_settings,
             // Projects
             commands::projects::list_projects,
             // Memory
