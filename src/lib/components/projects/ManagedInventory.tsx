@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router";
-import { ArrowRight, Check, Download, HelpCircle } from "lucide-react";
+import { ArrowRight, Check, Download, Link2, RefreshCw } from "lucide-react";
 import { api } from "$lib/tauri/commands";
-import type { AgentId, KnownProject } from "$lib/types";
+import type { AgentId, ImportCandidate, KnownProject, SkillListEntry, SkillTarget } from "$lib/types";
 import ConfirmDialog from "$lib/components/shared/ConfirmDialog";
-import InfoDialog from "$lib/components/shared/InfoDialog";
 import { useLocaleStore } from "$lib/stores/locale";
-import { t } from "$lib/i18n";
+import { t, type Locale } from "$lib/i18n";
+import { normalizeProjectPath } from "$lib/utils/path";
 import { buildInventoryRows, type InventoryRow } from "./managed-inventory";
 import claudeIcon from "$lib/assets/claude.svg";
 import codexIcon from "$lib/assets/codex.png";
@@ -17,11 +17,22 @@ interface Props {
   onChanged: () => void;
 }
 
-const AGENTS: AgentId[] = ["anthropic", "codex", "gemini"];
+interface PendingLink {
+  skillName: string;
+  sourceIndex: number | null;
+}
+
 const AGENT_ICON: Record<AgentId, string> = {
   anthropic: claudeIcon,
   codex: codexIcon,
   gemini: antigravityIcon,
+};
+
+const RELATIONSHIP_CLASS: Record<InventoryRow["relationship"], string> = {
+  managedProject: "text-success",
+  canonicalGlobalOnly: "text-warning",
+  canonicalExistsUnlinked: "text-info",
+  localOnly: "text-text-muted",
 };
 
 export default function ManagedInventory({ project, onChanged }: Props) {
@@ -31,14 +42,12 @@ export default function ManagedInventory({ project, onChanged }: Props) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [importing, setImporting] = useState<string | null>(null);
-  // Names of existing global canonical masters — used to detect collisions
-  // before a per-row import silently overwrites one.
-  const [globalNames, setGlobalNames] = useState<Set<string>>(new Set());
   const [pendingImport, setPendingImport] = useState<InventoryRow | null>(null);
+  const [pendingLink, setPendingLink] = useState<PendingLink | null>(null);
+  const [linkErrorBySkill, setLinkErrorBySkill] = useState<Record<string, string>>({});
   const [drawerSkill, setDrawerSkill] = useState<string | null>(null);
-  const [drawerSelected, setDrawerSelected] = useState<number>(0);
+  const [drawerSelectedSourceIndex, setDrawerSelectedSourceIndex] = useState<number>(0);
   const drawerRef = useRef<HTMLDivElement>(null);
-  const [helpOpen, setHelpOpen] = useState(false);
 
   const projectPath = project?.path ?? null;
   const projectExists = project?.exists ?? false;
@@ -56,15 +65,7 @@ export default function ManagedInventory({ project, onChanged }: Props) {
         api.canonicalSkills.list(),
       ]);
 
-      const built = buildInventoryRows(projectPath, scan, canonical);
-
-      const allGlobalNames = new Set<string>();
-      for (const e of canonical) {
-        if (e.kind === "ok") allGlobalNames.add(e.skill.name);
-      }
-
-      setRows(built);
-      setGlobalNames(allGlobalNames);
+      setRows(buildInventoryRows(projectPath, scan, canonical));
     } catch (e) {
       setError(String(e));
       setRows([]);
@@ -95,12 +96,45 @@ export default function ManagedInventory({ project, onChanged }: Props) {
     };
   }, [drawerSkill]);
 
-  // Entry point: if a global master with the same name already exists,
-  // importing would overwrite it — confirm first instead of silently
-  // clobbering. Otherwise import directly.
+  const managedCount = useMemo(
+    () => rows.filter((row) => row.relationship === "managedProject").length,
+    [rows],
+  );
+  const actionableCount = rows.length - managedCount;
+  const projectName = useMemo(() => {
+    if (!projectPath) return "";
+    const segs = projectPath.replace(/\\/g, "/").split("/").filter(Boolean);
+    return segs[segs.length - 1] ?? projectPath;
+  }, [projectPath]);
+
+  function openSkill(name: string) {
+    navigate(`/skills?select=${encodeURIComponent(name)}`);
+  }
+
+  function sourceCandidate(row: InventoryRow, sourceIndex: number | null): ImportCandidate | null {
+    if (!row.candidate) return null;
+    if (!row.candidate.deferred || sourceIndex === null) return row.candidate;
+    return row.candidate.deferred.candidates[sourceIndex] ?? null;
+  }
+
+  function firstSourceIndex(row: InventoryRow): number | null {
+    return row.detectedSources[0]?.attributions[0]?.sourceIndex ?? null;
+  }
+
+  function linkConflictCandidate(row: InventoryRow, sourceIndex: number | null): ImportCandidate | null {
+    const selected = sourceCandidate(row, sourceIndex);
+    if (selected?.conflict?.diffSummary) return selected;
+    if (row.candidate?.conflict?.diffSummary) return row.candidate;
+    return null;
+  }
+
   function handleImport(row: InventoryRow) {
-    if (!row.candidate || row.deferred || !projectPath) return;
-    if (globalNames.has(row.skillName)) {
+    if (!row.candidate || !projectPath) return;
+    if (row.deferred) {
+      toggleDrawer(row);
+      return;
+    }
+    if (row.canonicalExists) {
       setPendingImport(row);
       return;
     }
@@ -134,6 +168,7 @@ export default function ManagedInventory({ project, onChanged }: Props) {
         [{ candidate: row.candidate, resolution: { kind: "selectSource", sourceIndex } }],
         projectPath,
       );
+      setDrawerSkill(null);
       await load();
       onChanged();
     } catch (e) {
@@ -143,16 +178,78 @@ export default function ManagedInventory({ project, onChanged }: Props) {
     }
   }
 
-  const discovered = useMemo(() => rows.filter((r) => r.candidate && !r.managed), [rows]);
-  const managed = useMemo(() => rows.filter((r) => r.managed), [rows]);
-  const projectName = useMemo(() => {
-    if (!projectPath) return "";
-    const segs = projectPath.replace(/\\/g, "/").split("/").filter(Boolean);
-    return segs[segs.length - 1] ?? projectPath;
-  }, [projectPath]);
+  function handleLink(row: InventoryRow) {
+    const sourceIndex = firstSourceIndex(row);
+    const selected = linkConflictCandidate(row, sourceIndex);
+    if (!selected?.conflict?.diffSummary) {
+      setPendingLink(null);
+      setLinkErrorBySkill((prev) => ({
+        ...prev,
+        [row.skillName]: t(locale, "projects.inventory.link.missingDiff"),
+      }));
+      return;
+    }
+    setLinkErrorBySkill((prev) => {
+      const next = { ...prev };
+      delete next[row.skillName];
+      return next;
+    });
+    setPendingLink({ skillName: row.skillName, sourceIndex });
+  }
 
-  function openSkill(name: string) {
-    navigate(`/skills?select=${encodeURIComponent(name)}`);
+  async function confirmLink(row: InventoryRow, sourceIndex: number | null) {
+    if (!projectPath || !row.canonicalId) return;
+    const selected = sourceCandidate(row, sourceIndex);
+    if (!selected) return;
+
+    setImporting(row.skillName);
+    try {
+      const canonical = await api.canonicalSkills.list();
+      const entry = findCanonicalEntry(canonical, row.canonicalId, row.skillName);
+      if (!entry || entry.kind !== "ok") {
+        setError(t(locale, "projects.inventory.link.canonicalMissing"));
+        setPendingLink(null);
+        await load();
+        return;
+      }
+
+      const normalizedProject = normalizeProjectPath(projectPath);
+      const nextTarget: SkillTarget = {
+        agent: selected.sourceAgent,
+        scope: "project",
+        project: projectPath,
+        enabled: true,
+        mode: "manual",
+      };
+      const exists = entry.skill.targets.some(
+        (target) =>
+          target.agent === nextTarget.agent &&
+          target.scope === "project" &&
+          normalizeProjectPath(target.project ?? "") === normalizedProject,
+      );
+      const targets = exists ? entry.skill.targets : [...entry.skill.targets, nextTarget];
+
+      if (!exists) {
+        await api.skillTargets.set(row.canonicalId, targets);
+      }
+      setPendingLink(null);
+      await load();
+      onChanged();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setImporting(null);
+    }
+  }
+
+  function toggleDrawer(row: InventoryRow) {
+    if (drawerSkill === row.skillName) {
+      setDrawerSkill(null);
+      return;
+    }
+    const sourceIndex = firstSourceIndex(row) ?? 0;
+    setDrawerSkill(row.skillName);
+    setDrawerSelectedSourceIndex(sourceIndex);
   }
 
   if (!project) {
@@ -172,28 +269,18 @@ export default function ManagedInventory({ project, onChanged }: Props) {
   }
 
   return (
-    <div className="flex flex-col h-full overflow-y-auto">
+    <div className="flex h-full flex-col overflow-y-auto">
       {error && (
-        <div className="m-3 text-xs text-danger bg-danger-dim border border-danger/30 rounded px-3 py-2">
+        <div className="m-3 rounded bg-danger-dim px-3 py-2 text-xs text-danger">
           {error}
         </div>
       )}
 
-      {/* --- Project Summary Header --- */}
-      <div className="px-4 pt-4 pb-2">
-        <div className="flex items-center gap-2">
-          <h2 className="text-xl font-bold truncate">{projectName}</h2>
-          <button
-            type="button"
-            onClick={() => setHelpOpen(true)}
-            className="p-0.5 text-text-muted hover:text-text-secondary shrink-0"
-            aria-label={t(locale, "projects.inventory.help.title")}
-          >
-            <HelpCircle size={14} />
-          </button>
-        </div>
-        <p className="text-sm text-text-secondary mt-0.5">
-          {discovered.length} {t(locale, "projects.inventory.sectionDiscovered")} · {managed.length} {t(locale, "projects.inventory.sectionManaged")}
+      <div className="px-4 pb-2 pt-4">
+        <h2 className="truncate text-xl font-bold">{projectName}</h2>
+        <p className="mt-0.5 text-sm text-text-secondary">
+          {managedCount} {t(locale, "projects.inventory.sectionManaged")} / {actionableCount}{" "}
+          {t(locale, "projects.inventory.sectionDiscovered")}
         </p>
       </div>
 
@@ -204,169 +291,24 @@ export default function ManagedInventory({ project, onChanged }: Props) {
           {t(locale, "projects.emptyInventory")}
         </div>
       ) : (
-        <div className="flex flex-col gap-4 px-4 pb-4 text-xs">
-          {/* --- Discovered Section --- */}
-          {discovered.length > 0 && (
-            <div>
-              <h4 className="text-xs font-semibold uppercase tracking-wide text-text-secondary mb-2">
-                {t(locale, "projects.inventory.sectionDiscovered")}
-              </h4>
-              <div className="flex flex-col gap-1">
-                {discovered.map((row) => {
-                  const isMulti = row.deferred && row.candidate?.deferred;
-                  const isDrawerOpen = drawerSkill === row.skillName;
-                  const multiSources = row.candidate?.deferred?.candidates ?? [];
-                  return (
-                    <div key={row.skillName} ref={isDrawerOpen ? drawerRef : undefined}>
-                      <div className="grid items-center px-3 py-2 hover:bg-bg-secondary/50 rounded" style={{ gridTemplateColumns: "auto 1fr 5rem 9rem", gap: "0.75rem" }}>
-                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-info/15 text-info">{t(locale, "projects.inventory.badgeNew")}</span>
-                        <span className="font-mono text-text-primary truncate">{row.skillName}</span>
-                        <div className="flex gap-1 justify-center">
-                          {AGENTS.map((a) => {
-                            if (!row.agentsPresent.has(a)) return null;
-                            return (
-                              <img key={a} src={AGENT_ICON[a]} alt={a} className="w-4 h-4" title={a} />
-                            );
-                          })}
-                        </div>
-                        <div className="justify-self-end">
-                        {isMulti ? (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              if (isDrawerOpen) {
-                                setDrawerSkill(null);
-                              } else {
-                                setDrawerSkill(row.skillName);
-                                setDrawerSelected(0);
-                              }
-                            }}
-                            className="inline-flex items-center gap-1 px-2 py-1 rounded bg-accent text-white hover:bg-accent-hover"
-                          >
-                            <Download size={12} />
-                            {t(locale, "projects.inventory.importToGlobal")}
-                          </button>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => void handleImport(row)}
-                            disabled={importing === row.skillName}
-                            className="inline-flex items-center gap-1 px-2 py-1 rounded bg-accent text-white hover:bg-accent-hover disabled:opacity-60"
-                          >
-                            <Download size={12} />
-                            {importing === row.skillName
-                              ? t(locale, "projects.inventory.importing")
-                              : t(locale, "projects.inventory.importToGlobal")}
-                          </button>
-                        )}
-                        </div>
-                      </div>
-                      {isDrawerOpen && (
-                        <div className="bg-bg-secondary/20 border border-border rounded mx-3 my-1 p-3">
-                          <p className="text-[11px] text-text-secondary mb-2">
-                            {t(locale, "projects.inventory.drawer.selectSource")}
-                          </p>
-                          <div className="flex flex-col gap-2">
-                            {multiSources.map((source, si) => (
-                              <button
-                                type="button"
-                                key={`${source.sourcePath}-${si}`}
-                                onClick={() => setDrawerSelected(si)}
-                                className={`flex items-center gap-3 bg-bg-secondary/30 border rounded p-3 cursor-pointer text-left transition-colors ${
-                                  drawerSelected === si
-                                    ? "border-accent ring-1 ring-accent"
-                                    : "border-border hover:border-accent"
-                                }`}
-                              >
-                                <img src={AGENT_ICON[source.sourceAgent] ?? ""} alt={source.sourceAgent} className="w-5 h-5 shrink-0" />
-                                <div className="min-w-0">
-                                  <span className="text-xs text-text-primary">{source.sourceAgent}</span>
-                                  <span className="block font-mono text-[10px] text-text-muted truncate" title={source.sourcePath}>
-                                    {source.sourcePath}
-                                  </span>
-                                </div>
-                              </button>
-                            ))}
-                          </div>
-                          <div className="flex justify-end mt-3">
-                            <button
-                              type="button"
-                              disabled={importing === row.skillName}
-                              onClick={() => void performMultiSourceImport(row, drawerSelected)}
-                              className="inline-flex items-center gap-1 px-3 py-1.5 rounded bg-accent text-white hover:bg-accent-hover disabled:opacity-60 text-xs"
-                            >
-                              <Download size={12} />
-                              {importing === row.skillName
-                                ? t(locale, "projects.inventory.importing")
-                                : t(locale, "projects.inventory.drawer.confirmImport")}
-                            </button>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          {/* --- Managed Section --- */}
-          {managed.length > 0 && (
-            <div>
-              <h4 className="text-xs font-semibold uppercase tracking-wide text-text-secondary mb-2">
-                {t(locale, "projects.inventory.sectionManaged")}
-              </h4>
-              <div className="flex flex-col gap-1">
-                {managed.map((row) => {
-                  const navTarget = row.canonicalId ?? row.skillName;
-                  return (
-                    <div
-                      key={row.skillName}
-                      className="grid items-center px-3 py-2 hover:bg-bg-secondary/50 rounded cursor-pointer"
-                      style={{ gridTemplateColumns: "auto 1fr 5rem 9rem", gap: "0.75rem" }}
-                      onClick={() => openSkill(navTarget)}
-                    >
-                      <Check size={12} className="text-success" />
-                      <span className="font-mono text-text-primary truncate">{row.skillName}</span>
-                      <div className="flex gap-1 justify-center">
-                        {AGENTS.map((a) => {
-                          if (!row.agentsPresent.has(a)) return null;
-                          return (
-                            <img key={a} src={AGENT_ICON[a]} alt={a} className="w-4 h-4" title={a} />
-                          );
-                        })}
-                      </div>
-                      <span className="inline-flex items-center gap-1 text-text-muted justify-self-end">
-                        {t(locale, "projects.inventory.edit")} <ArrowRight size={12} />
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
+        <div className="flex flex-col gap-1 px-4 pb-4 text-xs">
+          {rows.map((row) => (
+            <InventoryListRow
+              key={row.skillName}
+              row={row}
+              locale={locale}
+              importing={importing}
+              linkError={linkErrorBySkill[row.skillName] ?? null}
+              onOpenSkill={() => openSkill(row.canonicalId ?? row.skillName)}
+              onImport={() => handleImport(row)}
+              onOverwrite={() => setPendingImport(row)}
+              onLink={() => handleLink(row)}
+              onToggleDrawer={() => toggleDrawer(row)}
+            />
+          ))}
         </div>
       )}
 
-      <InfoDialog
-        open={helpOpen}
-        title={t(locale, "projects.inventory.help.title")}
-        onClose={() => setHelpOpen(false)}
-        content={
-          (() => {
-            const text = t(locale, "projects.inventory.help.multiSource");
-            const dashIdx = text.indexOf("—");
-            if (dashIdx === -1) return <p>{text}</p>;
-            return (
-              <p>
-                <strong>{text.slice(0, dashIdx).trim()}</strong>
-                {" — "}
-                {text.slice(dashIdx + 1).trim()}
-              </p>
-            );
-          })()
-        }
-      />
       <ConfirmDialog
         open={pendingImport !== null}
         title={t(locale, "projects.importConflictDialog.title")}
@@ -383,6 +325,362 @@ export default function ManagedInventory({ project, onChanged }: Props) {
         }}
         oncancel={() => setPendingImport(null)}
       />
+
+      <ActionDialogs
+        locale={locale}
+        importing={importing}
+        pendingLink={pendingLink}
+        drawerSkill={drawerSkill}
+        drawerSelectedSourceIndex={drawerSelectedSourceIndex}
+        rows={rows}
+        onCancelLink={() => setPendingLink(null)}
+        onConfirmLink={(sourceIndex) => {
+          const row = rows.find((r) => r.skillName === pendingLink?.skillName);
+          if (row) void confirmLink(row, sourceIndex);
+        }}
+        onSelectSource={setDrawerSelectedSourceIndex}
+        onCancelMultiSource={() => setDrawerSkill(null)}
+        onConfirmMultiSource={() => {
+          const row = rows.find((r) => r.skillName === drawerSkill);
+          if (row) void performMultiSourceImport(row, drawerSelectedSourceIndex);
+        }}
+      />
     </div>
+  );
+}
+
+function InventoryListRow({
+  row,
+  locale,
+  importing,
+  linkError,
+  onOpenSkill,
+  onImport,
+  onOverwrite,
+  onLink,
+  onToggleDrawer,
+}: {
+  row: InventoryRow;
+  locale: Locale;
+  importing: string | null;
+  linkError: string | null;
+  onOpenSkill: () => void;
+  onImport: () => void;
+  onOverwrite: () => void;
+  onLink: () => void;
+  onToggleDrawer: () => void;
+}) {
+  const rowClick = row.relationship === "managedProject" ? onOpenSkill : undefined;
+
+  return (
+    <div className="rounded px-3 py-2 hover:bg-bg-secondary/20">
+      <div
+        className={`flex flex-col gap-2 md:flex-row md:items-start md:justify-between ${
+          rowClick ? "cursor-pointer" : ""
+        }`}
+        onClick={rowClick}
+      >
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+            <div className={`flex shrink-0 items-center gap-1 text-[11px] font-medium ${RELATIONSHIP_CLASS[row.relationship]}`}>
+              {row.relationship === "managedProject" && <Check size={12} />}
+              <span>{t(locale, `projects.inventory.relationship.${row.relationship}`)}</span>
+            </div>
+
+            <span className="min-w-0 truncate font-mono text-sm font-medium text-text-primary">
+              {row.skillName}
+            </span>
+
+            <div className="flex shrink-0 items-center gap-1 text-[11px] text-text-muted">
+              {Array.from(new Set(row.detectedSources.flatMap((s) => s.agents))).map((agent) => (
+                <AgentIcon key={agent} agent={agent as AgentId} />
+              ))}
+            </div>
+
+            {row.deferred && (
+              <span className="shrink-0 text-[11px] text-accent">
+                {t(locale, "projects.inventory.multiSource")}
+              </span>
+            )}
+          </div>
+        </div>
+
+        <div className="flex shrink-0 flex-wrap items-center gap-1 md:justify-end" onClick={(e) => e.stopPropagation()}>
+          {row.relationship === "managedProject" ? (
+            <button
+              type="button"
+              onClick={onOpenSkill}
+              className="inline-flex items-center gap-1 rounded px-2 py-1 text-text-muted hover:bg-bg-secondary/40 hover:text-text-primary"
+            >
+              <Check size={12} />
+              {t(locale, "projects.inventory.edit")}
+              <ArrowRight size={12} />
+            </button>
+          ) : row.relationship === "canonicalGlobalOnly" || row.relationship === "canonicalExistsUnlinked" ? (
+            <>
+              <button
+                type="button"
+                onClick={onLink}
+                disabled={importing === row.skillName || !row.candidate}
+                className="inline-flex items-center gap-1 rounded bg-accent px-2 py-1 text-white hover:bg-accent-hover disabled:opacity-60"
+              >
+                <Link2 size={12} />
+                {importing === row.skillName
+                  ? t(locale, "projects.inventory.linking")
+                  : t(locale, "projects.inventory.linkToProject")}
+              </button>
+              {row.candidate && !row.deferred && (
+                <button
+                  type="button"
+                  onClick={onOverwrite}
+                  className="inline-flex items-center gap-1 rounded px-2 py-1 text-text-muted hover:bg-bg-secondary/40 hover:text-text-primary"
+                >
+                  <RefreshCw size={12} />
+                  {t(locale, "projects.inventory.overwriteSecondary")}
+                </button>
+              )}
+            </>
+          ) : row.deferred ? (
+            <button
+              type="button"
+              onClick={onToggleDrawer}
+              className="inline-flex items-center gap-1 rounded bg-accent px-2 py-1 text-white hover:bg-accent-hover"
+            >
+              <Download size={12} />
+              {t(locale, "projects.inventory.importToGlobal")}
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={onImport}
+              disabled={importing === row.skillName}
+              className="inline-flex items-center gap-1 rounded bg-accent px-2 py-1 text-white hover:bg-accent-hover disabled:opacity-60"
+            >
+              <Download size={12} />
+              {importing === row.skillName
+                ? t(locale, "projects.inventory.importing")
+                : t(locale, "projects.inventory.importToGlobal")}
+            </button>
+          )}
+        </div>
+      </div>
+
+      {linkError && (
+        <div className="mt-2 rounded bg-danger-dim px-3 py-2 text-xs text-danger">{linkError}</div>
+      )}
+    </div>
+  );
+}
+
+
+
+function AgentIcon({ agent }: { agent: AgentId }) {
+  return <img src={AGENT_ICON[agent]} alt={agent} title={agent} className="h-3.5 w-3.5 shrink-0" />;
+}
+
+
+
+function linkCandidateForRow(row: InventoryRow, sourceIndex: number | null): ImportCandidate | null {
+  if (!row.candidate) return null;
+  if (!row.candidate.deferred || sourceIndex === null) return row.candidate;
+  return row.candidate.deferred.candidates[sourceIndex] ?? null;
+}
+
+function linkConflictCandidateForRow(row: InventoryRow, sourceIndex: number | null): ImportCandidate | null {
+  const selected = linkCandidateForRow(row, sourceIndex);
+  if (selected?.conflict?.diffSummary) return selected;
+  if (row.candidate?.conflict?.diffSummary) return row.candidate;
+  return null;
+}
+
+function findCanonicalEntry(
+  entries: SkillListEntry[],
+  canonicalId: string,
+  skillName: string,
+): SkillListEntry | null {
+  return (
+    entries.find((entry) => entry.canonicalId === canonicalId) ??
+    entries.find((entry) => entry.kind === "ok" && entry.skill.name === skillName) ??
+    entries.find((entry) => entry.kind === "broken" && entry.name === skillName) ??
+    null
+  );
+}
+
+function ActionDialogs({
+  locale,
+  importing,
+  pendingLink,
+  drawerSkill,
+  drawerSelectedSourceIndex,
+  rows,
+  onCancelLink,
+  onConfirmLink,
+  onSelectSource,
+  onCancelMultiSource,
+  onConfirmMultiSource,
+}: {
+  locale: Locale;
+  importing: string | null;
+  pendingLink: PendingLink | null;
+  drawerSkill: string | null;
+  drawerSelectedSourceIndex: number;
+  rows: InventoryRow[];
+  onCancelLink: () => void;
+  onConfirmLink: (sourceIndex: number | null) => void;
+  onSelectSource: (index: number) => void;
+  onCancelMultiSource: () => void;
+  onConfirmMultiSource: () => void;
+}) {
+  const linkRow = pendingLink ? rows.find((r) => r.skillName === pendingLink.skillName) : null;
+  const linkCandidate = linkRow && pendingLink ? linkConflictCandidateForRow(linkRow, pendingLink.sourceIndex) : null;
+  
+  const drawerRow = drawerSkill ? rows.find((r) => r.skillName === drawerSkill) : null;
+
+  return (
+    <>
+      {pendingLink && linkCandidate?.conflict && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <button className="absolute inset-0 cursor-default bg-black/50" onClick={onCancelLink} aria-label="Close dialog" />
+          <div className="relative z-10 flex max-h-[85vh] w-full max-w-2xl flex-col rounded-xl border border-border bg-bg-secondary p-6 shadow-2xl">
+            <h3 className="text-base font-semibold text-text-primary">{t(locale, "projects.inventory.link.title")}</h3>
+            <div className="mt-4 flex flex-1 flex-col overflow-hidden text-sm text-text-secondary">
+              <p className="mb-3 whitespace-pre-wrap">{t(locale, "projects.inventory.link.message", { name: pendingLink.skillName })}</p>
+              <div className="mb-2 truncate font-mono text-xs text-text-muted" title={linkCandidate.conflict.canonicalPath}>
+                {linkCandidate.conflict.canonicalPath}
+              </div>
+              {linkCandidate.conflict.hunks.length > 0 ? (
+                <div className="mb-2 flex items-center gap-3 text-[11px] text-text-muted">
+                  <span className="inline-flex items-center gap-1">
+                    <span className="inline-block h-3 w-3 rounded-sm bg-danger-dim" />
+                    <span>− {t(locale, "projects.inventory.link.diffBase")}</span>
+                  </span>
+                  <span className="inline-flex items-center gap-1">
+                    <span className="inline-block h-3 w-3 rounded-sm bg-success-dim" />
+                    <span>+ {t(locale, "projects.inventory.link.diffIncoming")}</span>
+                  </span>
+                </div>
+              ) : null}
+              {linkCandidate.conflict.hunks.length > 0 ? (
+                <div className="flex-1 overflow-y-auto rounded border border-border bg-bg-secondary">
+                  {linkCandidate.conflict.hunks.map((hunk, hi) => (
+                    <div key={hi} className="border-b border-border last:border-b-0">
+                      <div className="bg-bg-tertiary px-2 py-0.5 font-mono text-[10px] text-text-muted">
+                        @@ -{hunk.oldStart},{hunk.oldCount} +{hunk.newStart},{hunk.newCount} @@
+                      </div>
+                      {hunk.lines.map((line, li) => (
+                        <div
+                          key={li}
+                          className={`whitespace-pre-wrap break-all px-2 font-mono text-xs ${
+                            line.kind === "delete"
+                              ? "bg-danger-dim text-text-primary"
+                              : line.kind === "add"
+                                ? "bg-success-dim text-text-primary"
+                                : "text-text-secondary"
+                          }`}
+                        >
+                          <span className="inline-block w-4 select-none text-text-muted">
+                            {line.kind === "delete" ? "−" : line.kind === "add" ? "+" : " "}
+                          </span>
+                          {line.content.replace(/\n$/, "")}
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="rounded bg-bg-tertiary p-3 font-mono text-xs text-text-muted">
+                  {linkCandidate.conflict.diffSummary}
+                </div>
+              )}
+            </div>
+            <div className="mt-6 flex shrink-0 justify-end gap-2">
+              <button
+                type="button"
+                onClick={onCancelLink}
+                className="rounded-lg px-4 py-2 text-sm text-text-secondary hover:bg-bg-tertiary"
+              >
+                {t(locale, "common.cancel")}
+              </button>
+              <button
+                type="button"
+                onClick={() => onConfirmLink(pendingLink.sourceIndex)}
+                disabled={importing === pendingLink.skillName}
+                className="inline-flex items-center gap-1 rounded-lg bg-accent px-4 py-2 text-sm text-white hover:bg-accent-hover disabled:opacity-60"
+              >
+                <Link2 size={16} />
+                {t(locale, "projects.inventory.link.confirm")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {drawerRow && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <button className="absolute inset-0 cursor-default bg-black/50" onClick={onCancelMultiSource} aria-label="Close dialog" />
+          <div className="relative z-10 flex max-h-[80vh] w-full max-w-lg flex-col rounded-xl border border-border bg-bg-secondary p-6 shadow-2xl">
+            <h3 className="text-base font-semibold text-text-primary">{t(locale, "projects.inventory.drawer.selectSource")}</h3>
+            <div className="mt-4 flex-1 overflow-y-auto">
+              <div className="flex flex-col gap-3">
+                {drawerRow.detectedSources.map((source) => (
+                  <div key={source.sourcePath} className="rounded-lg border border-border bg-bg-tertiary p-3">
+                    <div className="mb-2 flex items-center gap-2">
+                      <span className="text-sm font-medium text-text-primary">
+                        {source.attributions.length > 1
+                          ? t(locale, "projects.inventory.sharedSource")
+                          : t(locale, "projects.inventory.source")}
+                      </span>
+                      {source.agents.map((agent) => (
+                        <AgentIcon key={agent} agent={agent} />
+                      ))}
+                    </div>
+                    <div className="mb-3 truncate font-mono text-xs text-text-muted" title={source.sourcePath}>
+                      {source.sourcePath}
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {source.attributions.map((attribution) => (
+                        <button
+                          type="button"
+                          key={`${source.sourcePath}-${attribution.sourceIndex}`}
+                          onClick={() => onSelectSource(attribution.sourceIndex)}
+                          className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm transition-colors ${
+                            drawerSelectedSourceIndex === attribution.sourceIndex
+                              ? "bg-accent text-white"
+                              : "bg-bg-hover text-text-secondary hover:bg-bg-secondary/70"
+                          }`}
+                        >
+                          <AgentIcon agent={attribution.agent} />
+                          {t(locale, "projects.inventory.attribution", { agent: attribution.agent })}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="mt-6 flex shrink-0 justify-end gap-2">
+              <button
+                type="button"
+                onClick={onCancelMultiSource}
+                className="rounded-lg px-4 py-2 text-sm text-text-secondary hover:bg-bg-tertiary"
+              >
+                {t(locale, "common.cancel")}
+              </button>
+              <button
+                type="button"
+                disabled={importing === drawerRow.skillName}
+                onClick={onConfirmMultiSource}
+                className="inline-flex items-center gap-1 rounded-lg bg-accent px-4 py-2 text-sm text-white hover:bg-accent-hover disabled:opacity-60"
+              >
+                <Download size={16} />
+                {importing === drawerRow.skillName
+                  ? t(locale, "projects.inventory.importing")
+                  : t(locale, "projects.inventory.drawer.confirmImport")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }

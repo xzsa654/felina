@@ -14,6 +14,7 @@ const groupedCandidate = {
     canonicalPath,
     canonicalBodyPreview: "canonical preview",
     diffSummary: "representative summary",
+    hunks: [],
   },
   deferred: {
     agents: ["anthropic", "codex"],
@@ -28,6 +29,7 @@ const groupedCandidate = {
           canonicalPath,
           canonicalBodyPreview: "canonical preview",
           diffSummary: "source: 219 lines / 12503 bytes; canonical: 221 lines / 12519 bytes",
+          hunks: [],
         },
         deferred: null,
       },
@@ -40,6 +42,7 @@ const groupedCandidate = {
           canonicalPath,
           canonicalBodyPreview: "canonical preview",
           diffSummary: "source: 200 lines / 11000 bytes; canonical: 221 lines / 12519 bytes",
+          hunks: [],
         },
         deferred: null,
       },

@@ -1295,7 +1295,7 @@ pub struct PullDiffPreview {
     pub sibling_changes: Vec<SiblingChange>,
 }
 
-fn build_diff_hunks(old_text: &str, new_text: &str) -> Vec<DiffHunk> {
+pub(crate) fn build_diff_hunks(old_text: &str, new_text: &str) -> Vec<DiffHunk> {
     use similar::TextDiff;
 
     let diff = TextDiff::from_lines(old_text, new_text);

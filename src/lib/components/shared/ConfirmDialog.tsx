@@ -33,7 +33,7 @@ export default function ConfirmDialog({
           </div>
           <div>
             <h3 className="text-base font-semibold text-text-primary">{title}</h3>
-            <p className="text-sm text-text-muted mt-1">{message}</p>
+            <p className="text-sm text-text-muted mt-1 whitespace-pre-line">{message}</p>
           </div>
         </div>
 

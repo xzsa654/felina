@@ -8,7 +8,7 @@ use crate::commands::canonical_skills::{
     canonical_skills_dir, parse_skill_md, read_sync_meta_v2_no_backfill, split_frontmatter,
     write_sync_meta_v2, AgentId, SkillScope, SkillTarget, TargetMode,
 };
-use crate::commands::fan_out::{expand_user_path, resolve_pair};
+use crate::commands::fan_out::{build_diff_hunks, expand_user_path, resolve_pair, DiffHunk};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -65,6 +65,12 @@ pub struct ConflictInfo {
     pub canonical_path: String,
     pub canonical_body_preview: String,
     pub diff_summary: String,
+    /// Line-level diff between canonical (old) and project source (new). Built
+    /// at scan time so the Link confirmation can render an inline diff without
+    /// a second round-trip. Skipped on deserialize because frontend never
+    /// sends it back through `ImportSelection`.
+    #[serde(default, skip_deserializing)]
+    pub hunks: Vec<DiffHunk>,
 }
 
 /// One user choice for the apply step.
@@ -291,14 +297,12 @@ fn collect_candidates_in(
         // Conflict detection: same-named canonical SKILL.md already exists?
         let canonical_path = canonical_dir.join(&dir_name).join("SKILL.md");
         let conflict = if canonical_path.is_file() {
-            let canonical_body = fs::read_to_string(&canonical_path)
-                .ok()
-                .map(|s| body_preview_from(&s))
-                .unwrap_or_default();
+            let canonical_raw = fs::read_to_string(&canonical_path).unwrap_or_default();
             Some(ConflictInfo {
                 canonical_path: canonical_path.to_string_lossy().to_string(),
-                canonical_body_preview: canonical_body,
-                diff_summary: summarise_diff(&raw, &canonical_path),
+                canonical_body_preview: body_preview_from(&canonical_raw),
+                diff_summary: summarise_diff_raw(&raw, &canonical_raw),
+                hunks: build_diff_hunks(&canonical_raw, &raw),
             })
         } else {
             None
@@ -403,8 +407,7 @@ fn strip_frontmatter_for_preview(raw: &str) -> &str {
     raw
 }
 
-fn summarise_diff(source_raw: &str, canonical_path: &Path) -> String {
-    let canonical_raw = fs::read_to_string(canonical_path).unwrap_or_default();
+fn summarise_diff_raw(source_raw: &str, canonical_raw: &str) -> String {
     let src_lines = source_raw.lines().count();
     let dst_lines = canonical_raw.lines().count();
     let src_bytes = source_raw.len();
