@@ -1,68 +1,5 @@
-# projects-view Specification
+## MODIFIED Requirements
 
-## Purpose
-
-TBD - created by archiving change 'scope-model-simplification'. Update Purpose after archive.
-
-## Requirements
-
-### Requirement: Projects Top-Level View
-
-The application SHALL provide a top-level Projects view, registered as a sibling page to Skills (see `app-pages` capability). The view is read-only with respect to canonical master files and target rows; its purpose is to surface the management state of each Known Project's skills, not to edit master files or target configurations.
-
-The view SHALL render a two-column layout:
-
-- **Left column**: a list of Known Projects sourced from `known_projects_list`, including L1/L2/L3 sources and the `exists` flag.
-- **Right column**: the "managed inventory" of the currently selected project (Managed Inventory View requirement below).
-
-Selection state SHALL default to the L1 (current cwd) project when present. When no L1 exists, the default selection SHALL be the first entry in the sorted list. When the Known Projects list is empty, the view SHALL display an empty state inviting the user to add a project via Browse or to manage global skills via the Skills view.
-
-A left-column entry with `exists=false` SHALL display a "project not found" indicator (matching the visual treatment used by `multi-agent-skills` Origin-Project Degradation). Selecting such an entry SHALL still render the left-column entry as selected, but the right column SHALL show an empty inventory with a "找不到該 project 資料夾" message.
-
-#### Scenario: Default selection picks the current cwd project
-
-- **GIVEN** Known Projects returns `[{path:"C:/proj/A", sources:[cwd,saved]}, {path:"D:/proj/B", sources:[saved]}]`
-- **WHEN** the user opens the Projects view for the first time in a session
-- **THEN** `C:/proj/A` is the selected entry in the left column
-
-#### Scenario: Selecting a missing project shows the empty inventory message
-
-- **GIVEN** the user selects an entry whose `exists=false`
-- **WHEN** the right column renders
-- **THEN** the inventory area shows the "找不到該 project 資料夾" message and no skill rows
-
-
-<!-- @trace
-source: scope-model-simplification
-updated: 2026-05-24
-code:
-  - src/lib/components/layout/Header.tsx
-  - src/lib/components/projects/ManagedInventory.tsx
-  - src-tauri/Cargo.toml
-  - src/lib/components/projects/ProjectsPage.tsx
-  - src/lib/components/skills/SkillEditor.tsx
-  - src-tauri/src/commands/canonical_skills.rs
-  - src-tauri/src/commands/fan_out/mod.rs
-  - src/lib/components/layout/Sidebar.tsx
-  - src/lib/types/skills.ts
-  - src/lib/components/skills/SkillImportWizard.tsx
-  - src-tauri/src/commands/skill_import.rs
-  - src-tauri/src/paths.rs
-  - src/lib/components/settings/AgentPathsSection.tsx
-  - .session/product-backlog.md
-  - src/lib/components/projects/ProjectsList.tsx
-  - src/lib/components/skills/AddTargetDialog.tsx
-  - .session/agent-capability-research.md
-  - src/lib/components/skills/SkillList.tsx
-  - src/lib/components/skills/SkillsPage.tsx
-  - src/lib/components/skills/TargetEditor.tsx
-  - src/lib/stores/navigation.ts
-  - src/lib/stores/skills-store.ts
-  - src/lib/tauri/commands.ts
-  - src/router.tsx
--->
-
----
 ### Requirement: Managed Inventory View
 
 The Projects view's right column SHALL render a managed inventory list for the selected project. Each row SHALL represent a unique skill name in the union of:
@@ -126,116 +63,6 @@ Inventory rows SHALL be ordered by task priority: Managed rows first, then rows 
 - **WHEN** the selected project yields rows `zed` as Managed, `global-match` as same-name canonical resolution, `alpha` as local-only importable, and `multi` as unresolved multi-source
 - **THEN** the row order SHALL be `zed`, `global-match`, `alpha`, `multi`
 
-
-<!-- @trace
-source: projects-local-skill-resolution
-updated: 2026-06-02
-code:
-  - src-tauri/src/commands/skill_import.rs
-  - src/lib/i18n/locales/en.ts
-  - src-tauri/src/lib.rs
-  - src/lib/tauri/commands.ts
-  - src/lib/components/projects/managed-inventory.ts
-  - src/lib/i18n/locales/zh-TW.ts
-  - src/lib/components/projects/ManagedInventory.tsx
-  - .session/product-backlog.md
-tests:
-  - src/lib/components/projects/managed-inventory.test.ts
-  - src/lib/components/projects/conflict-diff.test.ts
--->
-
----
-### Requirement: Multi-Source Inline Source Selection
-
-The ManagedInventory component SHALL display multi-source import choices using a physical-source-first inline drawer. When multiple candidates share the same normalized `sourcePath`, the drawer SHALL render one source card for that physical file and SHALL present the available agent attributions within that card.
-
-When the user selects an attribution, the system SHALL keep using the existing `selectSource` import resolution. The selected attribution SHALL determine the candidate source index sent to `skill_import_apply`, the imported project target's `agent`, and any agent-specific import side effects.
-
-When candidates use different physical source paths, the drawer SHALL render one source card per physical source path.
-
-#### Scenario: Shared `.agents/skills` source renders as one card
-
-- **WHEN** Codex and Gemini candidates for `foo` both point to `<project>/.agents/skills/foo/SKILL.md`
-- **THEN** the drawer SHALL render one shared source card for that path
-- **AND** the card SHALL offer Codex and Gemini attribution choices
-
-#### Scenario: Attribution selection maps to selectSource
-
-- **WHEN** the user selects Gemini attribution for a shared source card
-- **THEN** the import selection SHALL use `resolution.kind = "selectSource"` with the source index of the Gemini candidate
-- **AND** the imported target SHALL be attributed to Gemini
-
-#### Scenario: Distinct physical sources remain separate
-
-- **WHEN** Anthropic and Codex candidates for `foo` point to different physical paths
-- **THEN** the drawer SHALL render separate source cards for those paths
-
-
-<!-- @trace
-source: projects-import-existing-canonical-link
-updated: 2026-06-02
-code:
-  - .session/scratch/temp_proposal.md
-  - src/lib/assets/logo.png
-  - src/lib/components/skills/import/SkillStagingCard.tsx
-  - src/lib/components/shared/ConfirmDialog.tsx
-  - src/lib/components/projects/managed-inventory.ts
-  - src-tauri/tauri.conf.json
-  - tests/loader.mjs
-  - .session/scratch/temp_design.md
-  - src/lib/assets/logo_.png
-  - src-tauri/src/commands/agent_paths.rs
-  - src/lib/components/skills/SkillsPage.tsx
-  - .session/scratch/spec1.md
-  - src/lib/i18n/locales/en.ts
-  - .session/scratch/spec3.md
-  - .session/scratch/temp_tasks.md
-  - src/lib/components/skills/import/staging-logic.ts
-  - src-tauri/src/commands/skill_import.rs
-  - src/lib/components/projects/ManagedInventory.tsx
-  - src/lib/types/index.ts
-  - src/lib/components/skills/import/ImportStagingDialog.tsx
-  - .session/scratch/spec2.md
-  - src/lib/i18n/locales/zh-TW.ts
-  - src/lib/types/skills.ts
-  - src-tauri/src/commands/fan_out/mod.rs
-tests:
-  - tests/managed-inventory.test.ts
-  - tests/skill-import-conflict-warning.test.ts
-  - tests/staging-logic.test.ts
--->
-
----
-### Requirement: Import Button Label Accuracy
-
-The ManagedInventory import button label SHALL read "Import to Felina" (en) / "匯入至 Felina" (zh-TW) instead of "Import to global" / "匯入至 Global". The label SHALL accurately reflect that the import destination is the Felina canonical skill store, not a specific agent's global directory.
-
-#### Scenario: Button label in English locale
-
-- **WHEN** the locale is English and a single-source importable skill is displayed
-- **THEN** the import button label SHALL read "Import to Felina"
-
-#### Scenario: Button label in Traditional Chinese locale
-
-- **WHEN** the locale is zh-TW and a single-source importable skill is displayed
-- **THEN** the import button label SHALL read "匯入至 Felina"
-
-<!-- @trace
-source: resolve-multi-source-skill-import
-updated: 2026-05-28
-code:
-  - .knowledge/knowledge-base/architecture.md
-  - src/lib/components/skills/SkillImportWizard.tsx
-  - src/lib/components/skills/SkillsPage.tsx
-  - src/lib/i18n/locales/en.ts
-  - .knowledge/_catalog.json
-  - src-tauri/src/commands/fan_out/mod.rs
-  - .session/product-backlog.md
-  - src/lib/components/projects/ManagedInventory.tsx
-  - src/lib/i18n/locales/zh-TW.ts
--->
-
----
 ### Requirement: Discovered Skill Link Confirmation
 
 When a discovered skill has a same-named canonical master but no selected-project target, the system SHALL require an explicit Link to Project confirmation before appending a project target. The Link path SHALL be initiated from the Same-Name Resolution Dialog (see Same-Name Resolution Dialog requirement). The confirmation SHALL show canonical/local difference information using line-level hunks derived from the existing `ConflictInfo` metadata.
@@ -269,83 +96,8 @@ When the row is multi-source (deferred), the Link path SHALL first open the exis
 - **THEN** the multi-source drawer SHALL appear so the user picks one attribution
 - **AND** only after the attribution is picked SHALL the Link confirmation appear
 
+## ADDED Requirements
 
-<!-- @trace
-source: projects-local-skill-resolution
-updated: 2026-06-02
-code:
-  - src-tauri/src/commands/skill_import.rs
-  - src/lib/i18n/locales/en.ts
-  - src-tauri/src/lib.rs
-  - src/lib/tauri/commands.ts
-  - src/lib/components/projects/managed-inventory.ts
-  - src/lib/i18n/locales/zh-TW.ts
-  - src/lib/components/projects/ManagedInventory.tsx
-  - .session/product-backlog.md
-tests:
-  - src/lib/components/projects/managed-inventory.test.ts
-  - src/lib/components/projects/conflict-diff.test.ts
--->
-
----
-### Requirement: Projects Inventory Presentation Style
-
-The Projects inventory SHALL follow the Felina UI guidelines. The right panel SHALL use a borderless list view with row-integrated status chips and inline drawers. It SHALL NOT use a traditional HTML table, hard grid lines, or a standalone warning/info bar to explain normal row state.
-
-Detected sources, Felina targets, relationship status, and primary action SHALL be visible within each row or its inline drawer. Text and controls SHALL remain non-overlapping at narrow and wide panel widths.
-
-#### Scenario: Inventory uses row-integrated status
-
-- **WHEN** a row is local-only, managed, global duplicate, or needs link
-- **THEN** that state SHALL be represented by a compact row badge or chip
-- **AND** the page SHALL NOT render a separate warning/info bar solely to explain that normal state
-
-#### Scenario: Inventory avoids table presentation
-
-- **WHEN** the Projects inventory renders rows
-- **THEN** the implementation SHALL use list-style row markup and spacing
-- **AND** it SHALL NOT render the inventory as a traditional `<table>`
-
-<!-- @trace
-source: projects-import-existing-canonical-link
-updated: 2026-06-02
--->
-
-<!-- @trace
-source: projects-import-existing-canonical-link
-updated: 2026-06-02
-code:
-  - .session/scratch/temp_proposal.md
-  - src/lib/assets/logo.png
-  - src/lib/components/skills/import/SkillStagingCard.tsx
-  - src/lib/components/shared/ConfirmDialog.tsx
-  - src/lib/components/projects/managed-inventory.ts
-  - src-tauri/tauri.conf.json
-  - tests/loader.mjs
-  - .session/scratch/temp_design.md
-  - src/lib/assets/logo_.png
-  - src-tauri/src/commands/agent_paths.rs
-  - src/lib/components/skills/SkillsPage.tsx
-  - .session/scratch/spec1.md
-  - src/lib/i18n/locales/en.ts
-  - .session/scratch/spec3.md
-  - .session/scratch/temp_tasks.md
-  - src/lib/components/skills/import/staging-logic.ts
-  - src-tauri/src/commands/skill_import.rs
-  - src/lib/components/projects/ManagedInventory.tsx
-  - src/lib/types/index.ts
-  - src/lib/components/skills/import/ImportStagingDialog.tsx
-  - .session/scratch/spec2.md
-  - src/lib/i18n/locales/zh-TW.ts
-  - src/lib/types/skills.ts
-  - src-tauri/src/commands/fan_out/mod.rs
-tests:
-  - tests/managed-inventory.test.ts
-  - tests/skill-import-conflict-warning.test.ts
-  - tests/staging-logic.test.ts
--->
-
----
 ### Requirement: Same-Name Resolution Dialog
 
 When a discovered skill row has a same-named canonical master but no selected-project target, clicking the row's "選擇處理方式…" action SHALL open a Same-Name Resolution Dialog. The dialog SHALL list the available resolution paths as separate options, with options determined by the row's relationship:
@@ -374,25 +126,6 @@ The dialog SHALL be the only entry point to Rename and Discard from the Projects
 - **THEN** the system SHALL NOT call any backend command that modifies canonical or project-local state
 - **AND** no path SHALL run until the user picks it and confirms its own confirmation step
 
-
-<!-- @trace
-source: projects-local-skill-resolution
-updated: 2026-06-02
-code:
-  - src-tauri/src/commands/skill_import.rs
-  - src/lib/i18n/locales/en.ts
-  - src-tauri/src/lib.rs
-  - src/lib/tauri/commands.ts
-  - src/lib/components/projects/managed-inventory.ts
-  - src/lib/i18n/locales/zh-TW.ts
-  - src/lib/components/projects/ManagedInventory.tsx
-  - .session/product-backlog.md
-tests:
-  - src/lib/components/projects/managed-inventory.test.ts
-  - src/lib/components/projects/conflict-diff.test.ts
--->
-
----
 ### Requirement: Project-Local Skill Rename
 
 The system SHALL provide a Tauri command that renames a project-local skill directory and updates its `SKILL.md` frontmatter `name` field in one operation. The rename SHALL be reachable from the Same-Name Resolution Dialog's Rename path.
@@ -436,25 +169,6 @@ After a successful rename, the inventory SHALL be refreshed so the renamed skill
 - **THEN** the dialog SHALL display a warning that the rename will affect both Codex and Gemini
 - **AND** the dialog SHALL still allow the user to confirm
 
-
-<!-- @trace
-source: projects-local-skill-resolution
-updated: 2026-06-02
-code:
-  - src-tauri/src/commands/skill_import.rs
-  - src/lib/i18n/locales/en.ts
-  - src-tauri/src/lib.rs
-  - src/lib/tauri/commands.ts
-  - src/lib/components/projects/managed-inventory.ts
-  - src/lib/i18n/locales/zh-TW.ts
-  - src/lib/components/projects/ManagedInventory.tsx
-  - .session/product-backlog.md
-tests:
-  - src/lib/components/projects/managed-inventory.test.ts
-  - src/lib/components/projects/conflict-diff.test.ts
--->
-
----
 ### Requirement: Project-Local Skill Discard
 
 The system SHALL provide a Tauri command that deletes a project-local skill directory in one operation. The discard SHALL be reachable only from the Same-Name Resolution Dialog's Discard path, and only when the row's relationship is `canonicalGlobalOnly`.
@@ -497,25 +211,6 @@ After a successful discard, the inventory SHALL be refreshed so the discarded ro
 - **THEN** the dialog SHALL display a warning that the discard will remove the skill from both Codex and Gemini
 - **AND** the dialog SHALL still allow the user to confirm
 
-
-<!-- @trace
-source: projects-local-skill-resolution
-updated: 2026-06-02
-code:
-  - src-tauri/src/commands/skill_import.rs
-  - src/lib/i18n/locales/en.ts
-  - src-tauri/src/lib.rs
-  - src/lib/tauri/commands.ts
-  - src/lib/components/projects/managed-inventory.ts
-  - src/lib/i18n/locales/zh-TW.ts
-  - src/lib/components/projects/ManagedInventory.tsx
-  - .session/product-backlog.md
-tests:
-  - src/lib/components/projects/managed-inventory.test.ts
-  - src/lib/components/projects/conflict-diff.test.ts
--->
-
----
 ### Requirement: Multi-Source Overwrite Path
 
 The Same-Name Resolution Dialog's Overwrite path SHALL be available regardless of whether the row is single-source or multi-source. When the row is multi-source (deferred), the Overwrite path SHALL first open the existing multi-source drawer so the user picks an attribution before the Overwrite confirmation appears. The picked source index SHALL be carried into the Overwrite confirmation and used as the resolution source for `skill_import_apply`.
@@ -538,25 +233,6 @@ The Overwrite confirmation SHALL display the canonical/local line-level diff wit
 - **THEN** the multi-source drawer SHALL NOT appear
 - **AND** the Overwrite confirmation SHALL appear directly
 
-
-<!-- @trace
-source: projects-local-skill-resolution
-updated: 2026-06-02
-code:
-  - src-tauri/src/commands/skill_import.rs
-  - src/lib/i18n/locales/en.ts
-  - src-tauri/src/lib.rs
-  - src/lib/tauri/commands.ts
-  - src/lib/components/projects/managed-inventory.ts
-  - src/lib/i18n/locales/zh-TW.ts
-  - src/lib/components/projects/ManagedInventory.tsx
-  - .session/product-backlog.md
-tests:
-  - src/lib/components/projects/managed-inventory.test.ts
-  - src/lib/components/projects/conflict-diff.test.ts
--->
-
----
 ### Requirement: Conflict Diff Direction Convention
 
 The backend `ConflictInfo.hunks` field SHALL be computed with a fixed direction: `old = project source content`, `new = canonical master content`. This direction SHALL NOT vary with the dialog context.
@@ -582,25 +258,6 @@ The legend text below each dialog's diff SHALL match the dialog's base/incoming 
 - **THEN** the line SHALL be displayed using the backend's original `add` kind
 - **AND** the legend SHALL identify base as `Felina master` and incoming as `this project`
 
-
-<!-- @trace
-source: projects-local-skill-resolution
-updated: 2026-06-02
-code:
-  - src-tauri/src/commands/skill_import.rs
-  - src/lib/i18n/locales/en.ts
-  - src-tauri/src/lib.rs
-  - src/lib/tauri/commands.ts
-  - src/lib/components/projects/managed-inventory.ts
-  - src/lib/i18n/locales/zh-TW.ts
-  - src/lib/components/projects/ManagedInventory.tsx
-  - .session/product-backlog.md
-tests:
-  - src/lib/components/projects/managed-inventory.test.ts
-  - src/lib/components/projects/conflict-diff.test.ts
--->
-
----
 ### Requirement: Overwrite Confirmation Inline Diff
 
 The Overwrite confirmation dialog SHALL display the canonical/local difference using the same inline line-level diff component as the Link confirmation dialog, instead of using a plain text summary. The dialog SHALL fall back to the textual `diffSummary` when `ConflictInfo.hunks` is empty.
@@ -618,20 +275,3 @@ The dialog SHALL continue to display the short directional message explaining "t
 
 - **WHEN** the `ConflictInfo.hunks` field is empty
 - **THEN** the Overwrite confirmation dialog SHALL display the textual `diffSummary`
-
-<!-- @trace
-source: projects-local-skill-resolution
-updated: 2026-06-02
-code:
-  - src-tauri/src/commands/skill_import.rs
-  - src/lib/i18n/locales/en.ts
-  - src-tauri/src/lib.rs
-  - src/lib/tauri/commands.ts
-  - src/lib/components/projects/managed-inventory.ts
-  - src/lib/i18n/locales/zh-TW.ts
-  - src/lib/components/projects/ManagedInventory.tsx
-  - .session/product-backlog.md
-tests:
-  - src/lib/components/projects/managed-inventory.test.ts
-  - src/lib/components/projects/conflict-diff.test.ts
--->

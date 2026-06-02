@@ -418,6 +418,139 @@ fn summarise_diff_raw(source_raw: &str, canonical_raw: &str) -> String {
 }
 
 // ---------------------------------------------------------------------------
+// Project-local skill operations: rename / discard the project-side copy of
+// a same-name skill without touching canonical or sync-meta.
+// ---------------------------------------------------------------------------
+
+fn validate_skill_name_segment(name: &str) -> Result<(), String> {
+    if name.is_empty() {
+        return Err("skill name must not be empty".into());
+    }
+    if name.contains("..") || name.contains('/') || name.contains('\\') {
+        return Err("skill name must not contain path separators or '..'".into());
+    }
+    Ok(())
+}
+
+fn resolve_project_agent_skills_dir(
+    project_path: &str,
+    agent: AgentId,
+) -> Result<PathBuf, String> {
+    let cfg = agent_paths_get()?;
+    let pair = match agent {
+        AgentId::Anthropic => &cfg.anthropic,
+        AgentId::Codex => &cfg.codex,
+        AgentId::Gemini => &cfg.gemini,
+    };
+    resolve_pair(SkillScope::Project, Some(project_path), pair)
+}
+
+/// Rewrite the `name` field in a SKILL.md's YAML frontmatter, preserving body
+/// and any other frontmatter entries. Returns the new file contents.
+fn rewrite_skill_md_name(raw: &str, new_name: &str) -> Result<String, String> {
+    let (fm_text, body) = split_frontmatter(raw);
+    if fm_text.is_empty() {
+        return Err("SKILL.md missing or unterminated YAML frontmatter".into());
+    }
+    let value: serde_yaml::Value =
+        serde_yaml::from_str(&fm_text).map_err(|e| format!("malformed YAML: {e}"))?;
+    let mut map = match value {
+        serde_yaml::Value::Mapping(m) => m,
+        _ => return Err("frontmatter root must be a YAML mapping".into()),
+    };
+    map.insert(
+        serde_yaml::Value::String("name".into()),
+        serde_yaml::Value::String(new_name.to_string()),
+    );
+    let fm_yaml = serde_yaml::to_string(&serde_yaml::Value::Mapping(map))
+        .map_err(|e| format!("frontmatter serialize failed: {e}"))?;
+    let body_norm = if body.ends_with('\n') || body.is_empty() {
+        body
+    } else {
+        format!("{body}\n")
+    };
+    Ok(format!(
+        "---\n{}\n---\n{body_norm}",
+        fm_yaml.trim_end_matches('\n')
+    ))
+}
+
+/// Rename a project-local skill directory and sync the SKILL.md `name`
+/// frontmatter field. Canonical and sync-meta are NOT touched.
+#[tauri::command]
+pub fn project_local_skill_rename(
+    project_path: String,
+    agent: AgentId,
+    old_name: String,
+    new_name: String,
+) -> Result<(), String> {
+    validate_skill_name_segment(&old_name)?;
+    validate_skill_name_segment(&new_name)?;
+    if old_name == new_name {
+        return Err("new name must differ from old name".into());
+    }
+    let dir = resolve_project_agent_skills_dir(&project_path, agent)?;
+    let old_dir = dir.join(&old_name);
+    let new_dir = dir.join(&new_name);
+    if !old_dir.is_dir() {
+        return Err(format!(
+            "source skill directory not found: {}",
+            old_dir.display()
+        ));
+    }
+    if new_dir.exists() {
+        return Err(format!(
+            "target name already exists: {}",
+            new_dir.display()
+        ));
+    }
+    fs::rename(&old_dir, &new_dir)
+        .map_err(|e| format!("failed to rename skill directory: {e}"))?;
+
+    let skill_md = new_dir.join("SKILL.md");
+    if skill_md.is_file() {
+        let raw = match fs::read_to_string(&skill_md) {
+            Ok(s) => s,
+            Err(e) => {
+                let _ = fs::rename(&new_dir, &old_dir);
+                return Err(format!("failed to read SKILL.md after rename: {e}"));
+            }
+        };
+        let updated = match rewrite_skill_md_name(&raw, &new_name) {
+            Ok(s) => s,
+            Err(e) => {
+                let _ = fs::rename(&new_dir, &old_dir);
+                return Err(format!("failed to update SKILL.md frontmatter: {e}"));
+            }
+        };
+        if let Err(e) = fs::write(&skill_md, updated) {
+            let _ = fs::rename(&new_dir, &old_dir);
+            return Err(format!("failed to write SKILL.md: {e}"));
+        }
+    }
+    Ok(())
+}
+
+/// Delete a project-local skill directory. Canonical and sync-meta are NOT
+/// touched. Missing directory returns Ok (idempotent).
+#[tauri::command]
+pub fn project_local_skill_delete(
+    project_path: String,
+    agent: AgentId,
+    skill_name: String,
+) -> Result<(), String> {
+    validate_skill_name_segment(&skill_name)?;
+    let dir = resolve_project_agent_skills_dir(&project_path, agent)?;
+    let target = dir.join(&skill_name);
+    if !target.exists() {
+        return Ok(());
+    }
+    fs::remove_dir_all(&target)
+        .map_err(|e| format!("failed to delete skill directory: {e}"))?;
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
 // Apply — execute user-chosen resolutions and write to canonical.
 // ---------------------------------------------------------------------------
 
@@ -1614,6 +1747,203 @@ mod tests {
         let codex = skill.agent_fields.get("codex").unwrap().as_mapping().unwrap();
         assert!(codex.contains_key(serde_yaml::Value::String("interface.display_name".into())));
         assert!(codex.contains_key(serde_yaml::Value::String("policy.allow_implicit_invocation".into())));
+    }
+
+    // ------------------------------------------------------------------
+    // project_local_skill_rename / project_local_skill_delete
+    // ------------------------------------------------------------------
+
+    fn setup_project_skill(
+        project: &Path,
+        agent_subdir: &str,
+        skill_name: &str,
+        body: &str,
+    ) -> PathBuf {
+        let dir = project.join(agent_subdir).join("skills").join(skill_name);
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(
+            dir.join("SKILL.md"),
+            format!("---\nname: {skill_name}\ndescription: d\nagents: [anthropic]\n---\n{body}\n"),
+        )
+        .unwrap();
+        dir
+    }
+
+    fn felina_home_guard(tmp: &Path) -> impl Drop {
+        crate::paths::set_felina_home_override_for_test(Some(tmp.join(".felina")));
+        struct G;
+        impl Drop for G {
+            fn drop(&mut self) {
+                crate::paths::set_felina_home_override_for_test(None);
+            }
+        }
+        G
+    }
+
+    #[test]
+    fn rewrite_skill_md_name_updates_name_field_preserves_body() {
+        let raw = "---\nname: old\ndescription: hi\nagents: [anthropic]\n---\n# Body content\nmore\n";
+        let out = rewrite_skill_md_name(raw, "new-name").unwrap();
+        assert!(out.contains("name: new-name"));
+        assert!(!out.contains("name: old"));
+        assert!(out.contains("# Body content"));
+        assert!(out.contains("description: hi"));
+    }
+
+    #[test]
+    fn rewrite_skill_md_name_rejects_missing_frontmatter() {
+        let err = rewrite_skill_md_name("no frontmatter here", "new").unwrap_err();
+        assert!(err.contains("frontmatter"));
+    }
+
+    #[test]
+    fn project_local_rename_happy_path_updates_dir_and_frontmatter() {
+        let tmp = unique_tmp("plrename-happy");
+        let _g = felina_home_guard(&tmp);
+        let project = tmp.join("proj");
+        fs::create_dir_all(&project).unwrap();
+        setup_project_skill(&project, ".claude", "old-skill", "body");
+
+        project_local_skill_rename(
+            project.to_string_lossy().to_string(),
+            AgentId::Anthropic,
+            "old-skill".into(),
+            "new-skill".into(),
+        )
+        .expect("rename");
+
+        let old_dir = project.join(".claude/skills/old-skill");
+        let new_dir = project.join(".claude/skills/new-skill");
+        assert!(!old_dir.exists());
+        assert!(new_dir.is_dir());
+        let md = fs::read_to_string(new_dir.join("SKILL.md")).unwrap();
+        assert!(md.contains("name: new-skill"), "frontmatter updated: {md}");
+        assert!(!md.contains("name: old-skill"));
+    }
+
+    #[test]
+    fn project_local_rename_rejects_collision() {
+        let tmp = unique_tmp("plrename-collision");
+        let _g = felina_home_guard(&tmp);
+        let project = tmp.join("proj");
+        fs::create_dir_all(&project).unwrap();
+        setup_project_skill(&project, ".claude", "alpha", "a");
+        setup_project_skill(&project, ".claude", "beta", "b");
+
+        let err = project_local_skill_rename(
+            project.to_string_lossy().to_string(),
+            AgentId::Anthropic,
+            "alpha".into(),
+            "beta".into(),
+        )
+        .unwrap_err();
+        assert!(err.contains("already exists"), "got: {err}");
+        // No mutation: alpha still there.
+        assert!(project.join(".claude/skills/alpha").is_dir());
+    }
+
+    #[test]
+    fn project_local_rename_rejects_traversal_and_empty() {
+        for bad in ["", "..", "../escape", "a/b", "a\\b"] {
+            let err = project_local_skill_rename(
+                "/tmp/x".into(),
+                AgentId::Anthropic,
+                "ok".into(),
+                bad.into(),
+            )
+            .unwrap_err();
+            assert!(
+                err.contains("empty") || err.contains("separator") || err.contains("'..'"),
+                "input {bad:?} → {err}"
+            );
+        }
+    }
+
+    #[test]
+    fn project_local_rename_missing_source_returns_err() {
+        let tmp = unique_tmp("plrename-missing");
+        let _g = felina_home_guard(&tmp);
+        let project = tmp.join("proj");
+        fs::create_dir_all(project.join(".claude/skills")).unwrap();
+        let err = project_local_skill_rename(
+            project.to_string_lossy().to_string(),
+            AgentId::Anthropic,
+            "ghost".into(),
+            "new".into(),
+        )
+        .unwrap_err();
+        assert!(err.contains("not found"), "got: {err}");
+    }
+
+    #[test]
+    fn project_local_rename_rolls_back_on_malformed_frontmatter() {
+        let tmp = unique_tmp("plrename-rollback");
+        let _g = felina_home_guard(&tmp);
+        let project = tmp.join("proj");
+        let dir = project.join(".claude/skills/broken");
+        fs::create_dir_all(&dir).unwrap();
+        // No frontmatter at all → rewrite_skill_md_name returns Err → rollback.
+        fs::write(dir.join("SKILL.md"), "no frontmatter body").unwrap();
+
+        let err = project_local_skill_rename(
+            project.to_string_lossy().to_string(),
+            AgentId::Anthropic,
+            "broken".into(),
+            "fixed".into(),
+        )
+        .unwrap_err();
+        assert!(err.contains("frontmatter"), "got: {err}");
+        // Rollback restored original dir.
+        assert!(project.join(".claude/skills/broken").is_dir());
+        assert!(!project.join(".claude/skills/fixed").exists());
+    }
+
+    #[test]
+    fn project_local_delete_happy_path_removes_directory() {
+        let tmp = unique_tmp("pldelete-happy");
+        let _g = felina_home_guard(&tmp);
+        let project = tmp.join("proj");
+        fs::create_dir_all(&project).unwrap();
+        setup_project_skill(&project, ".claude", "doomed", "x");
+
+        project_local_skill_delete(
+            project.to_string_lossy().to_string(),
+            AgentId::Anthropic,
+            "doomed".into(),
+        )
+        .expect("delete");
+        assert!(!project.join(".claude/skills/doomed").exists());
+    }
+
+    #[test]
+    fn project_local_delete_missing_dir_is_idempotent() {
+        let tmp = unique_tmp("pldelete-idempotent");
+        let _g = felina_home_guard(&tmp);
+        let project = tmp.join("proj");
+        fs::create_dir_all(project.join(".claude/skills")).unwrap();
+
+        project_local_skill_delete(
+            project.to_string_lossy().to_string(),
+            AgentId::Anthropic,
+            "never-existed".into(),
+        )
+        .expect("idempotent");
+    }
+
+    #[test]
+    fn project_local_delete_rejects_traversal() {
+        for bad in ["", "..", "../etc", "a/b", "a\\b"] {
+            let err = project_local_skill_delete(
+                "/tmp/x".into(),
+                AgentId::Anthropic,
+                bad.into(),
+            )
+            .unwrap_err();
+            assert!(
+                err.contains("empty") || err.contains("separator") || err.contains("'..'"),
+                "input {bad:?} → {err}"
+            );
+        }
     }
 
     /// Import a Gemini source — no synthetic optional fields created.
