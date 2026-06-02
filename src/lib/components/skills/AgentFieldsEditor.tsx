@@ -190,8 +190,11 @@ function FieldRow({
   return (
     <div className="flex flex-col gap-0.5">
       <div className="flex items-center gap-2">
-        <label className="text-xs text-text-secondary w-1/3 truncate" title={def.canonicalPath}>
-          {t(locale, def.labelKey as never) ?? def.outputKey}
+        <label
+          className="text-xs font-mono text-text-secondary w-1/3 truncate"
+          title={t(locale, def.labelKey as never) ?? def.canonicalPath}
+        >
+          {def.outputKey}
         </label>
         {def.valueKind === "enum" && def.enumValues && def.enumValues.length > 0 ? (
           <select
@@ -283,11 +286,14 @@ function FieldAdder({
       onBlur={() => setSelecting(false)}
     >
       <option value="">{t(locale, "skills.fields.selectField")}</option>
-      {available.map((def) => (
-        <option key={def.canonicalPath} value={def.outputKey}>
-          {t(locale, def.labelKey as never) ?? def.outputKey}
-        </option>
-      ))}
+      {available.map((def) => {
+        const label = t(locale, def.labelKey as never);
+        return (
+          <option key={def.canonicalPath} value={def.outputKey}>
+            {label ? `${def.outputKey} — ${label}` : def.outputKey}
+          </option>
+        );
+      })}
     </select>
   );
 }
