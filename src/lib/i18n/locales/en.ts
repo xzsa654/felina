@@ -229,6 +229,12 @@ const en = {
       drifted: "Some targets have been modified externally",
       groupActionRequired: "Action Required",
       groupAllSkills: "All Skills",
+      searchPlaceholder: "Search skills…",
+      searchClear: "Clear search",
+      groupNeedsAttention: "Needs Attention",
+      groupNeedsPush: "Needs Push",
+      groupNotConfigured: "Not Configured",
+      groupReady: "Ready",
     },
     pull: {
       button: "Pull",

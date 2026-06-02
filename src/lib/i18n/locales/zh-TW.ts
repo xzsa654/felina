@@ -231,6 +231,12 @@ const zhTW: TranslationDict = {
       drifted: "部分目標已在外部被修改",
       groupActionRequired: "需要處理",
       groupAllSkills: "所有技能",
+      searchPlaceholder: "搜尋 skill…",
+      searchClear: "清除搜尋",
+      groupNeedsAttention: "需要處理",
+      groupNeedsPush: "待推送",
+      groupNotConfigured: "未配置",
+      groupReady: "已就緒",
     },
     pull: {
       button: "Pull",
