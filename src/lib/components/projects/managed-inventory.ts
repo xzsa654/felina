@@ -2,40 +2,143 @@ import type {
   AgentId,
   ImportCandidate,
   SkillListEntry,
+  SkillScope,
   SkillTarget,
+  TargetMode,
 } from "$lib/types";
 import { skillListEntryCanonicalId } from "$lib/types";
 import { normalizeProjectPath } from "$lib/utils/path";
 
+export type InventoryRelationship =
+  | "managedProject"
+  | "canonicalGlobalOnly"
+  | "canonicalExistsUnlinked"
+  | "localOnly";
+
+export interface InventorySourceAttribution {
+  agent: AgentId;
+  sourceIndex: number;
+  candidate: ImportCandidate;
+}
+
+export interface InventorySourceGroup {
+  sourcePath: string;
+  agents: AgentId[];
+  attributions: InventorySourceAttribution[];
+  primaryCandidate: ImportCandidate;
+}
+
+export interface InventoryTargetSummary {
+  agent: AgentId;
+  scope: SkillScope;
+  project?: string;
+  enabled: boolean;
+  mode: TargetMode;
+}
+
 export interface InventoryRow {
   skillName: string;
   managed: boolean;
+  relationship: InventoryRelationship;
   canonicalExists: boolean;
   canonicalId: string | null;
+  canonicalEntry: SkillListEntry | null;
+  detectedSources: InventorySourceGroup[];
+  felinaTargets: InventoryTargetSummary[];
   agentsPresent: Set<AgentId>;
   candidate: ImportCandidate | null;
   deferred: boolean;
 }
 
-function candidateAgents(c: ImportCandidate): AgentId[] {
-  return c.deferred ? c.deferred.agents : [c.sourceAgent];
-}
-
 function isTargetAvailable(tgt: SkillTarget): boolean {
-  return tgt.enabled && (tgt.mode === "manual" || tgt.mode === "auto");
+  return tgt.enabled && tgt.mode !== "detached" && tgt.mode !== "forked";
 }
 
-function actionRank(r: InventoryRow): number {
-  if (r.managed) return 0;
-  if (r.canonicalExists) return 1;
-  if (!r.deferred) return 2;
+function isSelectedProjectTarget(tgt: SkillTarget, selectedProject: string): boolean {
+  return (
+    tgt.scope === "project" &&
+    normalizeProjectPath(tgt.project ?? "") === selectedProject
+  );
+}
+
+function isRelevantTarget(tgt: SkillTarget, selectedProject: string): boolean {
+  if (!isTargetAvailable(tgt)) return false;
+  return tgt.scope === "global" || isSelectedProjectTarget(tgt, selectedProject);
+}
+
+function targetSummary(tgt: SkillTarget): InventoryTargetSummary {
+  return {
+    agent: tgt.agent,
+    scope: tgt.scope,
+    project: tgt.project,
+    enabled: tgt.enabled,
+    mode: tgt.mode,
+  };
+}
+
+function sourceEntries(candidate: ImportCandidate): InventorySourceAttribution[] {
+  if (!candidate.deferred) {
+    return [{ agent: candidate.sourceAgent, sourceIndex: 0, candidate }];
+  }
+  return candidate.deferred.candidates.map((source, sourceIndex) => ({
+    agent: source.sourceAgent,
+    sourceIndex,
+    candidate: source,
+  }));
+}
+
+export function groupSourcesByPath(candidate: ImportCandidate | null): InventorySourceGroup[] {
+  if (!candidate) return [];
+
+  const groups = new Map<string, InventorySourceGroup>();
+  for (const attribution of sourceEntries(candidate)) {
+    const source = attribution.candidate;
+    const key = normalizeProjectPath(source.sourcePath);
+    const existing = groups.get(key);
+    if (existing) {
+      existing.attributions.push(attribution);
+      if (!existing.agents.includes(attribution.agent)) {
+        existing.agents.push(attribution.agent);
+      }
+      continue;
+    }
+    groups.set(key, {
+      sourcePath: source.sourcePath.replace(/\\/g, "/"),
+      agents: [attribution.agent],
+      attributions: [attribution],
+      primaryCandidate: source,
+    });
+  }
+
+  return [...groups.values()];
+}
+
+function relationshipFor(
+  canonicalExists: boolean,
+  managed: boolean,
+  felinaTargets: InventoryTargetSummary[],
+): InventoryRelationship {
+  if (!canonicalExists) return "localOnly";
+  if (managed) return "managedProject";
+  if (felinaTargets.some((tgt) => tgt.scope === "global")) {
+    return "canonicalGlobalOnly";
+  }
+  return "canonicalExistsUnlinked";
+}
+
+function actionRank(row: InventoryRow): number {
+  if (row.relationship === "managedProject") return 0;
+  if (
+    row.relationship === "canonicalGlobalOnly" ||
+    row.relationship === "canonicalExistsUnlinked"
+  ) {
+    return 1;
+  }
+  if (!row.deferred) return 2;
   return 3;
 }
 
 export function compareRows(a: InventoryRow, b: InventoryRow): number {
-  const statusA = a.managed ? 0 : 1;
-  const statusB = b.managed ? 0 : 1;
-  if (statusA !== statusB) return statusA - statusB;
   const actA = actionRank(a);
   const actB = actionRank(b);
   if (actA !== actB) return actA - actB;
@@ -47,98 +150,89 @@ export function buildInventoryRows(
   scan: ImportCandidate[],
   canonical: SkillListEntry[],
 ): InventoryRow[] {
-  const want = normalizeProjectPath(projectPath);
+  const selectedProject = normalizeProjectPath(projectPath);
 
-  // Index canonical entries by directory identity (canonicalId).
   const canonicalById = new Map<string, SkillListEntry>();
-  for (const e of canonical) {
-    const id = skillListEntryCanonicalId(e);
-    canonicalById.set(id, e);
+  const canonicalByName = new Map<string, SkillListEntry>();
+  for (const entry of canonical) {
+    const id = skillListEntryCanonicalId(entry);
+    canonicalById.set(id, entry);
+    canonicalByName.set(entry.kind === "ok" ? entry.skill.name : entry.name, entry);
   }
 
-  // Managed names: canonical with a project target pointing at selected project.
-  // Also build a map from canonicalId → set of available agent ids from targets.
   const managedIds = new Set<string>();
-  const canonicalAgentsById = new Map<string, Set<AgentId>>();
+  const relevantTargetsById = new Map<string, InventoryTargetSummary[]>();
+  for (const entry of canonical) {
+    if (entry.kind !== "ok") continue;
+    const id = skillListEntryCanonicalId(entry);
+    const relevantTargets: InventoryTargetSummary[] = [];
 
-  for (const e of canonical) {
-    if (e.kind !== "ok") continue;
-    const id = skillListEntryCanonicalId(e);
-    const agentSet = new Set<AgentId>();
-    for (const tgt of e.skill.targets) {
-      if (!isTargetAvailable(tgt)) continue;
-      if (
-        tgt.scope === "project" &&
-        normalizeProjectPath(tgt.project ?? "") === want
-      ) {
+    for (const target of entry.skill.targets) {
+      if (isSelectedProjectTarget(target, selectedProject) && isTargetAvailable(target)) {
         managedIds.add(id);
       }
-      agentSet.add(tgt.agent);
-    }
-    canonicalAgentsById.set(id, agentSet);
-  }
-
-  // Per-scan: project-local presence + candidate.
-  const localPresence = new Map<string, Set<AgentId>>();
-  const candMap = new Map<string, ImportCandidate>();
-  for (const c of scan) {
-    candMap.set(c.skillName, c);
-    const set = localPresence.get(c.skillName) ?? new Set<AgentId>();
-    for (const a of candidateAgents(c)) set.add(a);
-    localPresence.set(c.skillName, set);
-  }
-
-  // Union of scan names ∪ managed canonical names (by skill name).
-  // For each name, find same-named canonical by matching canonicalId to skillName.
-  const rowMap = new Map<string, InventoryRow>();
-
-  // Add scan-sourced rows.
-  for (const skillName of localPresence.keys()) {
-    const cand = candMap.get(skillName) ?? null;
-    const matchedEntry = canonicalById.get(skillName);
-    const matchedId = matchedEntry
-      ? skillListEntryCanonicalId(matchedEntry)
-      : null;
-    const agents = new Set(localPresence.get(skillName)!);
-
-    // Merge canonical target agents for same-named canonical.
-    if (matchedId) {
-      const canonAgents = canonicalAgentsById.get(matchedId);
-      if (canonAgents) {
-        for (const a of canonAgents) agents.add(a);
+      if (isRelevantTarget(target, selectedProject)) {
+        relevantTargets.push(targetSummary(target));
       }
+    }
+
+    relevantTargetsById.set(id, relevantTargets);
+  }
+
+  const candidatesByName = new Map<string, ImportCandidate>();
+  for (const candidate of scan) {
+    candidatesByName.set(candidate.skillName, candidate);
+  }
+
+  const rowMap = new Map<string, InventoryRow>();
+  for (const skillName of candidatesByName.keys()) {
+    const candidate = candidatesByName.get(skillName) ?? null;
+    const matchedEntry = canonicalById.get(skillName) ?? canonicalByName.get(skillName) ?? null;
+    const canonicalId = matchedEntry ? skillListEntryCanonicalId(matchedEntry) : null;
+    const detectedSources = groupSourcesByPath(candidate);
+    const felinaTargets = canonicalId ? (relevantTargetsById.get(canonicalId) ?? []) : [];
+    const managed = canonicalId !== null && managedIds.has(canonicalId);
+    const detectedAgents = new Set<AgentId>();
+
+    for (const source of detectedSources) {
+      for (const agent of source.agents) detectedAgents.add(agent);
     }
 
     rowMap.set(skillName, {
       skillName,
-      managed: matchedId !== null && managedIds.has(matchedId),
-      canonicalExists: matchedId !== null,
-      canonicalId: matchedId,
-      agentsPresent: agents,
-      candidate: cand,
-      deferred: cand?.deferred != null,
+      managed,
+      relationship: relationshipFor(canonicalId !== null, managed, felinaTargets),
+      canonicalExists: canonicalId !== null,
+      canonicalId,
+      canonicalEntry: matchedEntry,
+      detectedSources,
+      felinaTargets,
+      agentsPresent: detectedAgents,
+      candidate,
+      deferred: candidate?.deferred != null,
     });
   }
 
-  // Add managed-only rows (canonical targets this project but no local scan match).
-  for (const id of managedIds) {
-    const entry = canonicalById.get(id);
+  for (const canonicalId of managedIds) {
+    const entry = canonicalById.get(canonicalId);
     if (!entry || entry.kind !== "ok") continue;
     const skillName = entry.skill.name;
     if (rowMap.has(skillName)) continue;
 
-    const agents = new Set<AgentId>();
-    const canonAgents = canonicalAgentsById.get(id);
-    if (canonAgents) {
-      for (const a of canonAgents) agents.add(a);
-    }
+    const felinaTargets = relevantTargetsById.get(canonicalId) ?? [];
+    const targetAgents = new Set<AgentId>();
+    for (const target of felinaTargets) targetAgents.add(target.agent);
 
     rowMap.set(skillName, {
       skillName,
       managed: true,
+      relationship: "managedProject",
       canonicalExists: true,
-      canonicalId: id,
-      agentsPresent: agents,
+      canonicalId,
+      canonicalEntry: entry,
+      detectedSources: [],
+      felinaTargets,
+      agentsPresent: targetAgents,
       candidate: null,
       deferred: false,
     });
