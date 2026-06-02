@@ -36,6 +36,8 @@ export interface InventoryTargetSummary {
   mode: TargetMode;
 }
 
+export type ResolutionOption = "link" | "overwrite" | "rename" | "discard";
+
 export interface InventoryRow {
   skillName: string;
   managed: boolean;
@@ -143,6 +145,24 @@ export function compareRows(a: InventoryRow, b: InventoryRow): number {
   const actB = actionRank(b);
   if (actA !== actB) return actA - actB;
   return a.skillName.localeCompare(b.skillName);
+}
+
+/**
+ * Resolution options for the "處理同名 dialog", derived from the row's
+ * relationship. `canonicalGlobalOnly` rows have a safe global fallback so
+ * Discard is offered; `canonicalExistsUnlinked` rows have no fallback, so
+ * Discard is omitted to avoid a destructive footgun. Other relationships
+ * (managed / localOnly) have no same-name resolution path.
+ */
+export function resolutionOptionsFor(row: InventoryRow): ResolutionOption[] {
+  switch (row.relationship) {
+    case "canonicalGlobalOnly":
+      return ["link", "overwrite", "rename", "discard"];
+    case "canonicalExistsUnlinked":
+      return ["link", "overwrite", "rename"];
+    default:
+      return [];
+  }
 }
 
 export function buildInventoryRows(

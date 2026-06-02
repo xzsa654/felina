@@ -206,6 +206,29 @@ export const api = {
       invoke<void>("skill_import_apply", { projectPath, selections }),
   },
 
+  // Project-local skill ops: rename / delete the project-side copy of a
+  // same-name skill without touching canonical or sync-meta.
+  projectLocalSkills: {
+    rename: (
+      projectPath: string,
+      agent: AgentId,
+      oldName: string,
+      newName: string,
+    ) =>
+      invoke<void>("project_local_skill_rename", {
+        projectPath,
+        agent,
+        oldName,
+        newName,
+      }),
+    delete: (projectPath: string, agent: AgentId, skillName: string) =>
+      invoke<void>("project_local_skill_delete", {
+        projectPath,
+        agent,
+        skillName,
+      }),
+  },
+
   // Known Projects.
   knownProjects: {
     list: (currentProject?: string) =>
