@@ -634,7 +634,7 @@ pub fn canonical_skills_list() -> Result<Vec<SkillListEntry>, String> {
                 out.push(SkillListEntry::Broken {
                     canonical_id: dir_name.clone(),
                     name: dir_name,
-                    path: skill_md.to_string_lossy().to_string(),
+                    path: crate::paths::normalize_display_path(&skill_md.to_string_lossy()),
                     error: format!("read failed: {e}"),
                 });
                 continue;
@@ -660,7 +660,7 @@ pub fn canonical_skills_list() -> Result<Vec<SkillListEntry>, String> {
                 out.push(SkillListEntry::Broken {
                     canonical_id: dir_name.clone(),
                     name: dir_name,
-                    path: skill_md.to_string_lossy().to_string(),
+                    path: crate::paths::normalize_display_path(&skill_md.to_string_lossy()),
                     error: e,
                 });
             }
@@ -1213,7 +1213,7 @@ pub fn canonical_skills_delete_with_policy(
     validate_skill_name(&name)?;
     let dir = canonical_skills_dir();
     let skill_dir = dir.join(&name);
-    let canonical_path = skill_dir.to_string_lossy().to_string();
+    let canonical_path = crate::paths::normalize_display_path(&skill_dir.to_string_lossy());
 
     if matches!(policy, CanonicalDeletePolicy::Cancel) {
         return Ok(CanonicalSkillDeleteResult {
@@ -1286,7 +1286,7 @@ fn resolve_current_target_skill_dirs(
 }
 
 fn delete_skill_dir_result(path: PathBuf) -> DeletePathResult {
-    let path_string = path.to_string_lossy().to_string();
+    let path_string = crate::paths::normalize_display_path(&path.to_string_lossy());
     if !path.exists() {
         return DeletePathResult {
             path: path_string,
@@ -1628,6 +1628,42 @@ Hello.\n";
             }
             other => panic!("expected Broken(broken), got {other:?}"),
         }
+    }
+
+    #[test]
+    fn list_normalizes_broken_entry_path_for_display() {
+        let tmp = tempdir();
+        let _g = override_felina_home(&tmp);
+        let skills_root = tmp.join(".felina").join("skills");
+        fs::create_dir_all(&skills_root).unwrap();
+        write_skill(
+            &skills_root,
+            "BadSkill",
+            "---\nname: BadSkill\n# missing description + agents\n---\nbody\n",
+        );
+
+        let entries = canonical_skills_list().unwrap();
+        let broken = entries
+            .iter()
+            .find_map(|e| match e {
+                SkillListEntry::Broken { path, name, .. } => Some((path.clone(), name.clone())),
+                _ => None,
+            })
+            .expect("expected one Broken entry");
+        let (path, name) = broken;
+        assert_eq!(name, "BadSkill");
+        assert!(
+            !path.contains('\\'),
+            "broken entry path must be display-normalized (no backslashes): {path}"
+        );
+        assert!(
+            path.contains("BadSkill"),
+            "broken entry path must preserve case: {path}"
+        );
+        assert!(
+            path.ends_with("/SKILL.md"),
+            "broken entry path must use forward slashes: {path}"
+        );
     }
 
     #[test]

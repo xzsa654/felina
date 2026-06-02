@@ -17,6 +17,7 @@ use crate::commands::canonical_skills::{
     target_key, write_sync_meta_v2, AgentId, CanonicalSkill, LastSyncEntry, SkillScope,
     SkillTarget, TargetMode,
 };
+use crate::paths::normalize_display_path;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::fs;
@@ -433,7 +434,7 @@ pub fn skill_sync_one(name: String) -> Result<Vec<SyncResult>, String> {
                 results.push(SyncResult {
                     agent: target.agent,
                     scope: target.scope,
-                    target_path: target_skill_dir.to_string_lossy().to_string(),
+                    target_path: normalize_display_path(&target_skill_dir.to_string_lossy()),
                     success: true,
                     error: None,
                     at: attempted_at.clone(),
@@ -442,7 +443,7 @@ pub fn skill_sync_one(name: String) -> Result<Vec<SyncResult>, String> {
             Err(e) => results.push(SyncResult {
                 agent: target.agent,
                 scope: target.scope,
-                target_path: target_skill_dir.to_string_lossy().to_string(),
+                target_path: normalize_display_path(&target_skill_dir.to_string_lossy()),
                 success: false,
                 error: Some(e),
                 at: attempted_at.clone(),
@@ -866,7 +867,7 @@ fn write_target(
             Ok(SyncResult {
                 agent: target.agent,
                 scope: target.scope,
-                target_path: target_skill_dir.to_string_lossy().to_string(),
+                target_path: normalize_display_path(&target_skill_dir.to_string_lossy()),
                 success: true,
                 error: None,
                 at: attempted_at.to_string(),
@@ -875,7 +876,7 @@ fn write_target(
         Err(e) => Err(SyncResult {
             agent: target.agent,
             scope: target.scope,
-            target_path: target_skill_dir.to_string_lossy().to_string(),
+            target_path: normalize_display_path(&target_skill_dir.to_string_lossy()),
             success: false,
             error: Some(e),
             at: attempted_at.to_string(),
@@ -965,9 +966,9 @@ fn build_preview_for_skill(
                 agent: target.agent,
                 scope: target.scope,
                 project: target.project.clone(),
-                target_dir: target_dir.to_string_lossy().to_string(),
-                skill_dir: skill_dir.to_string_lossy().to_string(),
-                skill_md_path: skill_md_path.to_string_lossy().to_string(),
+                target_dir: normalize_display_path(&target_dir.to_string_lossy()),
+                skill_dir: normalize_display_path(&skill_dir.to_string_lossy()),
+                skill_md_path: normalize_display_path(&skill_md_path.to_string_lossy()),
                 operation: SkillSyncPreviewOperation::Skipped,
                 current_hash: None,
                 rendered_hash: None,
@@ -986,9 +987,9 @@ fn build_preview_for_skill(
                     agent: target.agent,
                     scope: target.scope,
                     project: target.project.clone(),
-                    target_dir: target_dir.to_string_lossy().to_string(),
-                    skill_dir: skill_dir.to_string_lossy().to_string(),
-                    skill_md_path: skill_md_path.to_string_lossy().to_string(),
+                    target_dir: normalize_display_path(&target_dir.to_string_lossy()),
+                    skill_dir: normalize_display_path(&skill_dir.to_string_lossy()),
+                    skill_md_path: normalize_display_path(&skill_md_path.to_string_lossy()),
                     operation: SkillSyncPreviewOperation::Skipped,
                     current_hash: None,
                     rendered_hash: None,
@@ -1046,9 +1047,9 @@ fn build_preview_for_skill(
             agent: target.agent,
             scope: target.scope,
             project: target.project.clone(),
-            target_dir: target_dir.to_string_lossy().to_string(),
-            skill_dir: skill_dir.to_string_lossy().to_string(),
-            skill_md_path: skill_md_path.to_string_lossy().to_string(),
+            target_dir: normalize_display_path(&target_dir.to_string_lossy()),
+            skill_dir: normalize_display_path(&skill_dir.to_string_lossy()),
+            skill_md_path: normalize_display_path(&skill_md_path.to_string_lossy()),
             operation,
             current_hash,
             rendered_hash: Some(rendered_hash),
@@ -1165,7 +1166,7 @@ pub fn skill_target_dir_resolve(
     let dir = target_dir.join(&skill_name);
     let exists = dir.is_dir();
     Ok(TargetDirInfo {
-        path: dir.to_string_lossy().to_string(),
+        path: normalize_display_path(&dir.to_string_lossy()),
         exists,
     })
 }
@@ -2582,6 +2583,29 @@ mod tests {
         )
         .expect("resolve");
         assert!(after.exists, "destination should exist after creation");
+    }
+
+    /// `TargetDirInfo.path` SHALL be display-normalized: no backslashes,
+    /// original case preserved. Covers the fan_out side of the
+    /// `Backend Display-Path Normalization` requirement.
+    #[test]
+    fn target_dir_resolve_normalizes_path_for_display() {
+        let tmp = smoke_tempdir("resolvedir-normalize");
+        let _g = override_felina_home(&tmp);
+        let project = tmp.to_string_lossy().to_string();
+
+        let info = skill_target_dir_resolve(
+            "smoke-nested".into(),
+            AgentId::Anthropic,
+            SkillScope::Project,
+            Some(project),
+        )
+        .expect("resolve");
+        assert!(
+            !info.path.contains('\\'),
+            "path must be display-normalized (no backslashes): {}",
+            info.path
+        );
     }
 
     #[test]
