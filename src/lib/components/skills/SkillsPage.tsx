@@ -72,6 +72,7 @@ export default function SkillsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [viewMode, setViewMode] = useState<"list" | "summary">("list");
   const [selectedName, setSelectedName] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
   const [activeSkill, setActiveSkill] = useState<CanonicalSkill | null>(null);
   const [brokenRaw, setBrokenRaw] = useState<{ name: string; content: string; path?: string } | null>(null);
   const [creatingNew, setCreatingNew] = useState(false);
@@ -420,6 +421,8 @@ export default function SkillsPage() {
                   onPush={(name) => void handlePushOne(name)}
                   pushingNames={localPushingNames}
                   driftMap={driftMap}
+                  searchQuery={searchQuery}
+                  onSearchChange={setSearchQuery}
                 />
               ) : (
                 <div className="text-sm text-text-secondary p-4">{t(locale, "skills.loading")}</div>

@@ -9,6 +9,7 @@ use crate::commands::canonical_skills::{
     write_sync_meta_v2, AgentId, SkillScope, SkillTarget, TargetMode,
 };
 use crate::commands::fan_out::{build_diff_hunks, expand_user_path, resolve_pair, DiffHunk};
+use crate::paths::normalize_display_path;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -299,7 +300,7 @@ fn collect_candidates_in(
         let conflict = if canonical_path.is_file() {
             let canonical_raw = fs::read_to_string(&canonical_path).unwrap_or_default();
             Some(ConflictInfo {
-                canonical_path: canonical_path.to_string_lossy().to_string(),
+                canonical_path: normalize_display_path(&canonical_path.to_string_lossy()),
                 canonical_body_preview: body_preview_from(&canonical_raw),
                 diff_summary: summarise_diff_raw(&raw, &canonical_raw),
                 hunks: build_diff_hunks(&canonical_raw, &raw),
@@ -311,7 +312,7 @@ fn collect_candidates_in(
         let validation_error = validate_source_frontmatter(&raw).err();
 
         out.push(ImportCandidate {
-            source_path: skill_md.to_string_lossy().to_string(),
+            source_path: normalize_display_path(&skill_md.to_string_lossy()),
             source_agent: agent,
             skill_name: dir_name,
             body_preview,
@@ -1982,5 +1983,58 @@ mod tests {
         .unwrap();
         let skill = crate::commands::canonical_skills::parse_skill_md(&canonical).unwrap();
         assert!(skill.agent_fields.is_empty(), "gemini import should not create agent_fields");
+    }
+
+    /// `collect_candidates_in` SHALL normalize `source_path` and
+    /// `conflict.canonical_path` for display: no backslashes, no trailing
+    /// slash, original case preserved.
+    #[test]
+    fn collect_candidates_normalizes_source_and_conflict_paths_for_display() {
+        let tmp = unique_tmp("normalize-display");
+        let source_dir = tmp.join("MixedCase").join(".claude").join("skills").join("MySkill");
+        fs::create_dir_all(&source_dir).expect("mkdir source");
+        let source_skill = source_dir.join("SKILL.md");
+        fs::write(
+            &source_skill,
+            "---\nname: MySkill\ndescription: d\nagents: [anthropic]\n---\nbody\n",
+        )
+        .expect("write source");
+
+        let canonical_dir = tmp.join("Felina").join("skills");
+        let canonical_skill_dir = canonical_dir.join("MySkill");
+        fs::create_dir_all(&canonical_skill_dir).expect("mkdir canonical");
+        fs::write(
+            canonical_skill_dir.join("SKILL.md"),
+            "---\nname: MySkill\ndescription: existing\nagents: [anthropic]\n---\nother\n",
+        )
+        .expect("write canonical");
+
+        let agent_skills_root = tmp.join("MixedCase").join(".claude").join("skills");
+        let mut out = Vec::new();
+        collect_candidates_in(&agent_skills_root, AgentId::Anthropic, &canonical_dir, &mut out);
+
+        assert_eq!(out.len(), 1, "expected one candidate, got {out:?}");
+        let cand = &out[0];
+        assert!(
+            !cand.source_path.contains('\\'),
+            "source_path must not contain backslashes: {}",
+            cand.source_path
+        );
+        assert!(
+            cand.source_path.contains("MixedCase") && cand.source_path.contains("MySkill"),
+            "case must be preserved: {}",
+            cand.source_path
+        );
+        let conflict = cand.conflict.as_ref().expect("expected conflict against canonical");
+        assert!(
+            !conflict.canonical_path.contains('\\'),
+            "canonical_path must not contain backslashes: {}",
+            conflict.canonical_path
+        );
+        assert!(
+            conflict.canonical_path.contains("Felina") && conflict.canonical_path.contains("MySkill"),
+            "canonical_path case must be preserved: {}",
+            conflict.canonical_path
+        );
     }
 }

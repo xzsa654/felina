@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { X, FolderOpen } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
 import type { AgentId, KnownProject, SkillTarget } from "$lib/types";
@@ -89,7 +90,7 @@ export default function AddTargetDialog({
     onClose();
   }
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
       <div className="bg-bg-secondary border border-border rounded-lg shadow-lg w-96 p-5 flex flex-col gap-4">
         <div className="flex items-center justify-between">
@@ -184,6 +185,7 @@ export default function AddTargetDialog({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
