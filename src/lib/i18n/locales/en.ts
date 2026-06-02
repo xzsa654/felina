@@ -528,8 +528,17 @@ const en = {
       decisionRequired: "Some targets need an explicit decision before Felina writes files.",
       skill: "Skill",
       operation: "Operation",
-      path: "Path",
+      target: "Target",
       decision: "Decision",
+      targetLabel: {
+        global: "{agent} · Global",
+        project: "{agent} · {project}",
+      },
+      agentNames: {
+        anthropic: "Claude",
+        codex: "Codex",
+        gemini: "Antigravity",
+      },
       close: "Cancel",
       confirm: "Commit push",
       committing: "Committing…",

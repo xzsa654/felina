@@ -530,8 +530,17 @@ const zhTW: TranslationDict = {
       decisionRequired: "部分同步目標需要明確決策後，Felina 才會寫入檔案。",
       skill: "Skill",
       operation: "操作",
-      path: "路徑",
+      target: "目標",
       decision: "決策",
+      targetLabel: {
+        global: "{agent} · Global",
+        project: "{agent} · {project}",
+      },
+      agentNames: {
+        anthropic: "Claude",
+        codex: "Codex",
+        gemini: "Antigravity",
+      },
       close: "取消",
       confirm: "執行推送",
       committing: "推送中…",
