@@ -3,10 +3,8 @@ import { useNavigate } from "react-router";
 import { NAV_ITEMS } from "$lib/stores/navigation";
 import { useThemeStore } from "$lib/stores/theme";
 import {
-  Settings,
   Brain,
   Sparkles,
-  LayoutGrid,
   Sun,
   Moon,
   Search,
@@ -17,8 +15,6 @@ import {
 
 const ICON_MAP: Record<string, React.ComponentType<{ size?: number }>> = {
   sparkles: Sparkles,
-  gear: Settings,
-  templates: LayoutGrid,
   brain: Brain,
   tokens: Coins,
   history: History,
