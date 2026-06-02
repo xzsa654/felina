@@ -10,6 +10,19 @@ export function targetKey(tgt: SkillTarget): string {
     : `${tgt.agent}:project:${tgt.project ?? ""}`;
 }
 
+/**
+ * Single source of truth for "is this target switched off". A target is
+ * disabled either via the `enabled` flag or the legacy `detached` mode; both
+ * mean "skipped by push, kept in the list for visibility / re-enable".
+ *
+ * This is an axis ORTHOGONAL to sync freshness (see {@link classifyTarget}):
+ * a disabled target may still have been synced before. Keep the two separate —
+ * do not fold disabled into {@link SyncStatus}.
+ */
+export function isTargetDisabled(tgt: SkillTarget): boolean {
+  return !tgt.enabled || tgt.mode === "detached";
+}
+
 export function classifyTarget(
   tgt: SkillTarget,
   entry: LastSyncEntry | undefined,

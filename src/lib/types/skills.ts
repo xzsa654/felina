@@ -193,6 +193,10 @@ export interface ConflictInfo {
   canonicalBodyPreview: string;
   /** Human-readable diff summary (line counts, hash mismatch, etc.). */
   diffSummary: string;
+  /** Line-level diff hunks (canonical = old, project source = new). Empty when
+   *  computation is skipped or the files are byte-identical; consumers should
+   *  fall back to `diffSummary` for display in that case. */
+  hunks: DiffHunk[];
 }
 
 export interface DeferredMultiSource {

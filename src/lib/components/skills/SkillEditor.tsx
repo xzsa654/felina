@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { FolderOpen, Pencil, Save, Trash2 } from "lucide-react";
+import { FolderOpen, Pencil, Plus, Save, Trash2 } from "lucide-react";
 import type { CanonicalSkill, KnownProject, SkillTarget } from "$lib/types";
 import type { LastSyncEntry } from "$lib/types/skills";
 import RenameSkillDialog from "./RenameSkillDialog";
@@ -90,11 +90,19 @@ export default function SkillEditor({ skill, brokenRaw, onSaved, onCancel, onDel
   const [name, setName] = useState(isNew ? "" : (skill?.name ?? ""));
   const [description, setDescription] = useState(skill?.description ?? "");
   const [body, setBody] = useState(skill?.body ?? "");
-  const [bodyMode, setBodyMode] = useState<"edit" | "preview" | "split">("edit");
+  const [bodyMode, setBodyModeRaw] = useState<"edit" | "preview" | "split">(() => {
+    const saved = localStorage.getItem("felina:bodyMode");
+    return saved === "preview" || saved === "split" ? saved : "edit";
+  });
+  const setBodyMode = (mode: "edit" | "preview" | "split") => {
+    setBodyModeRaw(mode);
+    localStorage.setItem("felina:bodyMode", mode);
+  };
   const contentRef = useRef<HTMLDivElement>(null);
   const splitEditorRef = useRef<HTMLTextAreaElement>(null);
   const splitPreviewRef = useRef<HTMLDivElement>(null);
   const syncingScroll = useRef(false);
+  const headerCollapsed = bodyMode !== "edit";
   const [containerWidth, setContainerWidth] = useState(0);
   const [renameOpen, setRenameOpen] = useState(false);
   const [popoverTargetIndex, setPopoverTargetIndex] = useState<number | null>(null);
@@ -114,7 +122,8 @@ export default function SkillEditor({ skill, brokenRaw, onSaved, onCancel, onDel
     setName(isNew ? "" : (skill?.name ?? ""));
     setDescription(skill?.description ?? "");
     setBody(skill?.body ?? "");
-    setBodyMode("edit");
+    const saved = localStorage.getItem("felina:bodyMode");
+    setBodyModeRaw(saved === "preview" || saved === "split" ? saved : "edit");
     setExtras(initExtras(skill));
     setAgentFields(skill?.agentFields ?? {});
     setActiveTab("content");
@@ -148,14 +157,50 @@ export default function SkillEditor({ skill, brokenRaw, onSaved, onCancel, onDel
   function handleSplitScroll(source: "editor" | "preview") {
     if (syncingScroll.current) return;
     syncingScroll.current = true;
-    const from = source === "editor" ? splitEditorRef.current : splitPreviewRef.current;
-    const to = source === "editor" ? splitPreviewRef.current : splitEditorRef.current;
-    if (from && to) {
-      const maxFrom = from.scrollHeight - from.clientHeight;
-      const ratio = maxFrom > 0 ? from.scrollTop / maxFrom : 0;
-      const maxTo = to.scrollHeight - to.clientHeight;
-      to.scrollTop = ratio * maxTo;
+
+    const editor = splitEditorRef.current;
+    const preview = splitPreviewRef.current;
+    if (!editor || !preview) {
+      requestAnimationFrame(() => { syncingScroll.current = false; });
+      return;
     }
+
+    if (source === "editor") {
+      const atBottom = editor.scrollTop + editor.clientHeight >= editor.scrollHeight - 2;
+      if (atBottom) {
+        preview.scrollTop = preview.scrollHeight;
+      } else {
+        const lineHeight = parseFloat(getComputedStyle(editor).lineHeight) || 16;
+        const topLine = Math.floor(editor.scrollTop / lineHeight) + 1;
+        const els = preview.querySelectorAll<HTMLElement>("[data-source-line]");
+        let best: HTMLElement | null = null;
+        for (const el of els) {
+          const ln = parseInt(el.dataset.sourceLine || "0", 10);
+          if (ln <= topLine) best = el;
+          else break;
+        }
+        if (best) best.scrollIntoView({ block: "start", behavior: "instant" });
+      }
+    } else {
+      const atBottom = preview.scrollTop + preview.clientHeight >= preview.scrollHeight - 2;
+      if (atBottom) {
+        editor.scrollTop = editor.scrollHeight;
+      } else {
+        const els = preview.querySelectorAll<HTMLElement>("[data-source-line]");
+        const previewTop = preview.scrollTop;
+        let best: HTMLElement | null = null;
+        for (const el of els) {
+          if (el.offsetTop <= previewTop + 4) best = el;
+          else break;
+        }
+        if (best) {
+          const ln = parseInt(best.dataset.sourceLine || "1", 10);
+          const lineHeight = parseFloat(getComputedStyle(editor).lineHeight) || 16;
+          editor.scrollTop = (ln - 1) * lineHeight;
+        }
+      }
+    }
+
     requestAnimationFrame(() => { syncingScroll.current = false; });
   }
 
@@ -330,7 +375,8 @@ export default function SkillEditor({ skill, brokenRaw, onSaved, onCancel, onDel
     <div className="flex flex-col h-full">
       {/* ------- Sticky: Document Header + Tab Bar ------- */}
       <div className="sticky top-0 z-10 bg-bg-primary px-4 pt-4">
-      {/* ------- Document Header ------- */}
+      {/* ------- Document Header (collapsible on scroll) ------- */}
+      <div className={`overflow-hidden transition-all duration-200 ${headerCollapsed ? "max-h-0 opacity-0" : "max-h-[500px] opacity-100"}`}>
       <div className="flex items-center justify-between gap-4">
         <div className="flex-1 min-w-0">
           {isNew ? (
@@ -351,12 +397,12 @@ export default function SkillEditor({ skill, brokenRaw, onSaved, onCancel, onDel
             </h1>
           )}
         </div>
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex gap-1 bg-bg-tertiary rounded-lg p-1 shrink-0">
           {isNew && onCancel && (
             <button
               type="button"
               onClick={onCancel}
-              className="text-xs px-3 py-1.5 rounded border border-border text-text-secondary hover:text-text-primary"
+              className="px-3 py-1 text-xs rounded-md transition-colors text-text-muted hover:text-text-secondary"
             >
               {t(locale, "skills.editor.cancel")}
             </button>
@@ -365,7 +411,7 @@ export default function SkillEditor({ skill, brokenRaw, onSaved, onCancel, onDel
             <button
               type="button"
               onClick={() => setRenameOpen(true)}
-              className="inline-flex items-center gap-1 text-xs px-2 py-1.5 rounded text-text-secondary hover:text-text-primary hover:bg-bg-secondary"
+              className="inline-flex items-center gap-1 px-3 py-1 text-xs rounded-md transition-colors text-text-muted hover:text-text-secondary"
               title={t(locale, "skills.editor.renameTitle")}
             >
               <Pencil size={12} /> {t(locale, "skills.editor.rename")}
@@ -375,7 +421,7 @@ export default function SkillEditor({ skill, brokenRaw, onSaved, onCancel, onDel
             <button
               type="button"
               onClick={onDelete}
-              className="inline-flex items-center gap-1 text-xs px-2 py-1.5 rounded text-danger hover:bg-danger-dim"
+              className="inline-flex items-center gap-1 px-3 py-1 text-xs rounded-md transition-colors text-danger hover:bg-danger-dim"
               title={t(locale, "skills.editor.deleteTitle")}
             >
               <Trash2 size={12} /> {t(locale, "skills.editor.delete")}
@@ -385,7 +431,7 @@ export default function SkillEditor({ skill, brokenRaw, onSaved, onCancel, onDel
             type="button"
             disabled={!canSave}
             onClick={handleSave}
-            className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded bg-accent text-white hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed"
+            className="inline-flex items-center gap-1.5 px-3 py-1 text-xs rounded-md transition-colors bg-accent text-white hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <Save size={12} />
             {saving ? t(locale, "skills.editor.saving") : t(locale, "skills.editor.save")}
@@ -475,6 +521,7 @@ export default function SkillEditor({ skill, brokenRaw, onSaved, onCancel, onDel
         </>
       )}
 
+      </div>
       {/* ------- Tab Bar ------- */}
       <div className="flex gap-4 border-b border-border mt-3">
         <button
@@ -581,11 +628,11 @@ export default function SkillEditor({ skill, brokenRaw, onSaved, onCancel, onDel
             targets={skill?.targets ?? []}
             onChange={setAgentFields}
           />
-          {extras.length > 0 && (
-            <div className="flex flex-col gap-2">
-              <p className="text-xs text-text-secondary">
-                {t(locale, "skills.editor.advancedHint")}
-              </p>
+          <div className="bg-bg-secondary/30 border border-border rounded">
+            <div className="px-3 py-2 text-xs font-medium text-text-primary">
+              {t(locale, "skills.editor.advancedHint")}
+            </div>
+            <div className="px-3 pb-3 flex flex-col gap-2">
               {extras.map((row, idx) => (
                 <div key={row.id} className="flex items-center gap-2">
                   <input
@@ -597,7 +644,7 @@ export default function SkillEditor({ skill, brokenRaw, onSaved, onCancel, onDel
                       )
                     }
                     placeholder={t(locale, "skills.editor.keyPlaceholder")}
-                    className="px-2 py-1 rounded bg-bg-primary border border-border text-xs w-1/3"
+                    className="px-2 py-1 rounded bg-bg-primary border border-border text-xs w-1/3 focus:ring-1 focus:ring-accent"
                   />
                   <input
                     type="text"
@@ -608,7 +655,7 @@ export default function SkillEditor({ skill, brokenRaw, onSaved, onCancel, onDel
                       )
                     }
                     placeholder={t(locale, "skills.editor.valuePlaceholder")}
-                    className="px-2 py-1 rounded bg-bg-primary border border-border text-xs flex-1"
+                    className="px-2 py-1 rounded bg-bg-primary border border-border text-xs flex-1 focus:ring-1 focus:ring-accent"
                   />
                   <button
                     type="button"
@@ -622,8 +669,17 @@ export default function SkillEditor({ skill, brokenRaw, onSaved, onCancel, onDel
                   </button>
                 </div>
               ))}
+              <button
+                type="button"
+                onClick={() =>
+                  setExtras((prev) => [...prev, { id: `extra-${Date.now()}`, key: "", value: "" }])
+                }
+                className="self-start inline-flex items-center gap-1 text-xs px-2 py-1 rounded border border-border text-text-secondary hover:text-text-primary hover:border-accent"
+              >
+                <Plus size={12} /> {t(locale, "skills.editor.addProperty")}
+              </button>
             </div>
-          )}
+          </div>
         </section>
       )}
       </div>

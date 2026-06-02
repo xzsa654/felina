@@ -70,6 +70,7 @@ export type {
   AgentPathPair,
   AgentPathsConfig,
   SkillTarget,
+  TargetMode,
   ProjectSource,
   KnownProject,
   RenameResult,

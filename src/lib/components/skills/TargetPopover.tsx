@@ -9,14 +9,13 @@ import { useSkillsStore } from "$lib/stores/skills-store";
 import { useLocaleStore } from "$lib/stores/locale";
 import { t } from "$lib/i18n";
 import { isProjectMissing, normalizeProjectPath } from "$lib/utils/path";
-import { classifyTarget, STATUS_CONFIG, targetKey } from "./sync-status-utils";
+import { classifyTarget, isTargetDisabled, STATUS_CONFIG, targetKey } from "./sync-status-utils";
 import PullConfirmDialog from "./PullConfirmDialog";
 
 type UIState = "auto" | "manual" | "disabled";
 
 function toUIState(tgt: SkillTarget): UIState {
-  if (!tgt.enabled) return "disabled";
-  if (tgt.mode === "detached") return "disabled";
+  if (isTargetDisabled(tgt)) return "disabled";
   if (tgt.mode === "auto") return "auto";
   return "manual";
 }
@@ -28,7 +27,9 @@ function applyUIState(tgt: SkillTarget, state: UIState): SkillTarget {
     case "manual":
       return { ...tgt, enabled: true, mode: "manual" };
     case "disabled":
-      return { ...tgt, enabled: false, mode: "manual" };
+      // Toggle the enablement axis only; preserve the underlying mode so
+      // re-enabling restores the prior auto/manual choice.
+      return { ...tgt, enabled: false };
   }
 }
 
@@ -233,9 +234,12 @@ export default function TargetPopover({
           </button>
         </div>
 
-        {/* Status: sync time OR drift warning (mutually exclusive) */}
+        {/* Status: disabled OR drift warning OR sync time (in that priority).
+            When disabled, sync freshness is meaningless — show the off state. */}
         <div className="px-3 pb-2 flex items-center gap-2 text-xs">
-          {drifted ? (
+          {current === "disabled" ? (
+            <span className="text-text-secondary">∅ {t(locale, "skills.targets.disabled")}</span>
+          ) : drifted ? (
             <>
               <span className="inline-flex items-center gap-1 text-warning">
                 <AlertTriangle size={12} /> {t(locale, "skills.drift.drifted")}

@@ -64,7 +64,11 @@ pub fn run() {
                     _ => {}
                 })
                 .on_tray_icon_event(|tray, event| {
-                    if let tauri::tray::TrayIconEvent::Click { .. } = event {
+                    if let tauri::tray::TrayIconEvent::Click {
+                        button: tauri::tray::MouseButton::Left,
+                        ..
+                    } = event
+                    {
                         if let Some(window) = tray.app_handle().get_webview_window("main") {
                             show_window(&window);
                         }
@@ -138,6 +142,8 @@ pub fn run() {
             commands::skill_import::skill_import_scan_quick,
             commands::skill_import::skill_import_scan,
             commands::skill_import::skill_import_apply,
+            commands::skill_import::project_local_skill_rename,
+            commands::skill_import::project_local_skill_delete,
             // Settings → Agent Paths.
             commands::agent_paths::agent_paths_get,
             commands::agent_paths::agent_paths_set,

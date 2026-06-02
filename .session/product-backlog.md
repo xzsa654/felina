@@ -194,6 +194,22 @@ Notes:
 ## UX / General
 
 
+### agent-display-name-unification
+
+| Field | Value |
+|---|---|
+| type | suggestion |
+| status | not-committed |
+| flagged | 2026-06-01 |
+| last-seen | 2026-06-01 |
+| description | 統一 agent 顯示名稱：底層 `AgentId` 值（`anthropic`/`codex`/`gemini`）混了供應商名與產品名，UI 各處直接印原始 id 不一致。改以 presentation 層共用 helper 統一顯示為產品名 claude / codex / gemini（未來 antigravity）。 |
+
+Scope:
+- 不動底層 `AgentId` union 值（`"anthropic"` 綁 backend agent paths / fan-out / frontmatter `x_felina_agent_fields`，改值是跨前後端大手術）。
+- 抽共用 helper（如 `src/lib/utils/agent-label.ts`）：`anthropic → "claude"`，codex/gemini 維持，預留 antigravity。
+- 全 UI 統一接入：SkillList chip、`AddTargetDialog`、`CreateSkillDialog`、`AgentPathsSection`（目前各自寫死 `anthropic` 或 `"Anthropic Claude"`）。
+- skill-editor-skill-list 的 chip 屆時改接此 helper。
+
 ### temporary-nav-surface-simplification
 
 | Field | Value |

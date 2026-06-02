@@ -6,17 +6,15 @@
 //!
 //! On Gemini defaults: as of 2026-05-21 Google is sunsetting `gemini-cli`
 //! (June 18 2026 for consumer access) in favour of Antigravity CLI, which
-//! uses `~/.gemini/antigravity/skills/` global + `.agents/skills/` project.
-//! We ship the current `agent-skills-schema` spec defaults (`.gemini/skills/`
-//! with `.agents/skills/` alias) and rely on (a) the import scanner probing
-//! the Antigravity path additionally (skill_import.rs) and (b) this Settings
-//! override to bridge the transition. Spec text can be patched as a
-//! follow-up.
+//! uses `~/.gemini/antigravity-cli/skills/` global + `.agents/skills/` project.
+//! We now ship the Antigravity CLI path as the default.
 
 use crate::paths;
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::path::{Component, Path};
+use std::path::{Component, Path, PathBuf};
+
+pub const GEMINI_LEGACY_GLOBAL: &str = "~/.gemini/skills";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -47,10 +45,35 @@ impl AgentPathsConfig {
                 project_relative: ".agents/skills".into(),
             },
             gemini: AgentPathPair {
-                global: "~/.gemini/skills".into(),
-                project_relative: ".gemini/skills".into(),
+                global: "~/.gemini/antigravity-cli/skills".into(),
+                project_relative: ".agents/skills".into(),
             },
         }
+    }
+
+    /// Extra global paths to probe for a given agent beyond its configured
+    /// `pair.global`. Covers legacy paths that users may still have skills in.
+    /// Returns only paths that differ from the configured global (no duplicates).
+    pub fn extra_global_paths(
+        &self,
+        agent: crate::commands::canonical_skills::AgentId,
+        expand: impl Fn(&str) -> PathBuf,
+    ) -> Vec<PathBuf> {
+        let legacy: &[&str] = match agent {
+            crate::commands::canonical_skills::AgentId::Gemini => &[GEMINI_LEGACY_GLOBAL],
+            _ => &[],
+        };
+        let pair = match agent {
+            crate::commands::canonical_skills::AgentId::Anthropic => &self.anthropic,
+            crate::commands::canonical_skills::AgentId::Codex => &self.codex,
+            crate::commands::canonical_skills::AgentId::Gemini => &self.gemini,
+        };
+        let configured = expand(&pair.global);
+        legacy
+            .iter()
+            .map(|p| expand(p))
+            .filter(|p| *p != configured)
+            .collect()
     }
 }
 

@@ -12,25 +12,27 @@ import InfoDialog from "$lib/components/shared/InfoDialog";
 import MarkdownPreview from "$lib/components/shared/MarkdownPreview";
 import AddTargetDialog from "./AddTargetDialog";
 import PullConfirmDialog from "./PullConfirmDialog";
+import { isTargetDisabled } from "./sync-status-utils";
 import type { TargetRemovalPolicy } from "$lib/types";
 
 type UIState = "auto" | "manual" | "disabled";
 
-function toUIState(t: SkillTarget): UIState {
-  if (!t.enabled) return "disabled";
-  if (t.mode === "detached") return "disabled";
-  if (t.mode === "auto") return "auto";
+function toUIState(tgt: SkillTarget): UIState {
+  if (isTargetDisabled(tgt)) return "disabled";
+  if (tgt.mode === "auto") return "auto";
   return "manual";
 }
 
-function applyUIState(t: SkillTarget, state: UIState): SkillTarget {
+function applyUIState(tgt: SkillTarget, state: UIState): SkillTarget {
   switch (state) {
     case "auto":
-      return { ...t, enabled: true, mode: "auto" };
+      return { ...tgt, enabled: true, mode: "auto" };
     case "manual":
-      return { ...t, enabled: true, mode: "manual" };
+      return { ...tgt, enabled: true, mode: "manual" };
     case "disabled":
-      return { ...t, enabled: false, mode: "manual" };
+      // Toggle the enablement axis only; preserve the underlying mode so
+      // re-enabling restores the prior auto/manual choice.
+      return { ...tgt, enabled: false };
   }
 }
 
