@@ -610,7 +610,7 @@ const en = {
       edit: "Edit",
       multiSource: "multi-source",
       multiSourceTitle: "Multi-source skill. Import will be handled by a later change.",
-      importToGlobal: "Import to Felina",
+      importToCanonical: "Import to Felina",
       importing: "Importing…",
       present: "present",
       absent: "absent",

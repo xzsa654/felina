@@ -612,7 +612,7 @@ const zhTW: TranslationDict = {
       edit: "編輯",
       multiSource: "多來源",
       multiSourceTitle: "此 Skill 來自多個來源，後續變更請透過匯入流程處理",
-      importToGlobal: "匯入至 Felina",
+      importToCanonical: "匯入至 Felina",
       importing: "匯入中…",
       present: "存在",
       absent: "不存在",

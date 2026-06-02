@@ -589,7 +589,7 @@ function InventoryListRow({
               <Download size={12} />
               {importing === row.skillName
                 ? t(locale, "projects.inventory.importing")
-                : t(locale, "projects.inventory.importToGlobal")}
+                : t(locale, "projects.inventory.importToCanonical")}
             </button>
           )}
         </div>
