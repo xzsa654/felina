@@ -2,8 +2,6 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router";
 import { type Page } from "$lib/stores/navigation";
 import {
-  Settings,
-  LayoutTemplate,
   Brain,
   Sparkles,
   ArrowRight,
@@ -28,22 +26,6 @@ const steps: OnboardingStep[] = [
       "Create and edit reusable skills, then sync them across the agents you use. Skills are the heart of the app.",
     action: "Open Skills",
     page: "skills",
-  },
-  {
-    icon: Settings,
-    title: "Configure Settings",
-    description:
-      "Set your preferred model, effort level, and permissions. Settings are read from and written to the same files your agents use.",
-    action: "Open Settings",
-    page: "settings",
-  },
-  {
-    icon: LayoutTemplate,
-    title: "Browse Templates",
-    description:
-      "Start from pre-built skill templates instead of writing from scratch. One click to add.",
-    action: "Open Templates",
-    page: "templates",
   },
   {
     icon: Brain,
