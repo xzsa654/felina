@@ -64,6 +64,10 @@ rules:
       agent 設定預設值),若是則在 design 中標記,tasks 產出時應包含 /spectra-audit 審查步驟
     - 評估是否新增第三方依賴(npm / Cargo crate),若是則記錄套件名稱、用途、
       授權類型,以及對 bundle size / 編譯時間的預估影響
+    - 評估是否涉及前端 UI 變更(新增/修改頁面、元件、Tailwind/CSS、視覺呈現),
+      若是則在 design 中標記為「UI-related」,tasks 產出時必須包含 /felina-ui-guidelines
+      review 步驟,並要求驗證階段把評估結論寫進 archive notes(命中哪些 guideline、
+      是否有 deviation 與理由)
   i18n:
     - 含 UI 文字新增/修改的 change,所有 user-facing text 必須使用 t(locale, key),
       不允許 hardcoded string literals
@@ -80,6 +84,10 @@ rules:
     - 單個 task 預估超過 1 小時要拆
     - 含 UI 變更(新增/修改頁面或元件)的 change,驗證階段須包含
       「npm run tauri dev 手動驗證」task,列出要驗證的具體行為
+    - 含 UI 變更的 change,在驗證階段(手動 npm run tauri dev 之前或之後皆可,
+      但須在 archive 前完成)必須安排一個 task:跑 /felina-ui-guidelines 評估
+      本 change 的 UI 改動,輸出命中的 guideline 與 deviation 清單。未跑此 task
+      不可進入 /spectra-archive
     - 涉及 Rust commands 新增/修改的 change,驗證階段須包含
       「cargo build 在 src-tauri/ 通過」task
     - 可抽成純函式的前端邏輯(不依賴 React/DOM)須用 node:test 寫單元測試,

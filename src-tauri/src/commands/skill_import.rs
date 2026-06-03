@@ -1023,6 +1023,149 @@ fn reserialize(skill: crate::commands::canonical_skills::CanonicalSkill) -> Stri
     format!("---\n{}\n---\n{body_norm}", fm_yaml.trim_end_matches('\n'))
 }
 
+// ---------------------------------------------------------------------------
+// ZIP import scan — extract a user-supplied ZIP to a per-call temp directory
+// and surface its skills as ImportCandidates. Replaces the old direct-write
+// `skill_library_import` path so all external imports flow through the
+// staging dialog's conflict resolution.
+// ---------------------------------------------------------------------------
+
+/// Extract `zip_path` into a fresh OS temp directory and return one
+/// `ImportCandidate` per top-level directory that contains a `SKILL.md`.
+/// Directories without `SKILL.md` are skipped. The canonical `~/.felina/skills/`
+/// directory is NOT written; the eventual apply step re-reads from the temp
+/// paths embedded in each candidate's `source_path`.
+#[tauri::command]
+pub fn skill_import_scan_zip(zip_path: String) -> Result<Vec<ImportCandidate>, String> {
+    use std::io::Read;
+
+    let file =
+        fs::File::open(&zip_path).map_err(|e| format!("failed to open ZIP file: {e}"))?;
+    let mut archive =
+        zip::ZipArchive::new(file).map_err(|e| format!("failed to read ZIP archive: {e}"))?;
+
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let extract_root = std::env::temp_dir().join(format!(
+        "felina-zip-import-{}-{stamp}",
+        std::process::id()
+    ));
+    fs::create_dir_all(&extract_root)
+        .map_err(|e| format!("failed to create temp extract dir: {e}"))?;
+
+    for i in 0..archive.len() {
+        let mut entry = archive
+            .by_index(i)
+            .map_err(|e| format!("ZIP read error: {e}"))?;
+        let raw_name = entry.name().to_string();
+        let rel = PathBuf::from(&raw_name);
+        // Zip Slip defence: refuse absolute paths and traversal segments.
+        if rel.is_absolute()
+            || rel.components().any(|c| {
+                matches!(
+                    c,
+                    std::path::Component::ParentDir | std::path::Component::Prefix(_)
+                )
+            })
+        {
+            continue;
+        }
+        let dest = extract_root.join(&rel);
+        if entry.is_dir() {
+            fs::create_dir_all(&dest)
+                .map_err(|e| format!("failed to create directory {}: {e}", dest.display()))?;
+            continue;
+        }
+        if let Some(parent) = dest.parent() {
+            fs::create_dir_all(parent)
+                .map_err(|e| format!("failed to create parent {}: {e}", parent.display()))?;
+        }
+        let mut buf = Vec::new();
+        entry
+            .read_to_end(&mut buf)
+            .map_err(|e| format!("failed to read ZIP entry: {e}"))?;
+        fs::write(&dest, &buf).map_err(|e| format!("failed to write {}: {e}", dest.display()))?;
+    }
+
+    let canonical_dir = canonical_skills_dir();
+    let mut out: Vec<ImportCandidate> = Vec::new();
+    collect_zip_candidates_in(&extract_root, &canonical_dir, &mut out);
+    Ok(out)
+}
+
+/// Mirror of `collect_candidates_in` for ZIP-sourced skills: agent is inferred
+/// from the source SKILL.md frontmatter (`agents[0]`, fallback `Anthropic`).
+/// No multi-source grouping — a ZIP is a single source.
+fn collect_zip_candidates_in(
+    dir: &Path,
+    canonical_dir: &Path,
+    out: &mut Vec<ImportCandidate>,
+) {
+    let entries = match fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(_) => return,
+    };
+    for entry in entries.flatten() {
+        if !entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false) {
+            continue;
+        }
+        let skill_md = entry.path().join("SKILL.md");
+        if !skill_md.is_file() {
+            continue;
+        }
+        let raw = match fs::read_to_string(&skill_md) {
+            Ok(s) => s,
+            Err(_) => continue,
+        };
+        let dir_name = entry.file_name().to_string_lossy().to_string();
+        let body_preview = body_preview_from(&raw);
+        let source_agent = infer_agent_from_frontmatter(&raw).unwrap_or(AgentId::Anthropic);
+
+        let canonical_path = canonical_dir.join(&dir_name).join("SKILL.md");
+        let conflict = if canonical_path.is_file() {
+            let canonical_raw = fs::read_to_string(&canonical_path).unwrap_or_default();
+            Some(ConflictInfo {
+                canonical_path: normalize_display_path(&canonical_path.to_string_lossy()),
+                canonical_body_preview: body_preview_from(&canonical_raw),
+                diff_summary: summarise_diff_raw(&raw, &canonical_raw),
+                hunks: build_diff_hunks(&canonical_raw, &raw),
+            })
+        } else {
+            None
+        };
+        let validation_error = validate_source_frontmatter(&raw).err();
+
+        out.push(ImportCandidate {
+            source_path: normalize_display_path(&skill_md.to_string_lossy()),
+            source_agent,
+            skill_name: dir_name,
+            body_preview,
+            conflict,
+            deferred: None,
+            validation_error,
+        });
+    }
+}
+
+fn infer_agent_from_frontmatter(raw: &str) -> Option<AgentId> {
+    let (fm_text, _body) = split_frontmatter(raw);
+    if fm_text.is_empty() {
+        return None;
+    }
+    let value: serde_yaml::Value = serde_yaml::from_str(&fm_text).ok()?;
+    let map = value.as_mapping()?;
+    let agents = map.get(serde_yaml::Value::String("agents".into()))?;
+    let first = agents.as_sequence()?.first()?;
+    match first.as_str()? {
+        "anthropic" => Some(AgentId::Anthropic),
+        "codex" => Some(AgentId::Codex),
+        "gemini" => Some(AgentId::Gemini),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1983,6 +2126,47 @@ mod tests {
         .unwrap();
         let skill = crate::commands::canonical_skills::parse_skill_md(&canonical).unwrap();
         assert!(skill.agent_fields.is_empty(), "gemini import should not create agent_fields");
+    }
+
+    /// `skill_import_scan_zip` extracts a ZIP to a temp directory and returns
+    /// candidates only for top-level dirs that contain `SKILL.md`. Canonical
+    /// is NOT written and dirs without `SKILL.md` are skipped.
+    #[test]
+    fn skill_import_scan_zip_extracts_and_skips_invalid_dirs() {
+        use std::io::Write;
+        let home = unique_tmp("zip-scan-home");
+        crate::paths::set_felina_home_override_for_test(Some(home.join(".felina")));
+        struct G;
+        impl Drop for G {
+            fn drop(&mut self) {
+                crate::paths::set_felina_home_override_for_test(None);
+            }
+        }
+        let _g = G;
+
+        let tmp = unique_tmp("zip-scan-src");
+        let zip_path = tmp.join("payload.zip");
+        let file = fs::File::create(&zip_path).unwrap();
+        let mut zw = zip::ZipWriter::new(file);
+        let opts = zip::write::SimpleFileOptions::default();
+        zw.start_file("good-skill/SKILL.md", opts).unwrap();
+        zw.write_all(b"---\nname: good-skill\ndescription: hi\nagents: [gemini]\n---\n# Body\n")
+            .unwrap();
+        zw.start_file("bad-dir/README.md", opts).unwrap();
+        zw.write_all(b"# Not a skill").unwrap();
+        zw.finish().unwrap();
+
+        let out = skill_import_scan_zip(zip_path.to_string_lossy().to_string()).expect("scan");
+        assert_eq!(out.len(), 1, "only good-skill is a valid candidate, got {out:#?}");
+        let cand = &out[0];
+        assert_eq!(cand.skill_name, "good-skill");
+        assert_eq!(cand.source_agent, AgentId::Gemini, "agent inferred from frontmatter");
+        assert!(cand.conflict.is_none(), "no canonical conflict yet");
+        // Canonical must NOT have been written.
+        assert!(
+            !home.join(".felina").join("skills").join("good-skill").exists(),
+            "scan must not write canonical"
+        );
     }
 
     /// `collect_candidates_in` SHALL normalize `source_path` and
