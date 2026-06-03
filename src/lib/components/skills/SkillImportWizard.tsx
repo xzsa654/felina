@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { AlertTriangle, ChevronDown, ChevronRight, X } from "lucide-react";
+import { AlertTriangle, ChevronDown, ChevronRight } from "lucide-react";
+import Modal from "$lib/components/shared/Modal";
 import type {
   ImportCandidate,
   ImportResolution,
@@ -142,22 +143,13 @@ export default function SkillImportWizard({ projectPath, onClose }: Props) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-      <div className="bg-bg-primary border border-border rounded-lg shadow-xl max-w-3xl w-full max-h-[85vh] flex flex-col">
-        <div className="flex items-center justify-between px-5 py-3 border-b border-border">
-          <div>
-            <h2 className="text-sm font-semibold text-text-primary">{t(locale, "skills.importWizard.title")}</h2>
-            <p className="text-xs text-text-secondary">
-              {t(locale, "skills.importWizard.subtitle")}
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="p-1 text-text-secondary hover:text-text-primary"
-          >
-            <X size={16} />
-          </button>
+    <Modal open onClose={onClose} size="lg">
+      <div className="flex flex-col max-h-[85vh]">
+        <div className="px-5 py-3 border-b border-border">
+          <h2 className="text-sm font-semibold text-text-primary">{t(locale, "skills.importWizard.title")}</h2>
+          <p className="text-xs text-text-secondary">
+            {t(locale, "skills.importWizard.subtitle")}
+          </p>
         </div>
 
         <div className="flex-1 overflow-y-auto px-5 py-3 flex flex-col gap-3">
@@ -460,6 +452,6 @@ export default function SkillImportWizard({ projectPath, onClose }: Props) {
           </button>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }

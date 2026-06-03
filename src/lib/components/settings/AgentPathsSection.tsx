@@ -3,6 +3,7 @@ import { AlertTriangle, ChevronDown, ChevronRight, FolderTree, RefreshCw, Rotate
 import { api } from "$lib/tauri/commands";
 import { useProjectContextStore } from "$lib/stores/project-context";
 import type { AgentId, AgentPathsConfig, SkillScope } from "$lib/types";
+import Modal from "$lib/components/shared/Modal";
 
 const AGENT_LABELS: Record<AgentId, string> = {
   anthropic: "Anthropic Claude",
@@ -195,16 +196,9 @@ export default function AgentPathsSection() {
         full error message is shown verbatim so the user can copy the
         rejected segment.
       */}
-      {error && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center"
-          role="alertdialog"
-          aria-modal="true"
-          aria-labelledby="agent-paths-error-title"
-        >
-          <div className="absolute inset-0 bg-black/50" aria-hidden="true" />
-          <div className="relative bg-bg-secondary border border-border rounded-xl shadow-2xl max-w-lg w-[90vw] p-6 z-10 flex flex-col gap-4">
-            <div className="flex items-start gap-3">
+      <Modal open={error !== null} onClose={() => setError(null)} size="md">
+        <div className="p-6 flex flex-col gap-4" role="alertdialog" aria-labelledby="agent-paths-error-title">
+          <div className="flex items-start gap-3">
               <div className="w-10 h-10 rounded-full bg-danger-dim flex items-center justify-center shrink-0">
                 <AlertTriangle size={20} className="text-danger" />
               </div>
@@ -230,9 +224,8 @@ export default function AgentPathsSection() {
                 OK
               </button>
             </div>
-          </div>
         </div>
-      )}
+      </Modal>
     </section>
   );
 }
