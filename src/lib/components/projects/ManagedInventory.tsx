@@ -13,6 +13,7 @@ import {
   type InventoryRow,
   type ResolutionOption,
 } from "./managed-inventory";
+import { glassListRowClass } from "$lib/components/shared/PageScaffold";
 import claudeIcon from "$lib/assets/claude.svg";
 import codexIcon from "$lib/assets/codex.png";
 import antigravityIcon from "$lib/assets/antigravity.png";
@@ -510,7 +511,7 @@ function InventoryListRow({
     row.relationship === "canonicalExistsUnlinked";
 
   return (
-    <div className="rounded px-3 py-2 hover:bg-bg-secondary/20">
+    <div className={`rounded-lg border px-3 py-2 transition-colors ${glassListRowClass}`}>
       <div
         className={`flex flex-col gap-2 md:flex-row md:items-start md:justify-between ${
           rowClick ? "cursor-pointer" : ""
@@ -547,7 +548,7 @@ function InventoryListRow({
             <button
               type="button"
               onClick={onOpenSkill}
-              className="inline-flex items-center gap-1 rounded px-2 py-1 text-text-muted hover:bg-bg-secondary/40 hover:text-text-primary"
+              className="inline-flex items-center gap-1 rounded px-2 py-1 text-text-muted hover:bg-white/[0.08] hover:text-text-primary"
             >
               <Check size={12} />
               {t(locale, "projects.inventory.edit")}

@@ -167,3 +167,49 @@ code:
   - src/lib/i18n/locales/zh-TW.ts
   - src/lib/components/history/HistoryPage.tsx
 -->
+
+---
+### Requirement: Glassmorphism List Styles
+
+The History page's session list SHALL NOT use hardcoded solid borders (such as `border-l-2` or `border-r-2`) or fully solid background colors to indicate active or hovered states. Instead, they SHALL use glassmorphism techniques (e.g., `backdrop-blur-md`, subtle semi-transparent background colors, and low-opacity borders) to allow the underlying application background grid animations to remain visible.
+
+#### Scenario: User hovers over a list item
+
+- **WHEN** the user hovers over a session in the History list
+- **THEN** the item SHALL display a semi-transparent glassmorphism background
+- **AND** the item SHALL NOT display a solid border
+
+#### Scenario: User selects a list item
+
+- **WHEN** the user selects a session
+- **THEN** the active item SHALL display a brighter semi-transparent background and a subtle border to distinguish it from the hover state
+- **AND** the active item SHALL NOT use thick solid left/right borders
+
+<!-- @trace
+source: enforce-ui-guidelines-page-scaffold
+updated: 2026-06-03
+code:
+  - src/lib/assets/logo.png
+  - .session/product-backlog.md
+  - src/lib/components/memory/MemoryPage.tsx
+  - temp_spec_token_analytics.md
+  - GEMINI.md
+  - src/lib/components/settings/FelinaSettingsPage.tsx
+  - src/lib/components/skills/SkillList.tsx
+  - src/router.tsx
+  - src/app.css
+  - src/lib/components/projects/ProjectsPage.tsx
+  - temp_tasks.md
+  - temp_spec_history_page.md
+  - src/lib/components/history/HistoryPage.tsx
+  - temp_proposal.md
+  - temp_spec_felina_settings.md
+  - src/lib/components/projects/ProjectsList.tsx
+  - .session/projects-page-ui-adjustment-report.md
+  - temp_spec_app_pages.md
+  - src/lib/assets/logo_.png
+  - src/lib/components/projects/ManagedInventory.tsx
+  - temp_design.md
+  - src/lib/components/tokens/TokensPage.tsx
+  - src/lib/components/shared/PageScaffold.tsx
+-->

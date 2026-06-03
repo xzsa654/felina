@@ -6,6 +6,7 @@ import UpdateBanner from "$lib/components/layout/UpdateBanner";
 import CommandPalette from "$lib/components/shared/CommandPalette";
 import OnboardingWelcome from "$lib/components/shared/OnboardingWelcome";
 import ShapeGrid from "$lib/components/shared/ShapeGrid/ShapeGrid";
+import { useThemeStore } from "$lib/stores/theme";
 
 const SkillsPage = lazy(() => import("$lib/components/skills/SkillsPage"));
 const ProjectsPage = lazy(() => import("$lib/components/projects/ProjectsPage"));
@@ -23,6 +24,8 @@ function LazyPage({ Component }: { Component: React.ComponentType }) {
 }
 
 function AppLayout() {
+  const resolvedTheme = useThemeStore((s) => s.resolvedTheme);
+  const isLight = resolvedTheme === "light";
   return (
     <>
       <CommandPalette />
@@ -30,13 +33,16 @@ function AppLayout() {
       <div className="flex h-screen w-screen">
         <Sidebar />
         <main className="relative flex flex-col flex-1 min-w-0">
-          <div className="absolute inset-0 opacity-15 pointer-events-none z-0">
+          <div className="app-gradient-layer absolute inset-0 pointer-events-none z-0" />
+          <div
+            className={`absolute inset-0 pointer-events-none z-0 ${isLight ? "opacity-30" : "opacity-15"}`}
+          >
             <ShapeGrid
               speed={0.3}
               squareSize={40}
               direction="diagonal"
               shape="hexagon"
-              borderColor="#3a3a3a"
+              borderColor={isLight ? "#8b5cf6" : "#3a3a3a"}
               hoverFillColor="#6366f1"
               hoverTrailAmount={4}
             />

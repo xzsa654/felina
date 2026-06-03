@@ -39,8 +39,7 @@ export default function ProjectsPage() {
       // Default selection: the L1 cwd project when present, else first entry.
       setSelectedPath((cur) => {
         if (cur && list.some((p) => p.path === cur)) return cur;
-        const cwdHit = list.find((p) => p.sources.includes("cwd"));
-        return cwdHit?.path ?? list[0]?.path ?? null;
+        return null;
       });
     } catch {
       setProjects([]);
