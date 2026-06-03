@@ -175,6 +175,8 @@ export const api = {
       }>("skill_import_scan_quick", { projectPath }),
     scan: (projectPath?: string) =>
       invoke<ImportCandidate[]>("skill_import_scan", { projectPath }),
+    scanZip: (zipPath: string) =>
+      invoke<ImportCandidate[]>("skill_import_scan_zip", { zipPath }),
     apply: (selections: ImportSelection[], projectPath?: string) =>
       invoke<void>("skill_import_apply", { projectPath, selections }),
   },
@@ -387,16 +389,9 @@ export const api = {
   skillLibrary: {
     export: (outputPath: string) =>
       invoke<void>("skill_library_export", { outputPath }),
-    import: (inputPath: string) =>
-      invoke<SkillLibraryImportResult>("skill_library_import", { inputPath }),
     reset: () => invoke<SkillLibraryResetResult>("skill_library_reset"),
   },
 } as const;
-
-export interface SkillLibraryImportResult {
-  imported: number;
-  skipped: number;
-}
 
 export interface SkillLibraryResetResult {
   deleted: number;

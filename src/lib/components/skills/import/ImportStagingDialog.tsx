@@ -125,15 +125,20 @@ export default function ImportStagingDialog({ projectPath, onClose }: Props) {
         directory: false,
       });
       if (!path) return;
-      await api.skillLibrary.import(path as string);
-      const raw = await api.skillImport.scan(projectPath ?? undefined);
-      const stagedPaths = new Set(staging.map((s) => s.candidate.sourcePath));
-      setDiscovered(raw.filter((c) => !stagedPaths.has(c.sourcePath)));
-      await loadEntries();
+      const zipCandidates = await api.skillImport.scanZip(path as string);
+      // ZIP 是使用者明確選擇匯入的來源,直接進右邊 Staging,不必再拖一次。
+      // 同名衝突由 SkillStagingCard 內建的 overwrite/rename UI 處理。
+      setStaging((prev) => {
+        const seen = new Set(prev.map((s) => s.candidate.sourcePath));
+        const fresh = zipCandidates
+          .filter((c) => !seen.has(c.sourcePath))
+          .map((c) => createStagingItem(c, existingNames));
+        return [...prev, ...fresh];
+      });
     } catch (e) {
       setError(String(e));
     }
-  }, [projectPath, staging, loadEntries]);
+  }, [existingNames]);
 
   const canImport = staging.length > 0 && !hasUnresolved(staging) && !importing;
 
