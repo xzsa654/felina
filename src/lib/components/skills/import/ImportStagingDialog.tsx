@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Download, FolderOpen, X } from "lucide-react";
+import Modal from "$lib/components/shared/Modal";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useLocaleStore } from "$lib/stores/locale";
 import { t } from "$lib/i18n";
@@ -166,12 +167,22 @@ export default function ImportStagingDialog({ projectPath, onClose }: Props) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-      <div className="bg-bg-primary border border-border rounded-lg shadow-xl max-w-4xl w-full max-h-[85vh] flex flex-col">
-        {/* Header */}
-        <div className="flex items-center justify-between px-5 py-3 border-b border-border">
-          <h2 className="text-sm font-semibold text-text-primary">{t(locale, "skills.importDialog.title")}</h2>
-          <button type="button" onClick={onClose} className="p-1 text-text-secondary hover:text-text-primary">
+    <Modal open onClose={onClose} size="lg">
+      <div className="flex flex-col h-[80vh]">
+        {/* Own header (Modal title prop intentionally not used — fixed-height
+            layout below assumes the full Modal box; an additional Modal
+            title bar would push the footer past max-h-[85vh] on small
+            viewports). */}
+        <div className="flex items-center justify-between px-5 py-3 border-b border-border shrink-0">
+          <h2 className="text-sm font-semibold text-text-primary">
+            {t(locale, "skills.importDialog.title")}
+          </h2>
+          <button
+            type="button"
+            onClick={onClose}
+            className="p-1 text-text-secondary hover:text-text-primary"
+            aria-label="Close"
+          >
             <X size={16} />
           </button>
         </div>
@@ -200,7 +211,11 @@ export default function ImportStagingDialog({ projectPath, onClose }: Props) {
               </h3>
             </div>
             <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-2">
-              {loading && <div className="text-xs text-text-secondary py-4 text-center">Scanning…</div>}
+              {loading && (
+                <div className="flex-1 flex items-center justify-center text-xs text-text-secondary">
+                  Scanning…
+                </div>
+              )}
               {!loading && discovered.length === 0 && (
                 <div className="text-xs text-text-muted py-4 text-center">
                   {t(locale, "skills.importDialog.emptyDiscovered")}
@@ -298,6 +313,6 @@ export default function ImportStagingDialog({ projectPath, onClose }: Props) {
           </button>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }

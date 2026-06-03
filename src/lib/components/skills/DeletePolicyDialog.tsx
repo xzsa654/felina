@@ -2,6 +2,7 @@ import { AlertTriangle, GitBranch, Trash2, Unlink } from "lucide-react";
 import { useLocaleStore } from "$lib/stores/locale";
 import { t } from "$lib/i18n";
 import type { CanonicalDeletePolicy, SkillTarget } from "$lib/types";
+import Modal from "$lib/components/shared/Modal";
 
 interface Props {
   open: boolean;
@@ -21,7 +22,6 @@ export default function DeletePolicyDialog({
   oncancel,
 }: Props) {
   const locale = useLocaleStore((s) => s.locale);
-  if (!open) return null;
 
   const cascadeTargets = targets.filter((target) => target.enabled && target.mode === "tracked");
   const canCascade = cascadeTargets.length > 0;
@@ -35,14 +35,8 @@ export default function DeletePolicyDialog({
     .join("\n");
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <button
-        type="button"
-        className="absolute inset-0 bg-black/50"
-        onClick={oncancel}
-        aria-label={t(locale, "skills.deleteDialog.cancel")}
-      />
-      <div className="relative bg-bg-secondary border border-border rounded shadow-2xl w-[34rem] max-w-[calc(100vw-2rem)] p-5 space-y-4 z-10">
+    <Modal open={open} onClose={oncancel} size="md">
+      <div className="p-5 space-y-4">
         <div className="flex items-start gap-3">
           <div className="w-10 h-10 rounded bg-danger/10 flex items-center justify-center shrink-0">
             <AlertTriangle size={20} className="text-danger" />
@@ -102,6 +96,6 @@ export default function DeletePolicyDialog({
           </button>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }

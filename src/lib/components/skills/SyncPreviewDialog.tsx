@@ -12,6 +12,7 @@ import type {
 import claudeIcon from "$lib/assets/claude.svg";
 import codexIcon from "$lib/assets/codex.png";
 import antigravityIcon from "$lib/assets/antigravity.png";
+import Modal from "$lib/components/shared/Modal";
 
 interface Props {
   open: boolean;
@@ -52,8 +53,6 @@ export default function SyncPreviewDialog({
   }, [previews]);
   const [resolutions, setResolutions] = useState<ResolutionMap>({});
 
-  if (!open) return null;
-
   const summary = summarize(items);
   const needsDecision = items.filter((item) => NEEDS_RESOLUTION.has(item.operation));
   const writes = summary.create + summary.overwrite;
@@ -76,14 +75,8 @@ export default function SyncPreviewDialog({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <button
-        type="button"
-        className="absolute inset-0 bg-black/45 backdrop-blur-[2px]"
-        onClick={oncancel}
-        aria-label={t(locale, "skills.syncPreview.close")}
-      />
-      <div className="relative bg-bg-secondary border border-border rounded-2xl shadow-2xl w-[48rem] max-w-[calc(100vw-2rem)] max-h-[calc(100vh-4rem)] overflow-hidden z-10">
+    <Modal open={open} onClose={oncancel} size="lg">
+      <div className="flex flex-col max-h-[85vh] overflow-hidden">
         <div className="px-5 py-4 border-b border-border flex items-start gap-3">
           <div className="w-10 h-10 rounded-xl bg-accent/10 flex items-center justify-center shrink-0">
             <Send size={20} className="text-accent" />
@@ -195,7 +188,7 @@ export default function SyncPreviewDialog({
           </button>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }
 

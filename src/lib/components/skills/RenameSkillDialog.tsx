@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import { X } from "lucide-react";
 import { useLocaleStore } from "$lib/stores/locale";
 import { t } from "$lib/i18n";
+import Modal from "$lib/components/shared/Modal";
 
 interface Props {
   open: boolean;
@@ -33,26 +33,11 @@ export default function RenameSkillDialog({ open, currentName, onConfirm, onCanc
     if (open) setValue(currentName);
   }, [open, currentName]);
 
-  if (!open) return null;
-
   const error = validate(value, currentName, locale);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-      <div className="bg-bg-primary border border-border rounded-lg shadow-lg w-[360px] p-4 flex flex-col gap-3">
-        <div className="flex items-center justify-between">
-          <h3 className="text-sm font-semibold">
-            {t(locale, "skills.renameDialog.title")}
-          </h3>
-          <button
-            type="button"
-            onClick={onCancel}
-            className="p-1 text-text-secondary hover:text-text-primary"
-          >
-            <X size={14} />
-          </button>
-        </div>
-
+    <Modal open={open} onClose={onCancel} title={t(locale, "skills.renameDialog.title")} size="sm">
+      <div className="p-4 flex flex-col gap-3">
         <input
           type="text"
           value={value}
@@ -62,7 +47,6 @@ export default function RenameSkillDialog({ open, currentName, onConfirm, onCanc
           autoFocus
           onKeyDown={(e) => {
             if (e.key === "Enter" && !error) onConfirm(value);
-            if (e.key === "Escape") onCancel();
           }}
         />
 
@@ -88,6 +72,6 @@ export default function RenameSkillDialog({ open, currentName, onConfirm, onCanc
           </button>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }

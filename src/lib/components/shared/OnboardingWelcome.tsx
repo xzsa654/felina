@@ -9,6 +9,7 @@ import {
   X,
 } from "lucide-react";
 import logoUrl from "$lib/assets/logo.png";
+import Modal from "./Modal";
 
 interface OnboardingStep {
   icon: React.ComponentType<{ size?: number }>;
@@ -57,11 +58,9 @@ export default function OnboardingWelcome() {
     navigate(`/${page}`);
   }
 
-  if (!visible) return null;
-
   return (
-    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[200] flex items-center justify-center">
-      <div className="w-[640px] max-h-[85vh] bg-bg-secondary border border-border rounded-2xl shadow-2xl overflow-hidden flex flex-col">
+    <Modal open={visible} onClose={dismiss} size="lg">
+      <div className="flex flex-col max-h-[85vh] overflow-hidden">
         {/* Header */}
         <div className="relative px-8 pt-8 pb-6 text-center border-b border-border">
           <button
@@ -158,6 +157,6 @@ export default function OnboardingWelcome() {
           </button>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }

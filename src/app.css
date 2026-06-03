@@ -1,5 +1,13 @@
 @import "tailwindcss";
 
+/* Suppress focus outline when focus comes from mouse click. Keyboard
+   navigation still shows outline because :focus-visible matches there. */
+button:focus:not(:focus-visible),
+[role="button"]:focus:not(:focus-visible),
+a:focus:not(:focus-visible) {
+  outline: none;
+}
+
 @theme {
   --color-bg-primary: #0d1117;
   --color-bg-secondary: #161b22;
