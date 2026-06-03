@@ -9,6 +9,7 @@ import { useLocaleStore } from "$lib/stores/locale";
 import { t } from "$lib/i18n";
 import { isProjectMissing, normalizeProjectPath } from "$lib/utils/path";
 import InfoDialog from "$lib/components/shared/InfoDialog";
+import Modal from "$lib/components/shared/Modal";
 import MarkdownPreview from "$lib/components/shared/MarkdownPreview";
 import AddTargetDialog from "./AddTargetDialog";
 import PullConfirmDialog from "./PullConfirmDialog";
@@ -491,14 +492,8 @@ function TargetContentModal({
       ? `${state.target.agent}: ${state.target.project ?? ""}`
       : `${state.target.agent}: ~/.felina`;
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <button
-        type="button"
-        className="absolute inset-0 bg-black/50"
-        onClick={onclose}
-        aria-label={t(locale, "skills.targets.contentClose")}
-      />
-      <div className="relative z-10 flex max-h-[80vh] w-[42rem] max-w-[calc(100vw-2rem)] flex-col rounded border border-border bg-bg-secondary shadow-2xl">
+    <Modal open onClose={onclose} size="md">
+      <div className="flex flex-col max-h-[80vh]">
         <div className="flex items-start justify-between gap-3 border-b border-border px-4 py-3">
           <div className="min-w-0">
             <h3 className="text-sm font-semibold text-text-primary">
@@ -566,7 +561,7 @@ function TargetContentModal({
           )}
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -586,20 +581,14 @@ function TargetRemovalDialog({
   oncancel: () => void;
 }) {
   const locale = useLocaleStore((s) => s.locale);
-  if (!open || !target) return null;
+  if (!target) return null;
   const label =
     target.scope === "project"
       ? `${target.agent}: ${target.project ?? ""}`
       : `${target.agent}: ~/.felina`;
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <button
-        type="button"
-        className="absolute inset-0 bg-black/50"
-        onClick={oncancel}
-        aria-label={t(locale, "skills.targets.removeCancel")}
-      />
-      <div className="relative bg-bg-secondary border border-border rounded shadow-2xl w-[32rem] max-w-[calc(100vw-2rem)] p-5 space-y-4 z-10">
+    <Modal open={open} onClose={oncancel} size="md">
+      <div className="p-5 space-y-4">
         <div>
           <h3 className="text-base font-semibold text-text-primary">
             {t(locale, "skills.targets.removeTitle")}
@@ -635,6 +624,6 @@ function TargetRemovalDialog({
           </button>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }

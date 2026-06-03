@@ -16,6 +16,7 @@ import {
 import claudeIcon from "$lib/assets/claude.svg";
 import codexIcon from "$lib/assets/codex.png";
 import antigravityIcon from "$lib/assets/antigravity.png";
+import Modal from "$lib/components/shared/Modal";
 
 interface Props {
   project: KnownProject | null;
@@ -113,23 +114,6 @@ export default function ManagedInventory({ project, onChanged }: Props) {
     void load();
   }, [load]);
 
-  useEffect(() => {
-    if (!drawer) return;
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") setDrawer(null);
-    }
-    function onClick(e: MouseEvent) {
-      if (drawerRef.current && !drawerRef.current.contains(e.target as Node)) {
-        setDrawer(null);
-      }
-    }
-    document.addEventListener("keydown", onKey);
-    document.addEventListener("mousedown", onClick);
-    return () => {
-      document.removeEventListener("keydown", onKey);
-      document.removeEventListener("mousedown", onClick);
-    };
-  }, [drawer]);
 
   const managedCount = useMemo(
     () => rows.filter((row) => row.relationship === "managedProject").length,
@@ -766,9 +750,8 @@ function SameNameResolutionDialog({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <button className="absolute inset-0 cursor-default bg-black/50" onClick={onCancel} aria-label="Close dialog" />
-      <div className="relative z-10 flex max-h-[85vh] w-full max-w-xl flex-col rounded-xl border border-border bg-bg-secondary p-6 shadow-2xl">
+    <Modal open onClose={onCancel} size="md">
+      <div className="flex max-h-[85vh] flex-col p-6">
         <h3 className="text-base font-semibold text-text-primary">
           {t(locale, "projects.inventory.resolution.title")}
         </h3>
@@ -804,7 +787,7 @@ function SameNameResolutionDialog({
           </button>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -860,9 +843,8 @@ function RenameProjectLocalDialog({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <button className="absolute inset-0 cursor-default bg-black/50" onClick={onCancel} aria-label="Close dialog" />
-      <div className="relative z-10 flex w-full max-w-md flex-col rounded-xl border border-border bg-bg-secondary p-6 shadow-2xl">
+    <Modal open onClose={onCancel} size="sm">
+      <div className="flex flex-col p-6">
         <h3 className="text-base font-semibold text-text-primary">
           {t(locale, "projects.inventory.rename.title")}
         </h3>
@@ -921,7 +903,7 @@ function RenameProjectLocalDialog({
           </button>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -962,9 +944,8 @@ function DiscardProjectLocalDialog({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <button className="absolute inset-0 cursor-default bg-black/50" onClick={onCancel} aria-label="Close dialog" />
-      <div className="relative z-10 flex w-full max-w-md flex-col rounded-xl border border-border bg-bg-secondary p-6 shadow-2xl">
+    <Modal open onClose={onCancel} size="sm">
+      <div className="flex flex-col p-6">
         <h3 className="text-base font-semibold text-text-primary">
           {t(locale, "projects.inventory.discard.title")}
         </h3>
@@ -1008,7 +989,7 @@ function DiscardProjectLocalDialog({
           </button>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -1034,9 +1015,8 @@ function LinkConflictDialog({
   if (!candidate?.conflict) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <button className="absolute inset-0 cursor-default bg-black/50" onClick={onCancel} aria-label="Close dialog" />
-      <div className="relative z-10 flex max-h-[85vh] w-full max-w-2xl flex-col rounded-xl border border-border bg-bg-secondary p-6 shadow-2xl">
+    <Modal open onClose={onCancel} size="lg">
+      <div className="flex max-h-[85vh] flex-col p-6">
         <h3 className="text-base font-semibold text-text-primary">
           {t(locale, "projects.inventory.link.title")}
         </h3>
@@ -1071,7 +1051,7 @@ function LinkConflictDialog({
           </button>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -1096,9 +1076,8 @@ function OverwriteConflictDialog({
   const candidate = linkConflictCandidateForRow(row, pending.sourceIndex);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <button className="absolute inset-0 cursor-default bg-black/50" onClick={onCancel} aria-label="Close dialog" />
-      <div className="relative z-10 flex max-h-[85vh] w-full max-w-2xl flex-col rounded-xl border border-border bg-bg-secondary p-6 shadow-2xl">
+    <Modal open onClose={onCancel} size="lg">
+      <div className="flex max-h-[85vh] flex-col p-6">
         <h3 className="text-base font-semibold text-text-primary">
           {t(locale, "projects.importConflictDialog.title")}
         </h3>
@@ -1135,7 +1114,7 @@ function OverwriteConflictDialog({
           </button>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -1163,11 +1142,10 @@ function MultiSourceDrawer({
   if (!row) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <button className="absolute inset-0 cursor-default bg-black/50" onClick={onCancel} aria-label="Close dialog" />
+    <Modal open onClose={onCancel} size="md">
       <div
         ref={drawerRef}
-        className="relative z-10 flex max-h-[80vh] w-full max-w-lg flex-col rounded-xl border border-border bg-bg-secondary p-6 shadow-2xl"
+        className="flex max-h-[80vh] flex-col p-6"
       >
         <h3 className="text-base font-semibold text-text-primary">
           {t(locale, "projects.inventory.drawer.selectSource")}
@@ -1231,6 +1209,6 @@ function MultiSourceDrawer({
           </button>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }

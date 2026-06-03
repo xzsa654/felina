@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
-import { X, FolderOpen } from "lucide-react";
+import { FolderOpen } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
 import type { AgentId, KnownProject, SkillTarget } from "$lib/types";
 import { api } from "$lib/tauri/commands";
 import { normalizeProjectPath } from "$lib/utils/path";
 import { useLocaleStore } from "$lib/stores/locale";
 import { t } from "$lib/i18n";
+import Modal from "$lib/components/shared/Modal";
 
 const AGENTS: AgentId[] = ["anthropic", "codex", "gemini"];
 
@@ -100,15 +101,8 @@ export default function CreateSkillDialog({ projectPath, onCreated, onClose }: P
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-      <div className="bg-bg-secondary border border-border rounded-lg shadow-lg w-96 p-5 flex flex-col gap-4">
-        <div className="flex items-center justify-between">
-          <h3 className="text-sm font-semibold">{t(locale, "skills.createDialog.title")}</h3>
-          <button type="button" onClick={onClose} className="text-text-secondary hover:text-text-primary">
-            <X size={16} />
-          </button>
-        </div>
-
+    <Modal open onClose={onClose} title={t(locale, "skills.createDialog.title")} size="sm">
+      <div className="p-5 flex flex-col gap-4">
         <label className="flex flex-col gap-1 text-sm">
           <span className="text-text-secondary">{t(locale, "skills.createDialog.name")}</span>
           <input
@@ -206,6 +200,6 @@ export default function CreateSkillDialog({ projectPath, onCreated, onClose }: P
           </button>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }

@@ -3,6 +3,7 @@ import { AlertTriangle, Info, FilePlus, FileEdit, FileX, FileWarning } from "luc
 import { useLocaleStore } from "$lib/stores/locale";
 import { t } from "$lib/i18n";
 import type { PullDiffPreview, SiblingResolution, SiblingStatus } from "$lib/types";
+import Modal from "$lib/components/shared/Modal";
 
 interface Props {
   open: boolean;
@@ -46,14 +47,12 @@ export default function PullConfirmDialog({
     setResolutions(conflicts.map(() => "useAgent" as SiblingResolution));
   }, [diff]);
 
-  if (!open) return null;
-
   const hasDiff = diff && diff.hunks.length > 0;
   const hasSiblings = diff && diff.siblingChanges.length > 0;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-      <div className="bg-bg-primary border border-border rounded-lg shadow-xl max-w-2xl w-full">
+    <Modal open={open} onClose={onCancel} size="lg">
+      <div className="flex flex-col">
         <div className="flex items-center gap-2 px-5 py-3 border-b border-border">
           <AlertTriangle size={16} className="text-warning shrink-0" />
           <h2 className="text-sm font-semibold text-text-primary">
@@ -172,6 +171,6 @@ export default function PullConfirmDialog({
           </button>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }
