@@ -1,11 +1,21 @@
 import type { ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
 
+export const glassListSurfaceClass =
+  "border-glass-surface-border bg-glass-surface shadow-inner backdrop-blur-xl";
+
+export const glassListRowClass =
+  "border border-transparent hover:bg-white/[0.08] hover:shadow-sm hover:backdrop-blur-xl";
+
+export const glassListSelectedRowClass =
+  "border-accent/25 bg-accent-soft shadow-[0_10px_30px_rgba(0,0,0,0.16)] backdrop-blur-xl";
+
 interface PageHeaderProps {
   title: string;
   subtitle?: string;
   icon?: LucideIcon;
   actions?: ReactNode;
+  bottomSlot?: ReactNode;
 }
 
 export function PageHeader({
@@ -13,6 +23,7 @@ export function PageHeader({
   subtitle,
   icon: Icon,
   actions,
+  bottomSlot,
 }: PageHeaderProps) {
   return (
     <header className="px-8 pt-8 pb-6 border-b border-border">
@@ -32,6 +43,7 @@ export function PageHeader({
         </div>
         {actions && <div className="flex items-center gap-2 shrink-0">{actions}</div>}
       </div>
+      {bottomSlot && <div className="mt-5">{bottomSlot}</div>}
     </header>
   );
 }

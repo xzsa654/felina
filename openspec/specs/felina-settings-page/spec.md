@@ -8,32 +8,42 @@ TBD - created by archiving change 'quick-settings-and-preferences'. Update Purpo
 
 ### Requirement: Felina Settings Page
 
-The app SHALL provide a Felina Settings page at route `/felina-settings`. This page SHALL render within the standard app layout (with Sidebar visible) and SHALL be lazy-loaded. The page SHALL NOT appear in the Sidebar navigation list (`NAV_ITEMS`). The page SHALL display its own in-page title. The page SHALL contain an Agent Paths section, a Custom Project Paths section, a Data Pruning section, and a Skill Library section.
+The app SHALL provide a Felina Settings page at route `/felina-settings`. This page SHALL render within the standard app layout (with Sidebar visible) and SHALL be lazy-loaded. The page SHALL NOT appear in the Sidebar navigation list (`NAV_ITEMS`). The page SHALL display its own in-page title. The page SHALL contain an Agent Paths section, a Custom Project Paths section, a Data Pruning section, and a Skill Library section. The page SHALL use `PageHeader` and `PageBody` components to structure its content.
 
 #### Scenario: User navigates to Felina Settings
 
 - **WHEN** the app navigates to `/felina-settings`
 - **THEN** the page renders with all four sections: Agent Paths, Custom Project Paths, Data Pruning, and Skill Library
+- **AND** the page structure SHALL use `PageHeader` and `PageBody`
 
 
 <!-- @trace
-source: canonical-skill-export-import
-updated: 2026-05-29
+source: enforce-ui-guidelines-page-scaffold
+updated: 2026-06-03
 code:
-  - src-tauri/src/commands/mod.rs
-  - docs/tokscale-backed-token-ingestion.md
-  - src-tauri/src/lib.rs
-  - src/lib/tauri/commands.ts
-  - src/lib/i18n/locales/en.ts
-  - src-tauri/src/commands/tokens.rs
-  - src/lib/components/settings/SkillLibrarySection.tsx
-  - src/lib/components/settings/DataPruningSection.tsx
+  - src/lib/assets/logo.png
+  - .session/product-backlog.md
+  - src/lib/components/memory/MemoryPage.tsx
+  - temp_spec_token_analytics.md
+  - GEMINI.md
   - src/lib/components/settings/FelinaSettingsPage.tsx
-  - src-tauri/src/commands/skill_library.rs
-  - src/lib/i18n/locales/zh-TW.ts
-  - src-tauri/src/tokens/storage.rs
-  - src-tauri/Cargo.toml
-  - src-tauri/src/tokens/aggregator.rs
+  - src/lib/components/skills/SkillList.tsx
+  - src/router.tsx
+  - src/app.css
+  - src/lib/components/projects/ProjectsPage.tsx
+  - temp_tasks.md
+  - temp_spec_history_page.md
+  - src/lib/components/history/HistoryPage.tsx
+  - temp_proposal.md
+  - temp_spec_felina_settings.md
+  - src/lib/components/projects/ProjectsList.tsx
+  - .session/projects-page-ui-adjustment-report.md
+  - temp_spec_app_pages.md
+  - src/lib/assets/logo_.png
+  - src/lib/components/projects/ManagedInventory.tsx
+  - temp_design.md
+  - src/lib/components/tokens/TokensPage.tsx
+  - src/lib/components/shared/PageScaffold.tsx
 -->
 
 ---

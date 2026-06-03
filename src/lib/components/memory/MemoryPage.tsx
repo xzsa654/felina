@@ -3,6 +3,13 @@ import { api } from "$lib/tauri/commands";
 import type { ProjectInfo, MemoryFile } from "$lib/types";
 import ConfirmDialog from "$lib/components/shared/ConfirmDialog";
 import MarkdownPreview from "$lib/components/shared/MarkdownPreview";
+import {
+  PageBody,
+  PageHeader,
+  glassListRowClass,
+  glassListSelectedRowClass,
+  glassListSurfaceClass,
+} from "$lib/components/shared/PageScaffold";
 import { X, Plus, Brain, User, MessageSquare, FolderOpen, BookOpen, Search, Trash2 } from "lucide-react";
 
 const TYPE_COLORS: Record<string, string> = {
@@ -142,12 +149,13 @@ export default function MemoryPage() {
         oncancel={() => setDeleteDialogOpen(false)}
       />
 
-      <div className="flex flex-col h-full">
-        <h1 className="text-xl font-semibold text-text-primary px-4 pt-4 pb-3">Memory</h1>
-        <div className="flex flex-1 min-h-0">
+      <div className="flex h-full min-h-0 flex-col overflow-hidden">
+        <PageHeader title="Memory" icon={Brain} />
+        <PageBody>
+          <div className="flex h-full min-h-0 overflow-hidden">
         {/* Project Sidebar */}
-        <div className="w-56 shrink-0 border-r border-border flex flex-col bg-bg-secondary">
-          <div className="p-3 border-b border-border">
+        <div className={`w-56 shrink-0 border-r flex flex-col ${glassListSurfaceClass}`}>
+          <div className="p-3 border-b border-white/5">
             <div className="relative">
               <Search size={14} className="absolute left-2.5 top-2 text-text-muted" />
               <input
@@ -169,10 +177,10 @@ export default function MemoryPage() {
               filteredProjects.map((project) => (
                 <button
                   key={project.hash}
-                  className={`w-full text-left px-3 py-2 transition-colors ${
+                  className={`mx-2 mb-1 w-[calc(100%-1rem)] rounded-lg border px-3 py-2 text-left transition-colors ${
                     selectedProject?.hash === project.hash
-                      ? "bg-accent/10 text-accent border-r-2 border-accent"
-                      : "text-text-secondary hover:bg-bg-hover"
+                      ? `${glassListSelectedRowClass} text-accent`
+                      : `${glassListRowClass} text-text-secondary`
                   }`}
                   onClick={() => selectProject(project)}
                 >
@@ -381,6 +389,7 @@ export default function MemoryPage() {
           </div>
         )}
         </div>
+        </PageBody>
       </div>
     </>
   );

@@ -224,3 +224,19 @@ Scope:
 - 收斂 Sidebar 主導航，降低早期產品表面積。
 - 需保留必要 hidden routes 或 secondary entry points，避免 Felina Settings / Claude Settings 類功能無入口。
 - 需要先定義「隱藏」是從 Sidebar 移除、route 保留，還是完整停用頁面。
+
+### projects-page-active-hub
+
+| Field | Value |
+|---|---|
+| type | suggestion |
+| status | not-committed |
+| flagged | 2026-06-02 |
+| last-seen | 2026-06-02 |
+| description | 將 Projects Page 從「被動檢視狀態」轉變為「主動管理中樞」。支援手動加入無 Agent 目錄的全新專案，並針對空狀態提供快速匯入 Global Skills 的引導流程 (Onboarding)。 |
+
+Scope:
+- 在左側 `ProjectsList` 或上方 Action bar 加入 `+ 新增專案 (Add Project)` 入口，支援呼叫 OS file picker 選取本地資料夾。
+- 當選取的專案不包含任何 Skill 時，右側 `ManagedInventory` 不再只顯示 "Empty Inventory"，而是呈現「Skill 推薦與注入介面」。
+- 空狀態推薦介面可列出常用的 Global Skills (可重複利用 `canonicalGlobalOnly` 等既有 UI 元件)，一鍵點擊「匯入」即可由 Felina 自動建立對應的 Agent Skills 資料夾並寫入檔案。
+- 將 Felina 的價值延伸，使其成為開發者建立新專案後，一鍵配置 AI 環境的第一站。

@@ -5,6 +5,10 @@ import { api } from "$lib/tauri/commands";
 import ConfirmDialog from "$lib/components/shared/ConfirmDialog";
 import { useLocaleStore } from "$lib/stores/locale";
 import { t } from "$lib/i18n";
+import {
+  glassListRowClass,
+  glassListSelectedRowClass,
+} from "$lib/components/shared/PageScaffold";
 
 interface Props {
   projects: KnownProject[];
@@ -51,7 +55,7 @@ export default function ProjectsList({ projects, loaded, selectedPath, onSelect,
 
   return (
     <>
-    <ul className="flex flex-col">
+    <ul className="flex flex-col py-2">
       {projects.map((p) => {
         const name = p.path.split("/").pop() || p.path;
         const selected = p.path === selectedPath;
@@ -67,8 +71,10 @@ export default function ProjectsList({ projects, loaded, selectedPath, onSelect,
             <button
               type="button"
               onClick={() => onSelect(p.path)}
-              className={`flex-1 min-w-0 text-left mx-2 rounded-md px-3 py-2 transition-colors ${
-                selected ? "bg-bg-secondary text-text-primary" : "text-text-secondary hover:bg-bg-secondary/50 hover:text-text-primary"
+              className={`flex-1 min-w-0 text-left mx-2 rounded-lg border px-3 py-2 transition-colors ${
+                selected
+                  ? `${glassListSelectedRowClass} text-text-primary`
+                  : `${glassListRowClass} text-text-secondary hover:text-text-primary`
               }`}
             >
               <div className="flex items-center justify-between gap-2">

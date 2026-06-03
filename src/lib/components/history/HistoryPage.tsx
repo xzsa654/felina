@@ -1,6 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
-import { ExternalLink, FileText, FolderOpen, Loader2, Search } from "lucide-react";
+import { ExternalLink, FileText, FolderOpen, History as HistoryIcon, Loader2, Search } from "lucide-react";
+import {
+  PageBody,
+  PageHeader,
+  glassListRowClass,
+  glassListSelectedRowClass,
+  glassListSurfaceClass,
+} from "$lib/components/shared/PageScaffold";
 import { api } from "$lib/tauri/commands";
 import type { AgentId, HistorySession, SessionTranscript, TranscriptEntry } from "$lib/types/token-analytics";
 import { formatNumber } from "$lib/utils/format";
@@ -262,11 +269,12 @@ export default function HistoryPage() {
   }
 
   return (
-    <div className="flex flex-col h-full min-h-0">
-      <h1 className="text-xl font-semibold text-text-primary px-4 pt-4 pb-3">History</h1>
-      <div className="flex flex-1 min-h-0">
-      <aside className="w-80 shrink-0 border-r border-border bg-bg-secondary flex flex-col min-h-0">
-        <div className="p-3 border-b border-border space-y-3">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden">
+      <PageHeader title="History" icon={HistoryIcon} />
+      <PageBody>
+        <div className="flex h-full min-h-0 overflow-hidden">
+      <aside className={`w-80 shrink-0 border-r flex flex-col min-h-0 ${glassListSurfaceClass}`}>
+        <div className="p-3 border-b border-white/5 space-y-3">
           <div className="relative">
             <Search size={14} className="absolute left-2.5 top-2 text-text-muted" />
             <input
@@ -285,7 +293,7 @@ export default function HistoryPage() {
                 className={`px-2.5 py-1 text-xs rounded border transition-colors ${
                   agentFilter === agent.id
                     ? "border-accent bg-accent/10 text-accent"
-                    : "border-border text-text-muted hover:text-text-primary hover:bg-bg-hover"
+                    : "border-white/10 bg-white/[0.02] text-text-muted hover:bg-white/[0.06] hover:text-text-primary"
                 }`}
               >
                 {agent.label}
@@ -294,7 +302,7 @@ export default function HistoryPage() {
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto py-1">
+        <div className="flex-1 overflow-y-auto py-2">
           {loading ? (
             <div className="px-3 py-4 text-xs text-text-muted flex items-center gap-2">
               <Loader2 size={14} className="animate-spin" />
@@ -318,10 +326,10 @@ export default function HistoryPage() {
                     key={`${session.agent}:${session.session_id}`}
                     type="button"
                     onClick={() => selectSession(session)}
-                    className={`w-full text-left px-3 py-2.5 border-l-2 transition-colors ${
+                    className={`mx-2 mb-1 w-[calc(100%-1rem)] rounded-lg border px-3 py-2.5 text-left transition-colors ${
                       active
-                        ? "border-accent bg-accent/10"
-                        : "border-transparent hover:bg-bg-hover"
+                        ? glassListSelectedRowClass
+                        : glassListRowClass
                     }`}
                   >
                     <div className="flex items-center justify-between gap-2">
@@ -521,6 +529,7 @@ export default function HistoryPage() {
         )}
       </main>
       </div>
+      </PageBody>
     </div>
   );
 }

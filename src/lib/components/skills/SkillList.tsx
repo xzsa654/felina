@@ -9,6 +9,10 @@ import {
 } from "$lib/types";
 import { useLocaleStore } from "$lib/stores/locale";
 import { t } from "$lib/i18n";
+import {
+  glassListRowClass,
+  glassListSelectedRowClass,
+} from "$lib/components/shared/PageScaffold";
 import claudeIcon from "$lib/assets/claude.svg";
 import codexIcon from "$lib/assets/codex.png";
 import antigravityIcon from "$lib/assets/antigravity.png";
@@ -214,8 +218,10 @@ export default function SkillList({
                     type="button"
                     onClick={() => onSelect(canonicalId)}
                     title={entry.error}
-                    className={`w-full flex items-start gap-2 mx-2 rounded-md px-3 py-2 text-left transition-colors ${
-                      isSelected ? "bg-danger-dim" : "bg-danger/5 hover:bg-danger-dim"
+                    className={`w-[calc(100%-1rem)] flex items-start gap-2 mx-2 rounded-lg border px-3 py-2 text-left transition-colors ${
+                      isSelected
+                        ? "border-danger/25 bg-danger/15 shadow-[0_10px_30px_rgba(0,0,0,0.16)] backdrop-blur-xl"
+                        : "border-danger/10 bg-danger/5 backdrop-blur-sm hover:border-danger/20 hover:bg-danger/10 hover:shadow-sm hover:backdrop-blur-xl"
                     }`}
                   >
                     <AlertCircle className="text-danger shrink-0 mt-0.5" size={16} />
@@ -248,8 +254,8 @@ export default function SkillList({
                 <button
                   type="button"
                   onClick={() => onSelect(canonicalId)}
-                  className={`group w-full flex items-center gap-2 mx-2 rounded-md px-3 py-2 text-left transition-colors ${
-                    isSelected ? "bg-bg-secondary" : "hover:bg-bg-secondary/50"
+                  className={`group w-[calc(100%-1rem)] flex items-center gap-2 mx-2 rounded-lg border px-3 py-2 text-left transition-colors ${
+                    isSelected ? glassListSelectedRowClass : glassListRowClass
                   }`}
                 >
                   {/* Dirty dot: visible only when the skill has pending changes */}

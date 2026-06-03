@@ -912,3 +912,92 @@ The app SHALL NOT render a shared application-level header bar above the routed 
 - **WHEN** the user opens `settings`, `memory`, or `history`
 - **THEN** each page SHALL display a non-empty in-page title
 - **AND** that title MAY be a minimal hardcoded heading not wired to the i18n system, because these pages are pending redevelopment
+
+---
+### Requirement: Top-Level Page Scaffold Usage
+
+All top-level registered navigation pages (including `tokens`, `memory`, `history`, and `felina-settings`) SHALL wrap their primary content within the standard `PageHeader` and `PageBody` layout components to ensure structural and visual consistency across the app. Ad-hoc padding div wrappers for page headers MUST NOT be used for top-level pages.
+
+#### Scenario: Top-level page rendering
+
+- **WHEN** the user navigates to any top-level page
+- **THEN** the page SHALL render its title and optional actions within a `PageHeader`
+- **AND** the page SHALL render its scrollable content within a `PageBody`
+
+
+<!-- @trace
+source: enforce-ui-guidelines-page-scaffold
+updated: 2026-06-03
+code:
+  - src/lib/assets/logo.png
+  - .session/product-backlog.md
+  - src/lib/components/memory/MemoryPage.tsx
+  - temp_spec_token_analytics.md
+  - GEMINI.md
+  - src/lib/components/settings/FelinaSettingsPage.tsx
+  - src/lib/components/skills/SkillList.tsx
+  - src/router.tsx
+  - src/app.css
+  - src/lib/components/projects/ProjectsPage.tsx
+  - temp_tasks.md
+  - temp_spec_history_page.md
+  - src/lib/components/history/HistoryPage.tsx
+  - temp_proposal.md
+  - temp_spec_felina_settings.md
+  - src/lib/components/projects/ProjectsList.tsx
+  - .session/projects-page-ui-adjustment-report.md
+  - temp_spec_app_pages.md
+  - src/lib/assets/logo_.png
+  - src/lib/components/projects/ManagedInventory.tsx
+  - temp_design.md
+  - src/lib/components/tokens/TokensPage.tsx
+  - src/lib/components/shared/PageScaffold.tsx
+-->
+
+---
+### Requirement: Unified Glassmorphism List Treatment
+
+The main workflow lists in `skills`, `projects`, `memory`, and `history` SHALL use a unified glassmorphism visual treatment for normal, hovered, and selected list rows. These rows MUST use translucent backgrounds, low-opacity borders, and backdrop blur to allow the app background grid to remain visible. Main workflow list rows MUST NOT use hard left or right borders, fully solid selected backgrounds, or fully solid hover backgrounds as their primary state indicator.
+
+#### Scenario: User views main workflow lists
+
+- **WHEN** the user navigates to `skills`, `projects`, `memory`, or `history`
+- **THEN** each page's main workflow list rows SHALL use translucent row backgrounds and subtle low-opacity borders
+- **AND** selected rows SHALL use a brighter translucent accent treatment
+- **AND** hovered rows SHALL use a translucent hover treatment with backdrop blur
+- **AND** the row state treatment SHALL remain visually consistent across those pages
+
+#### Scenario: Tokens analytics tables remain out of scope
+
+- **WHEN** the user navigates to `tokens`
+- **THEN** analytics data tables SHALL remain functionally unchanged by this requirement
+- **AND** this requirement SHALL NOT require table-to-list conversion for token analytics components
+
+<!-- @trace
+source: enforce-ui-guidelines-page-scaffold
+updated: 2026-06-03
+code:
+  - src/lib/assets/logo.png
+  - .session/product-backlog.md
+  - src/lib/components/memory/MemoryPage.tsx
+  - temp_spec_token_analytics.md
+  - GEMINI.md
+  - src/lib/components/settings/FelinaSettingsPage.tsx
+  - src/lib/components/skills/SkillList.tsx
+  - src/router.tsx
+  - src/app.css
+  - src/lib/components/projects/ProjectsPage.tsx
+  - temp_tasks.md
+  - temp_spec_history_page.md
+  - src/lib/components/history/HistoryPage.tsx
+  - temp_proposal.md
+  - temp_spec_felina_settings.md
+  - src/lib/components/projects/ProjectsList.tsx
+  - .session/projects-page-ui-adjustment-report.md
+  - temp_spec_app_pages.md
+  - src/lib/assets/logo_.png
+  - src/lib/components/projects/ManagedInventory.tsx
+  - temp_design.md
+  - src/lib/components/tokens/TokensPage.tsx
+  - src/lib/components/shared/PageScaffold.tsx
+-->
