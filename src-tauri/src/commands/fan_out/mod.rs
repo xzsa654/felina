@@ -696,18 +696,27 @@ pub fn skill_sync_commit(request: SkillSyncCommitRequest) -> Result<Vec<SyncResu
                     .as_deref()
                     .or(item.current_hash.as_deref())
                 {
-                    let snapshot = try_snapshot(&skill.name);
-                    meta.last_sync.insert(
-                        item.target_key.clone(),
-                        LastSyncEntry {
-                            pushed_hash: hash.to_string(),
-                            base_snapshot: snapshot,
-                            at: attempted_at.clone(),
-                            sibling_hashes: Some(compute_sibling_hashes(
-                                &std::path::Path::new(&item.target_dir).join(&item.skill_name),
-                            )),
-                        },
-                    );
+                    let existing = meta.last_sync.get(&item.target_key);
+                    let hash_unchanged = existing.map_or(false, |e| e.pushed_hash == hash);
+
+                    if hash_unchanged {
+                        if let Some(entry) = meta.last_sync.get_mut(&item.target_key) {
+                            entry.at = attempted_at.clone();
+                        }
+                    } else {
+                        let snapshot = try_snapshot(&skill.name);
+                        meta.last_sync.insert(
+                            item.target_key.clone(),
+                            LastSyncEntry {
+                                pushed_hash: hash.to_string(),
+                                base_snapshot: snapshot,
+                                at: attempted_at.clone(),
+                                sibling_hashes: Some(compute_sibling_hashes(
+                                    &std::path::Path::new(&item.target_dir).join(&item.skill_name),
+                                )),
+                            },
+                        );
+                    }
                 }
                 results.push(commit_result_from_item(&item, true, None, &attempted_at));
             }
@@ -731,20 +740,67 @@ pub fn skill_sync_all_commit(
     request: SkillSyncAllCommitRequest,
 ) -> Result<Vec<SyncResult>, String> {
     let entries = super::canonical_skills::canonical_skills_list()?;
+    let skill_ids: Vec<String> = entries
+        .into_iter()
+        .filter_map(|entry| {
+            if let super::canonical_skills::SkillListEntry::Ok { canonical_id, .. } = entry {
+                Some(canonical_id)
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    if skill_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let max_threads = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(4)
+        .min(8);
+
+    let chunk_size = ((skill_ids.len() + max_threads - 1) / max_threads).max(1);
+
+    #[cfg(test)]
+    let felina_home_for_threads = crate::paths::felina_home();
+
+    let results: Vec<Result<Vec<SyncResult>, String>> = std::thread::scope(|s| {
+        let chunks: Vec<&[String]> = skill_ids.chunks(chunk_size).collect();
+
+        let handles: Vec<_> = chunks
+            .into_iter()
+            .map(|chunk| {
+                let request_ref = &request;
+                #[cfg(test)]
+                let felina_home_capture = felina_home_for_threads.clone();
+                s.spawn(move || {
+                    #[cfg(test)]
+                    crate::paths::set_felina_home_override_for_test(Some(felina_home_capture));
+                    let mut chunk_results = Vec::new();
+                    for canonical_id in chunk {
+                        let resolutions = request_ref
+                            .resolutions_by_skill
+                            .get(canonical_id)
+                            .cloned()
+                            .unwrap_or_default();
+                        let mut results = skill_sync_commit(SkillSyncCommitRequest {
+                            skill_name: canonical_id.clone(),
+                            resolutions,
+                        })?;
+                        chunk_results.append(&mut results);
+                    }
+                    Ok(chunk_results)
+                })
+            })
+            .collect();
+
+        handles.into_iter().map(|h| h.join().unwrap()).collect()
+    });
+
     let mut out = Vec::new();
-    for entry in entries {
-        if let super::canonical_skills::SkillListEntry::Ok { canonical_id, .. } = entry {
-            let resolutions = request
-                .resolutions_by_skill
-                .get(&canonical_id)
-                .cloned()
-                .unwrap_or_default();
-            let mut results = skill_sync_commit(SkillSyncCommitRequest {
-                skill_name: canonical_id,
-                resolutions,
-            })?;
-            out.append(&mut results);
-        }
+    for result in results {
+        out.append(&mut result?);
     }
     Ok(out)
 }
@@ -3744,5 +3800,196 @@ mod tests {
         assert!(result.is_empty());
         let _ = fs::remove_dir_all(&canonical);
         let _ = fs::remove_dir_all(&agent);
+    }
+
+    #[test]
+    fn noop_fast_path_preserves_snapshot_and_siblings_when_hash_matches() {
+        let tmp = smoke_tempdir("noop-fastpath");
+        let _g = override_felina_home(&tmp);
+        make_canonical("noop-skill", &["anthropic"]);
+
+        let canonical_skill_dir = tmp.join(".felina").join("skills").join("noop-skill");
+        let project = tmp.to_string_lossy().to_string();
+        let target = SkillTarget {
+            agent: AgentId::Anthropic,
+            scope: SkillScope::Project,
+            project: Some(project.clone()),
+            enabled: true,
+            mode: TargetMode::Manual,
+        };
+        let key = target_key(&target);
+
+        let agent_dir = tmp.join(".claude").join("skills").join("noop-skill");
+        fs::create_dir_all(&agent_dir).unwrap();
+
+        write_sync_meta_v2(
+            &canonical_skill_dir,
+            &SyncMetaV2 {
+                version: 2,
+                targets: vec![target.clone()],
+                last_sync: std::collections::BTreeMap::new(),
+                dirty: true,
+            },
+        )
+        .unwrap();
+
+        let results1 = skill_sync_commit(SkillSyncCommitRequest {
+            skill_name: "noop-skill".into(),
+            resolutions: vec![],
+        })
+        .expect("first commit");
+        assert!(results1.iter().all(|r| r.success), "{results1:#?}");
+
+        let meta1: SyncMetaV2 = serde_json::from_str(
+            &fs::read_to_string(canonical_skill_dir.join(".felina-sync-meta.json")).unwrap(),
+        )
+        .unwrap();
+        let entry1 = meta1.last_sync.get(&key).expect("entry after first commit");
+        let snap1 = entry1.base_snapshot.clone();
+        let sibs1 = entry1.sibling_hashes.clone();
+
+        fs::write(agent_dir.join("extra.txt"), "extra").unwrap();
+
+        let results2 = skill_sync_commit(SkillSyncCommitRequest {
+            skill_name: "noop-skill".into(),
+            resolutions: vec![],
+        })
+        .expect("second commit (noop)");
+        assert!(results2.iter().all(|r| r.success), "{results2:#?}");
+
+        let meta2: SyncMetaV2 = serde_json::from_str(
+            &fs::read_to_string(canonical_skill_dir.join(".felina-sync-meta.json")).unwrap(),
+        )
+        .unwrap();
+        let entry2 = meta2.last_sync.get(&key).expect("entry after second commit");
+
+        assert_eq!(
+            entry2.base_snapshot, snap1,
+            "fast-path: base_snapshot must not be recomputed"
+        );
+        assert_eq!(
+            entry2.sibling_hashes, sibs1,
+            "fast-path: sibling_hashes must not be recomputed"
+        );
+        assert_ne!(
+            entry2.at, "2020-01-01T00:00:00Z",
+            "at must be a real timestamp, not stale"
+        );
+    }
+
+    #[test]
+    fn noop_full_path_recomputes_when_hash_differs() {
+        let tmp = smoke_tempdir("noop-fullpath");
+        let _g = override_felina_home(&tmp);
+        make_canonical("noop-diff-skill", &["anthropic"]);
+
+        let canonical_skill_dir = tmp.join(".felina").join("skills").join("noop-diff-skill");
+        let project = tmp.to_string_lossy().to_string();
+        let target = SkillTarget {
+            agent: AgentId::Anthropic,
+            scope: SkillScope::Project,
+            project: Some(project.clone()),
+            enabled: true,
+            mode: TargetMode::Manual,
+        };
+        let key = target_key(&target);
+
+        let agent_dir = tmp.join(".claude").join("skills").join("noop-diff-skill");
+        fs::create_dir_all(&agent_dir).unwrap();
+
+        write_sync_meta_v2(
+            &canonical_skill_dir,
+            &SyncMetaV2 {
+                version: 2,
+                targets: vec![target.clone()],
+                last_sync: std::collections::BTreeMap::new(),
+                dirty: true,
+            },
+        )
+        .unwrap();
+
+        let results1 = skill_sync_commit(SkillSyncCommitRequest {
+            skill_name: "noop-diff-skill".into(),
+            resolutions: vec![],
+        })
+        .expect("first commit");
+        assert!(results1.iter().all(|r| r.success), "{results1:#?}");
+
+        let meta1: SyncMetaV2 = serde_json::from_str(
+            &fs::read_to_string(canonical_skill_dir.join(".felina-sync-meta.json")).unwrap(),
+        )
+        .unwrap();
+        let actual_hash = meta1.last_sync.get(&key).expect("entry after first commit").pushed_hash.clone();
+        let snap1 = meta1.last_sync.get(&key).unwrap().base_snapshot.clone();
+
+        let mut meta_patched = meta1.clone();
+        meta_patched.last_sync.get_mut(&key).unwrap().pushed_hash = "stale-hash".into();
+        meta_patched.last_sync.get_mut(&key).unwrap().base_snapshot = Some("old-snap".into());
+        write_sync_meta_v2(&canonical_skill_dir, &meta_patched).unwrap();
+
+        let results2 = skill_sync_commit(SkillSyncCommitRequest {
+            skill_name: "noop-diff-skill".into(),
+            resolutions: vec![],
+        })
+        .expect("second commit");
+        assert!(results2.iter().all(|r| r.success), "{results2:#?}");
+
+        let meta2: SyncMetaV2 = serde_json::from_str(
+            &fs::read_to_string(canonical_skill_dir.join(".felina-sync-meta.json")).unwrap(),
+        )
+        .unwrap();
+        let entry2 = meta2.last_sync.get(&key).expect("entry after second commit");
+
+        assert_eq!(
+            entry2.pushed_hash, actual_hash,
+            "full-path: pushed_hash must be updated to actual hash"
+        );
+        assert_ne!(
+            entry2.base_snapshot,
+            Some("old-snap".into()),
+            "full-path: base_snapshot must be recomputed when hash differs"
+        );
+        let _ = snap1;
+    }
+
+    #[test]
+    fn sync_all_commit_processes_multiple_skills() {
+        let tmp = smoke_tempdir("allcommit-multi");
+        let _g = override_felina_home(&tmp);
+        let project = tmp.to_string_lossy().to_string();
+
+        for name in &["alpha", "beta", "gamma"] {
+            make_canonical(name, &["anthropic"]);
+            let canonical_skill_dir = tmp.join(".felina").join("skills").join(name);
+            let target = SkillTarget {
+                agent: AgentId::Anthropic,
+                scope: SkillScope::Project,
+                project: Some(project.clone()),
+                enabled: true,
+                mode: TargetMode::Manual,
+            };
+            write_sync_meta_v2(
+                &canonical_skill_dir,
+                &SyncMetaV2 {
+                    version: 2,
+                    targets: vec![target],
+                    last_sync: std::collections::BTreeMap::new(),
+                    dirty: true,
+                },
+            )
+            .unwrap();
+
+            let agent_dir = tmp.join(".claude").join("skills").join(name);
+            fs::create_dir_all(&agent_dir).unwrap();
+            fs::write(agent_dir.join("SKILL.md"), format!("# {name}\n\nOld body.\n")).unwrap();
+        }
+
+        let request = SkillSyncAllCommitRequest {
+            resolutions_by_skill: std::collections::BTreeMap::new(),
+        };
+        let results = skill_sync_all_commit(request).expect("all commit");
+
+        assert_eq!(results.len(), 3, "expected one SyncResult per skill: {results:#?}");
+        assert!(results.iter().all(|r| r.success), "all results must succeed: {results:#?}");
     }
 }
