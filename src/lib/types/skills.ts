@@ -335,6 +335,15 @@ export interface RenameResult {
   targetsFailed: string[];
 }
 
+// ── Skill directory view ─────────────────────────────────────────
+
+export interface SkillFileNode {
+  name: string;
+  isDir: boolean;
+  sizeBytes: number | null;
+  children: SkillFileNode[] | null;
+}
+
 // ── Skill field catalog ──────────────────────────────────────────
 
 export type OutputLocation = "skillFrontmatter" | "codexOpenaiYaml";

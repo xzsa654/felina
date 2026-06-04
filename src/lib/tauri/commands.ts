@@ -21,6 +21,7 @@ import type {
   SkillTarget,
   RenameResult,
   SkillFieldDefinition,
+  SkillFileNode,
   AgentId,
   SkillScope,
   CanonicalDeletePolicy,
@@ -116,6 +117,8 @@ export const api = {
       invoke<CanonicalSkillDeleteResult>("canonical_skills_delete_with_policy", { name, policy }),
     rename: (oldName: string, newName: string) =>
       invoke<RenameResult>("canonical_skill_rename", { oldName, newName }),
+    getDirectoryTree: (canonicalId: string) =>
+      invoke<SkillFileNode[]>("get_skill_directory_tree", { canonicalId }),
   },
 
   // Fan-out sync (canonical → agent-native dirs). Push destinations come

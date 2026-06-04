@@ -60,6 +60,7 @@ export type {
   KnownProject,
   RenameResult,
   SkillFieldDefinition,
+  SkillFileNode,
   FieldAgent,
   DriftStatus,
   DiffLine,

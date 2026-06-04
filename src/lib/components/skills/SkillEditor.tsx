@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { FolderOpen, Pencil, Plus, Save, Trash2 } from "lucide-react";
-import type { CanonicalSkill, KnownProject, SkillTarget } from "$lib/types";
+import { FileText, Folder, FolderOpen, Pencil, Plus, Save, Trash2 } from "lucide-react";
+import type { CanonicalSkill, KnownProject, SkillFileNode, SkillTarget } from "$lib/types";
 import type { LastSyncEntry } from "$lib/types/skills";
 import RenameSkillDialog from "./RenameSkillDialog";
 import TargetChips from "./TargetChips";
@@ -112,7 +112,10 @@ export default function SkillEditor({ skill, brokenRaw, onSaved, onCancel, onDel
   const [agentFields, setAgentFields] = useState<Record<string, unknown>>(
     () => skill?.agentFields ?? {},
   );
-  const [activeTab, setActiveTab] = useState<"content" | "settings">("content");
+  const [activeTab, setActiveTab] = useState<"content" | "settings" | "directory">("content");
+  const [directoryTree, setDirectoryTree] = useState<SkillFileNode[] | null>(null);
+  const [directoryLoading, setDirectoryLoading] = useState(false);
+  const [directoryError, setDirectoryError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [rawContent, setRawContent] = useState(brokenRaw?.content ?? "");
@@ -127,6 +130,8 @@ export default function SkillEditor({ skill, brokenRaw, onSaved, onCancel, onDel
     setExtras(initExtras(skill));
     setAgentFields(skill?.agentFields ?? {});
     setActiveTab("content");
+    setDirectoryTree(null);
+    setDirectoryError(null);
     setError(null);
   }, [skill?.canonicalId, skill?.body, isNew]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -135,6 +140,30 @@ export default function SkillEditor({ skill, brokenRaw, onSaved, onCancel, onDel
     setRawContent(brokenRaw?.content ?? "");
     setError(null);
   }, [brokenRaw?.name, brokenRaw?.content]);
+
+  useEffect(() => {
+    if (activeTab !== "directory" || !canonicalId) return;
+    let cancelled = false;
+    setDirectoryLoading(true);
+    setDirectoryError(null);
+    api.canonicalSkills
+      .getDirectoryTree(canonicalId)
+      .then((tree) => {
+        if (cancelled) return;
+        setDirectoryTree(tree);
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        setDirectoryError(err instanceof Error ? err.message : String(err));
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setDirectoryLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, canonicalId]);
 
   useEffect(() => {
     const el = contentRef.current;
@@ -548,12 +577,32 @@ export default function SkillEditor({ skill, brokenRaw, onSaved, onCancel, onDel
         >
           {t(locale, "skills.editor.tabSettings")}
         </button>
+        {!isNew && (
+          <button
+            type="button"
+            onClick={() => setActiveTab("directory")}
+            className={`pb-2 text-xs font-medium transition-colors ${
+              activeTab === "directory"
+                ? "border-b-2 border-accent text-text-primary"
+                : "text-text-muted hover:text-text-secondary"
+            }`}
+          >
+            {t(locale, "skills.editor.tabDirectory")}
+          </button>
+        )}
       </div>
       </div>
 
       {/* ------- Scrollable Tab Content ------- */}
       <div ref={contentRef} className="flex-1 overflow-y-auto px-4 pb-4">
-      {activeTab === "content" ? (
+      {activeTab === "directory" ? (
+        <SkillDirectoryView
+          tree={directoryTree}
+          loading={directoryLoading}
+          error={directoryError}
+          locale={locale}
+        />
+      ) : activeTab === "content" ? (
         <section className="flex flex-col gap-2 mt-3 h-full">
           <div className="flex items-center justify-between gap-3">
             <h3 className="text-xs font-semibold uppercase tracking-wide text-text-secondary">
@@ -698,6 +747,77 @@ export default function SkillEditor({ skill, brokenRaw, onSaved, onCancel, onDel
         />
       )}
     </div>
+  );
+}
+
+function SkillDirectoryView({
+  tree,
+  loading,
+  error,
+  locale,
+}: {
+  tree: SkillFileNode[] | null;
+  loading: boolean;
+  error: string | null;
+  locale: import("$lib/i18n").Locale;
+}) {
+  if (loading) {
+    return (
+      <section className="mt-3 text-xs text-text-muted">
+        {t(locale, "skills.editor.directoryLoading")}
+      </section>
+    );
+  }
+  if (error !== null) {
+    return (
+      <section className="mt-3 text-xs text-danger">
+        {t(locale, "skills.editor.directoryError")}
+      </section>
+    );
+  }
+  if (!tree || tree.length === 0) {
+    return (
+      <section className="mt-3 text-xs text-text-muted">
+        {t(locale, "skills.editor.directoryEmpty")}
+      </section>
+    );
+  }
+  return (
+    <section className="mt-3 flex flex-col">
+      <SkillDirectoryNodes nodes={tree} depth={0} />
+    </section>
+  );
+}
+
+function SkillDirectoryNodes({ nodes, depth }: { nodes: SkillFileNode[]; depth: number }) {
+  return (
+    <>
+      {nodes.map((node) => (
+        <SkillDirectoryRow key={`${depth}-${node.name}`} node={node} depth={depth} />
+      ))}
+    </>
+  );
+}
+
+function SkillDirectoryRow({ node, depth }: { node: SkillFileNode; depth: number }) {
+  const indent = { paddingLeft: `${depth * 16 + 8}px` };
+  return (
+    <>
+      <div
+        className="flex items-center gap-2 py-1.5 text-sm text-text-secondary hover:bg-bg-secondary/20"
+        style={indent}
+      >
+        {node.isDir ? (
+          <Folder size={14} className="text-text-muted shrink-0" />
+        ) : (
+          <FileText size={14} className="text-text-muted shrink-0" />
+        )}
+        <span className="truncate">{node.name}</span>
+      </div>
+      {node.isDir && node.children && node.children.length > 0 && (
+        <SkillDirectoryNodes nodes={node.children} depth={depth + 1} />
+      )}
+    </>
   );
 }
 
