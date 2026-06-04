@@ -1266,7 +1266,7 @@ fn resolve_current_target_skill_dirs(
     let cfg = super::agent_paths::agent_paths_get()?;
     let mut dirs = Vec::new();
     for target in meta.targets {
-        if !target.enabled || target.mode != TargetMode::Manual {
+        if !target.enabled || !matches!(target.mode, TargetMode::Auto | TargetMode::Manual) {
             continue;
         }
         let pair = match target.agent {
@@ -2881,6 +2881,109 @@ Hello.\n";
             .join(".agents")
             .join("skills")
             .join("delete-cancel")
+            .exists());
+    }
+
+    #[test]
+    fn cascade_delete_includes_auto_and_excludes_disabled_detached_forked() {
+        let tmp = tempdir();
+        let _g = override_felina_home(&tmp);
+
+        let name = "cascade-mode-test";
+        let mut fm = serde_yaml::Mapping::new();
+        fm.insert("name".into(), name.into());
+        fm.insert("description".into(), "test".into());
+        fm.insert(
+            "agents".into(),
+            serde_yaml::Value::Sequence(vec!["anthropic".into(), "codex".into(), "gemini".into()]),
+        );
+        canonical_skills_write(name.into(), serde_yaml::Value::Mapping(fm), "body".into(), None)
+            .unwrap();
+
+        let project = tmp.to_string_lossy().to_string();
+        let disabled_project = tmp.join("disabled-project");
+        let detached_project = tmp.join("detached-project");
+        let forked_project = tmp.join("forked-project");
+
+        skill_targets_set(
+            name.into(),
+            vec![
+                SkillTarget {
+                    agent: AgentId::Anthropic,
+                    scope: SkillScope::Project,
+                    project: Some(project.clone()),
+                    enabled: true,
+                    mode: TargetMode::Auto,
+                },
+                SkillTarget {
+                    agent: AgentId::Codex,
+                    scope: SkillScope::Project,
+                    project: Some(disabled_project.to_string_lossy().to_string()),
+                    enabled: false,
+                    mode: TargetMode::Auto,
+                },
+                SkillTarget {
+                    agent: AgentId::Gemini,
+                    scope: SkillScope::Project,
+                    project: Some(detached_project.to_string_lossy().to_string()),
+                    enabled: true,
+                    mode: TargetMode::Detached,
+                },
+                SkillTarget {
+                    agent: AgentId::Anthropic,
+                    scope: SkillScope::Project,
+                    project: Some(forked_project.to_string_lossy().to_string()),
+                    enabled: true,
+                    mode: TargetMode::Forked,
+                },
+            ],
+        )
+        .unwrap();
+
+        for (root_dir, skill_root) in [
+            (tmp.join(".claude").join("skills").join(name), &tmp),
+            (
+                disabled_project.join(".agents").join("skills").join(name),
+                &disabled_project,
+            ),
+            (
+                detached_project.join(".gemini").join("skills").join(name),
+                &detached_project,
+            ),
+            (
+                forked_project.join(".claude").join("skills").join(name),
+                &forked_project,
+            ),
+        ] {
+            let _ = skill_root;
+            fs::create_dir_all(&root_dir).unwrap();
+            fs::write(root_dir.join("SKILL.md"), "agent side").unwrap();
+        }
+
+        let result =
+            canonical_skills_delete_with_policy(name.into(), CanonicalDeletePolicy::Cascade)
+                .unwrap();
+
+        assert!(result.canonical_deleted);
+        assert_eq!(result.target_results.len(), 1);
+        assert!(result.target_results.iter().all(|r| r.success));
+
+        assert!(!tmp.join(".claude").join("skills").join(name).exists());
+
+        assert!(disabled_project
+            .join(".agents")
+            .join("skills")
+            .join(name)
+            .exists());
+        assert!(detached_project
+            .join(".gemini")
+            .join("skills")
+            .join(name)
+            .exists());
+        assert!(forked_project
+            .join(".claude")
+            .join("skills")
+            .join(name)
             .exists());
     }
 

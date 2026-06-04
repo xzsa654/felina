@@ -162,6 +162,8 @@ Scope:
 - 外部編輯器修改檔案時，透過 Tauri Event 即時推播給前端。
 - 前端解除 window focus 與 visibilitychange 綁定的全域重整，改由 Event 觸發局部資料刷新（搭配 SWR 模式確保體驗順滑）。
 
+<!-- push-commit-noop-fastpath-and-parallel: archived 2026-06-04, removed per backlog rules -->
+
 ---
 
 ## Phase 3 — Skill Community
@@ -232,7 +234,7 @@ Scope:
 | type | suggestion |
 | status | not-committed |
 | flagged | 2026-06-02 |
-| last-seen | 2026-06-02 |
+| last-seen | 2026-06-03 |
 | description | 將 Projects Page 從「被動檢視狀態」轉變為「主動管理中樞」。支援手動加入無 Agent 目錄的全新專案，並針對空狀態提供快速匯入 Global Skills 的引導流程 (Onboarding)。 |
 
 Scope:
@@ -240,3 +242,42 @@ Scope:
 - 當選取的專案不包含任何 Skill 時，右側 `ManagedInventory` 不再只顯示 "Empty Inventory"，而是呈現「Skill 推薦與注入介面」。
 - 空狀態推薦介面可列出常用的 Global Skills (可重複利用 `canonicalGlobalOnly` 等既有 UI 元件)，一鍵點擊「匯入」即可由 Felina 自動建立對應的 Agent Skills 資料夾並寫入檔案。
 - 將 Felina 的價值延伸，使其成為開發者建立新專案後，一鍵配置 AI 環境的第一站。
+
+### wsl-ubuntu-project-support
+
+| Field | Value |
+|---|---|
+| type | suggestion |
+| status | not-committed |
+| flagged | 2026-06-01 |
+| last-seen | 2026-06-03 |
+| description | Windows 端透過 `\\wsl$\Ubuntu\...` UNC 路徑存取 WSL 內的專案。需驗證 Tauri file system 跨 WSL boundary 的可行性、`normalizeProjectPath` 對 UNC 路徑的正規化、known_projects::normalize_path 後端對齊。 |
+
+Scope:
+- 跨 platform 路徑識別:WSL UNC 路徑（`\\wsl$\Ubuntu\home\user\proj`）的前端 `normalizeProjectPath` 處理。
+- 後端 `known_projects::normalize_path` 必須對應同步,避免兩端 identity 不一致。
+- 驗證 Tauri 2 `fs` plugin 是否能跨 WSL 邊界讀寫,或需要呼叫 PowerShell / wsl.exe 中介。
+- 評估是否要對 `.agents/skills/` 等 UNC 路徑做特殊 fan-out 處理。
+
+Notes:
+- 由 2026-06-01 OQ 移入。屬探索性 platform feature,需 viability spike 才能切 spectra change。
+- 主要驅動是 Windows 開發者用 WSL 跑專案的 workflow。
+
+### import-staging-folder-picker
+
+| Field | Value |
+|---|---|
+| type | suggestion |
+| status | not-committed |
+| flagged | 2026-06-01 |
+| last-seen | 2026-06-03 |
+| description | ImportStagingDialog 的 Browse Files 目前只收 ZIP（複用 skill_import_scan_zip）。較合理的 UX 是 folder picker,user 選任意目錄後後端當 agent skill 目錄掃描；需要新增後端 command（接受任意路徑 scan SKILL.md）。 |
+
+Scope:
+- 新增後端 command:接受任意 path,掃描 SKILL.md(類似 `skill_import_scan_zip` 但跳過解壓步驟,直接用既有 `collect_zip_candidates_in` 或 `collect_candidates_in` 邏輯)。
+- 前端 `handleBrowseFiles` 改用 Tauri open dialog 的 `directory: true`,UI 切換 ZIP vs Folder 兩種入口（或合併成「Browse」二選一）。
+- 安全:source_path 仍須走 Zip Slip 同等的 `..` segment 拒絕。
+
+Notes:
+- 由 2026-06-01 OQ 移入。`refactor-zip-import-staging` change 的 Non-Goals 明確不改後端匯入邏輯,所以另開 change。
+- Decision 3「ZIP 直送 Staging」的行為若延伸到 folder picker,需確認「使用者明確選擇 = 直送 Staging」對任意路徑也成立(可能要保留 Discovered 給 folder picker 的批次掃描)。

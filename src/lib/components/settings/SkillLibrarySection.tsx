@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { Download, Upload, Trash2 } from "lucide-react";
-import { save, open } from "@tauri-apps/plugin-dialog";
+import { Download, Trash2 } from "lucide-react";
+import { save } from "@tauri-apps/plugin-dialog";
 import ConfirmDialog from "$lib/components/shared/ConfirmDialog";
 import { t } from "$lib/i18n";
 import { useLocaleStore } from "$lib/stores/locale";
@@ -52,34 +52,6 @@ export default function SkillLibrarySection() {
     }
   }
 
-  async function handleImport() {
-    setBusy(true);
-    setStatus(null);
-    try {
-      const path = await open({
-        filters: [{ name: "ZIP", extensions: ["zip"] }],
-        multiple: false,
-        directory: false,
-      });
-      if (!path) {
-        setBusy(false);
-        return;
-      }
-      const result = await api.skillLibrary.import(path);
-      setStatus(
-        t(locale, "felinaSettings.skillLibrary.importSuccess", {
-          imported: String(result.imported),
-          skipped: String(result.skipped),
-        }),
-      );
-      await refreshCount();
-    } catch (e) {
-      setStatus(t(locale, "felinaSettings.skillLibrary.importError", { error: String(e) }));
-    } finally {
-      setBusy(false);
-    }
-  }
-
   async function handleReset() {
     setShowResetConfirm(false);
     setBusy(true);
@@ -119,14 +91,6 @@ export default function SkillLibrarySection() {
         >
           <Download size={14} />
           {t(locale, "felinaSettings.skillLibrary.export")}
-        </button>
-        <button
-          className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg bg-bg-tertiary hover:bg-bg-hover text-text-secondary transition-colors disabled:opacity-50"
-          onClick={handleImport}
-          disabled={busy}
-        >
-          <Upload size={14} />
-          {t(locale, "felinaSettings.skillLibrary.import")}
         </button>
         <button
           className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg bg-danger/10 hover:bg-danger/20 text-danger transition-colors disabled:opacity-50"

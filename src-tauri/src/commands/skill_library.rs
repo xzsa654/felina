@@ -98,77 +98,6 @@ fn add_dir_to_zip(
 }
 
 #[derive(Serialize)]
-pub struct ImportResult {
-    pub imported: usize,
-    pub skipped: usize,
-}
-
-#[tauri::command]
-pub fn skill_library_import(input_path: String) -> Result<ImportResult, String> {
-    let skills_dir = canonical_skills_dir();
-    fs::create_dir_all(&skills_dir)
-        .map_err(|e| format!("failed to create skills directory: {e}"))?;
-
-    let file = fs::File::open(&input_path)
-        .map_err(|e| format!("failed to open ZIP file: {e}"))?;
-    let mut archive =
-        zip::ZipArchive::new(file).map_err(|e| format!("failed to read ZIP archive: {e}"))?;
-
-    // Discover which top-level directories contain SKILL.md
-    let mut has_skill_md = std::collections::HashSet::new();
-    let mut all_top_dirs = std::collections::HashSet::new();
-    for i in 0..archive.len() {
-        let entry = archive.by_index(i).map_err(|e| format!("ZIP read error: {e}"))?;
-        let path = entry.name().to_string();
-        let parts: Vec<&str> = path.split('/').collect();
-        if parts.len() >= 2 && !parts[0].is_empty() {
-            all_top_dirs.insert(parts[0].to_string());
-            if parts[1] == "SKILL.md" && parts.len() == 2 {
-                has_skill_md.insert(parts[0].to_string());
-            }
-        }
-    }
-
-    let skipped = all_top_dirs.len() - has_skill_md.len();
-
-    // Extract valid skills
-    for i in 0..archive.len() {
-        let mut entry = archive.by_index(i).map_err(|e| format!("ZIP read error: {e}"))?;
-        let path = entry.name().to_string();
-        let parts: Vec<&str> = path.split('/').collect();
-        if parts.is_empty() || parts[0].is_empty() {
-            continue;
-        }
-        let top_dir = parts[0];
-        if !has_skill_md.contains(top_dir) {
-            continue;
-        }
-
-        let dest = skills_dir.join(&path);
-        if entry.is_dir() {
-            fs::create_dir_all(&dest)
-                .map_err(|e| format!("failed to create directory: {e}"))?;
-        } else {
-            if let Some(parent) = dest.parent() {
-                fs::create_dir_all(parent)
-                    .map_err(|e| format!("failed to create parent directory: {e}"))?;
-            }
-            let mut buf = Vec::new();
-            entry
-                .read_to_end(&mut buf)
-                .map_err(|e| format!("failed to read ZIP entry: {e}"))?;
-            fs::write(&dest, &buf)
-                .map_err(|e| format!("failed to write file: {e}"))?;
-        }
-    }
-
-    Ok(ImportResult {
-        imported: has_skill_md.len(),
-        skipped,
-    })
-}
-
-#[derive(Serialize)]
 pub struct ResetResult {
     pub deleted: usize,
 }
@@ -225,7 +154,6 @@ fn list_skill_dirs(skills_dir: &Path) -> Vec<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Read;
     use tempfile::TempDir;
 
     fn setup_skills_dir(tmp: &TempDir) -> PathBuf {
@@ -248,43 +176,6 @@ mod tests {
             fs::create_dir_all(&sub).unwrap();
             fs::write(sub.join("ref.md"), "# Reference").unwrap();
         }
-    }
-
-    fn create_zip_from_dir(skills_dir: &Path, output: &Path) {
-        let file = fs::File::create(output).unwrap();
-        let mut zip = zip::ZipWriter::new(file);
-        let opts = zip::write::SimpleFileOptions::default();
-        for entry in fs::read_dir(skills_dir).unwrap() {
-            let entry = entry.unwrap();
-            if !entry.path().is_dir() || entry.file_name().to_string_lossy() == ".git" {
-                continue;
-            }
-            let skill_name = entry.file_name().to_string_lossy().to_string();
-            for file_entry in WalkDir::new(entry.path()).min_depth(1) {
-                let file_entry = file_entry.unwrap();
-                if file_entry.file_name().to_string_lossy() == ".felina-sync-meta.json" {
-                    continue;
-                }
-                let rel = file_entry
-                    .path()
-                    .strip_prefix(entry.path())
-                    .unwrap();
-                let zip_path =
-                    format!("{}/{}", skill_name, rel.to_string_lossy().replace('\\', "/"));
-                if file_entry.file_type().is_dir() {
-                    zip.add_directory(&zip_path, opts).unwrap();
-                } else {
-                    zip.start_file(&zip_path, opts).unwrap();
-                    let mut buf = Vec::new();
-                    fs::File::open(file_entry.path())
-                        .unwrap()
-                        .read_to_end(&mut buf)
-                        .unwrap();
-                    zip.write_all(&buf).unwrap();
-                }
-            }
-        }
-        zip.finish().unwrap();
     }
 
     // --- Export tests ---
@@ -337,108 +228,6 @@ mod tests {
         let skills = setup_skills_dir(&tmp);
         let dirs = list_skill_dirs(&skills);
         assert!(dirs.is_empty());
-    }
-
-    // --- Import tests ---
-
-    #[test]
-    fn import_extracts_skills_with_subdirs() {
-        let tmp = TempDir::new().unwrap();
-        let source = setup_skills_dir(&tmp);
-        create_skill(&source, "imported-skill", true);
-
-        let zip_path = tmp.path().join("import.zip");
-        create_zip_from_dir(&source, &zip_path);
-
-        // Import into a fresh directory
-        let dest = tmp.path().join("dest-skills");
-        fs::create_dir_all(&dest).unwrap();
-
-        // Manually replicate import logic with custom dir
-        let file = fs::File::open(&zip_path).unwrap();
-        let mut archive = zip::ZipArchive::new(file).unwrap();
-        let mut has_skill_md = std::collections::HashSet::new();
-        let mut all_top_dirs = std::collections::HashSet::new();
-        for i in 0..archive.len() {
-            let entry = archive.by_index(i).unwrap();
-            let path = entry.name().to_string();
-            let parts: Vec<&str> = path.split('/').collect();
-            if parts.len() >= 2 && !parts[0].is_empty() {
-                all_top_dirs.insert(parts[0].to_string());
-                if parts[1] == "SKILL.md" && parts.len() == 2 {
-                    has_skill_md.insert(parts[0].to_string());
-                }
-            }
-        }
-
-        for i in 0..archive.len() {
-            let mut entry = archive.by_index(i).unwrap();
-            let path = entry.name().to_string();
-            let parts: Vec<&str> = path.split('/').collect();
-            if parts.is_empty() || parts[0].is_empty() || !has_skill_md.contains(parts[0]) {
-                continue;
-            }
-            let file_dest = dest.join(&path);
-            if entry.is_dir() {
-                fs::create_dir_all(&file_dest).unwrap();
-            } else {
-                if let Some(parent) = file_dest.parent() {
-                    fs::create_dir_all(parent).unwrap();
-                }
-                let mut buf = Vec::new();
-                entry.read_to_end(&mut buf).unwrap();
-                fs::write(&file_dest, &buf).unwrap();
-            }
-        }
-
-        assert!(dest.join("imported-skill/SKILL.md").exists());
-        assert!(dest.join("imported-skill/schema/ref.md").exists());
-        assert!(
-            !dest.join("imported-skill/.felina-sync-meta.json").exists(),
-            "sync meta should not be created on import"
-        );
-    }
-
-    #[test]
-    fn import_skips_dirs_without_skill_md() {
-        let tmp = TempDir::new().unwrap();
-        let zip_path = tmp.path().join("partial.zip");
-
-        // Create ZIP with one valid skill and one invalid dir
-        let file = fs::File::create(&zip_path).unwrap();
-        let mut zip = zip::ZipWriter::new(file);
-        let opts = zip::write::SimpleFileOptions::default();
-
-        // Valid skill
-        zip.start_file("good-skill/SKILL.md", opts).unwrap();
-        zip.write_all(b"---\nname: good\n---\n").unwrap();
-
-        // Invalid dir (no SKILL.md)
-        zip.start_file("bad-dir/README.md", opts).unwrap();
-        zip.write_all(b"# Not a skill").unwrap();
-
-        zip.finish().unwrap();
-
-        // Scan the zip
-        let file = fs::File::open(&zip_path).unwrap();
-        let mut archive = zip::ZipArchive::new(file).unwrap();
-        let mut has_skill_md = std::collections::HashSet::new();
-        let mut all_top_dirs = std::collections::HashSet::new();
-        for i in 0..archive.len() {
-            let entry = archive.by_index_raw(i).unwrap();
-            let path = entry.name().to_string();
-            let parts: Vec<&str> = path.split('/').collect();
-            if parts.len() >= 2 && !parts[0].is_empty() {
-                all_top_dirs.insert(parts[0].to_string());
-                if parts[1] == "SKILL.md" && parts.len() == 2 {
-                    has_skill_md.insert(parts[0].to_string());
-                }
-            }
-        }
-
-        assert!(has_skill_md.contains("good-skill"));
-        assert!(!has_skill_md.contains("bad-dir"));
-        assert_eq!(all_top_dirs.len() - has_skill_md.len(), 1); // 1 skipped
     }
 
     // --- Reset tests ---

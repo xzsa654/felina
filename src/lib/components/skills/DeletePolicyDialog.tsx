@@ -3,6 +3,7 @@ import { useLocaleStore } from "$lib/stores/locale";
 import { t } from "$lib/i18n";
 import type { CanonicalDeletePolicy, SkillTarget } from "$lib/types";
 import Modal from "$lib/components/shared/Modal";
+import { isCascadeEligible } from "./sync-status-utils";
 
 interface Props {
   open: boolean;
@@ -23,7 +24,7 @@ export default function DeletePolicyDialog({
 }: Props) {
   const locale = useLocaleStore((s) => s.locale);
 
-  const cascadeTargets = targets.filter((target) => target.enabled && target.mode === "tracked");
+  const cascadeTargets = targets.filter(isCascadeEligible);
   const canCascade = cascadeTargets.length > 0;
   const preservedCount = targets.length - cascadeTargets.length;
   const targetSummary = cascadeTargets

@@ -138,6 +138,7 @@ pub fn run() {
             // Initial skill import.
             commands::skill_import::skill_import_scan_quick,
             commands::skill_import::skill_import_scan,
+            commands::skill_import::skill_import_scan_zip,
             commands::skill_import::skill_import_apply,
             commands::skill_import::project_local_skill_rename,
             commands::skill_import::project_local_skill_delete,
@@ -170,9 +171,9 @@ pub fn run() {
             commands::tokens::refresh_token_data,
             commands::tokens::prune_token_events,
             commands::tokens::delete_all_token_events,
-            // Skill Library (export/import/reset)
+            // Skill Library (export/reset). Direct ZIP import now flows through
+            // skill_import_scan_zip → staging dialog → skill_import_apply.
             commands::skill_library::skill_library_export,
-            commands::skill_library::skill_library_import,
             commands::skill_library::skill_library_reset,
         ])
         .run(tauri::generate_context!())

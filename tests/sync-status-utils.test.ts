@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { classifyTarget, targetKey, STATUS_CONFIG, STATUS_ORDER } from "../src/lib/components/skills/sync-status-utils.ts";
+import { classifyTarget, isCascadeEligible, targetKey, STATUS_CONFIG, STATUS_ORDER } from "../src/lib/components/skills/sync-status-utils.ts";
 import type { SkillTarget } from "../src/lib/types/index.ts";
 
 const globalTarget: SkillTarget = {
@@ -81,4 +81,28 @@ test("STATUS_CONFIG has entries for all statuses", () => {
     assert.ok(STATUS_CONFIG[status].icon);
     assert.ok(STATUS_CONFIG[status].chipClass);
   }
+});
+
+test("isCascadeEligible: enabled auto → true", () => {
+  assert.equal(isCascadeEligible({ agent: "claude", scope: "global", enabled: true, mode: "auto" }), true);
+});
+
+test("isCascadeEligible: enabled manual → true", () => {
+  assert.equal(isCascadeEligible({ agent: "claude", scope: "global", enabled: true, mode: "manual" }), true);
+});
+
+test("isCascadeEligible: enabled tracked (legacy) → true", () => {
+  assert.equal(isCascadeEligible({ agent: "claude", scope: "global", enabled: true, mode: "tracked" }), true);
+});
+
+test("isCascadeEligible: disabled auto → false", () => {
+  assert.equal(isCascadeEligible({ agent: "claude", scope: "global", enabled: false, mode: "auto" }), false);
+});
+
+test("isCascadeEligible: enabled detached → false", () => {
+  assert.equal(isCascadeEligible({ agent: "claude", scope: "global", enabled: true, mode: "detached" }), false);
+});
+
+test("isCascadeEligible: enabled forked → false", () => {
+  assert.equal(isCascadeEligible({ agent: "claude", scope: "global", enabled: true, mode: "forked" }), false);
 });
