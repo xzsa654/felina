@@ -23,6 +23,10 @@ export function isTargetDisabled(tgt: SkillTarget): boolean {
   return !tgt.enabled || tgt.mode === "detached";
 }
 
+export function isCascadeEligible(tgt: SkillTarget): boolean {
+  return tgt.enabled && (tgt.mode === "auto" || tgt.mode === "manual" || tgt.mode === "tracked");
+}
+
 export function classifyTarget(
   tgt: SkillTarget,
   entry: LastSyncEntry | undefined,

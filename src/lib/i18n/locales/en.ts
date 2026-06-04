@@ -451,10 +451,10 @@ const en = {
     deleteDialog: {
       title: "Delete canonical skill",
       message: "\"{name}\" will be removed from canonical storage. Existing agent-side copies (e.g. .claude/skills/, .agents/skills/) are NOT touched.",
-      policyMessage: "\"{name}\" has {count} enabled tracked target(s) eligible for Cascade delete.",
+      policyMessage: "\"{name}\" has {count} enabled managed target(s) eligible for Cascade delete.",
       preservedMessage: "{count} disabled, detached, or forked target(s) will be preserved.",
       cascade: "Cascade",
-      cascadeDisabled: "Cascade requires at least one enabled tracked target.",
+      cascadeDisabled: "Cascade requires at least one enabled managed target.",
       detach: "Detach",
       cancel: "Cancel",
       confirm: "Delete",

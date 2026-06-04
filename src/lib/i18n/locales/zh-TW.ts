@@ -453,10 +453,10 @@ const zhTW: TranslationDict = {
     deleteDialog: {
       title: "刪除 skill",
       message: "「{name}」將從主檔移除。各 agent 端已推送的副本（如 .claude/skills/、.agents/skills/）不受影響。",
-      policyMessage: "「{name}」目前有 {count} 個啟用且 tracked 的同步目標可連動刪除。",
+      policyMessage: "「{name}」目前有 {count} 個已啟用且受 Felina 管理的同步目標可連動刪除。",
       preservedMessage: "{count} 個 disabled、detached 或 forked target 會保留。",
       cascade: "連動刪除",
-      cascadeDisabled: "連動刪除需要至少 1 個啟用且 tracked 的 target。",
+      cascadeDisabled: "連動刪除需要至少 1 個已啟用且受 Felina 管理的 target。",
       detach: "只刪主檔",
       cancel: "取消",
       confirm: "刪除",
