@@ -287,6 +287,10 @@ const zhTW: TranslationDict = {
       addField: "新增欄位",
       tabContent: "內容",
       tabSettings: "欄位設定",
+      tabDirectory: "目錄",
+      directoryLoading: "目錄載入中…",
+      directoryError: "無法讀取目錄。",
+      directoryEmpty: "此 Skill 目錄沒有附屬檔案。",
 
       bodyLabel: "內容（Markdown）",
       bodyEdit: "編輯",

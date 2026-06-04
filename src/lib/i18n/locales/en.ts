@@ -285,6 +285,10 @@ const en = {
       addField: "Add field",
       tabContent: "Content",
       tabSettings: "Settings",
+      tabDirectory: "Directory",
+      directoryLoading: "Loading directory...",
+      directoryError: "Unable to read directory.",
+      directoryEmpty: "No additional files in this skill directory.",
 
       bodyLabel: "Body (Markdown)",
       bodyEdit: "Edit",

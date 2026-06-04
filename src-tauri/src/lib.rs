@@ -122,6 +122,7 @@ pub fn run() {
             commands::canonical_skills::skill_target_repoint,
             commands::canonical_skills::skill_target_read_content,
             commands::canonical_skills::canonical_skill_rename,
+            commands::canonical_skills::get_skill_directory_tree,
             // Fan-out push.
             commands::fan_out::skill_sync_one,
             commands::fan_out::skill_sync_all,
