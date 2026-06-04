@@ -164,6 +164,54 @@ Scope:
 
 ---
 
+### push-commit-noop-fastpath-and-parallel
+
+| Field | Value |
+|---|---|
+| type | planned-change |
+| status | planned |
+| flagged | 2026-06-03 |
+| last-seen | 2026-06-04 |
+| description | `skill_sync_commit` / `skill_sync_all_commit` 在 Push 路徑做了過多無意義工作:NoOp row 仍跑 git snapshot + 全目錄 sibling-hash;且 N 個 dirty skills 是 serial for loop。等待公式:單 skill push = 1×M targets、Push all = N×M,跨 skill 的 `try_snapshot` 無法共用,前端 await 整段 commit 跑完。 |
+
+Investigation (2026-06-04 discuss):
+- **檔案定位**:
+  - `src-tauri/src/commands/fan_out/mod.rs:615` `skill_sync_commit`(單 skill,inter-target serial)
+  - `src-tauri/src/commands/fan_out/mod.rs:730` `skill_sync_all_commit`(多 skill,inter-skill serial)
+  - `src-tauri/src/commands/fan_out/mod.rs:693` NoOp 分支(三件貴事)
+  - `src-tauri/src/commands/fan_out/mod.rs:30` `try_snapshot` → `snapshot.rs:31 commit_skill_changes`(每個 skill 一次 git commit)
+  - `src-tauri/src/commands/fan_out/mod.rs:127` `compute_sibling_hashes`(遞迴 walk target 目錄 SHA-256)
+- **NoOp `at` 欄位有實際 reader,不能 full short-circuit**:
+  - 後端 `check_drift`(`mod.rs:77`)mtime fast-path 用 `entry.at` 判斷 `mtime ≤ at`;若 NoOp 不更新 `at`,使用者打開過 SKILL.md(沒改內容)就會讓 drift scan 落到慢路徑(讀檔算 hash),跟優化方向相反
+  - 前端 `CoverageMatrix.tsx:42`、`TargetPopover.tsx:125`、`TargetChips.tsx:48`、`SyncInfoBar.tsx:39`、`types/skills.ts:53` 的 `lastSynced` 都顯示 `at`(UI「上次同步時間」)
+- **並行化只能做 inter-skill 層,不能做 inter-target**:同一 skill 的 `meta` 多 target 共用,inter-target 並行會 race;不同 skill 各自獨立 `canonical_skill_dir` + 獨立 `.felina-sync-meta.json`,可安全並行
+
+修改方向:
+- (a) NoOp fast-path:`item.rendered_hash`(或 `current_hash`)== `meta.last_sync[key].pushed_hash` 時,跳過 `try_snapshot` 與 `compute_sibling_hashes`(兩件貴事),但仍用 `entry.get_mut` 把 `at` 更新成 `attempted_at`(保留後端 mtime fast-path);`sibling_hashes` 與 `base_snapshot` 保留舊值
+- (b) Inter-skill 並行化:`skill_sync_all_commit:730` 的 `for entry in entries` 改 `tokio::spawn_blocking` + `try_join_all`;用 `tokio::sync::Semaphore` 限並行度 8(或 num_cpus);**前提需驗證**:`try_snapshot`/`commit_skill_changes` 用的是 per-skill repo 還是共用 `~/.felina/skills/.git` repo,若是共用 repo,git2 並行 commit 會 lock 競爭,須改 serial 化 snapshot 或改 strategy
+- (c) Inter-target 維持序列(同 skill 內 `for item in preview.items`),不動
+
+非本 change scope（獨立 follow-up 短打）:
+- 前端 `refreshDriftScan()` debounce — `SkillsPage.tsx`、`PendingPushBar.tsx`、`TargetEditor.tsx` 等 7+ 處 fire-and-forget,每個 trigger 語義不同(reload entries / view mode / target edit),不容易一刀切。後端加速後若仍有 IO 競爭再開短打
+
+Acceptance:
+- 單 skill push 對「全 target 都 NoOp」的情境:時間 < 100ms(或合理基準)
+- Push all 對 N=20 dirty skills:時間 < N=1 時的 8×(假設 Semaphore=8,理想線性加速)
+- `check_drift` mtime fast-path 在 NoOp push 後使用者沒碰檔的情境仍命中
+- 既有單元測試全綠;追加並行 race condition test(同 skill 不能被 inter-skill 並行誤推兩次)
+
+Open Questions（propose 階段需 resolve):
+- `try_snapshot` 共用 repo 還是 per-skill repo？決定並行化是否 work
+- NoOp 是否該 short-circuit `at` 更新?(語義:「Push 時間」vs「內容變動時間」— 已暫定保留更新以維持 mtime fast-path)
+- Semaphore 上限該硬編 8 還是讀 `num_cpus`?
+
+Notes:
+- 2026-06-03 由使用者「按 push 為何要等」追問挖出,寫進 OQ
+- 2026-06-04 走 `/spectra-discuss` 完整盤點 5 個 assumption + grep 打臉 NoOp 完全 short-circuit 假設後,投入到 backlog 暫存,等下次 session propose
+- 電量問題暫不 propose;進場時直接 `/spectra-propose push-commit-noop-fastpath-and-parallel`,本條目的 Investigation + 修改方向 + Open Questions 可直接搬進 design.md
+
+---
+
 ## Phase 3 — Skill Community
 
 ### skill-marketplace
@@ -232,7 +280,7 @@ Scope:
 | type | suggestion |
 | status | not-committed |
 | flagged | 2026-06-02 |
-| last-seen | 2026-06-02 |
+| last-seen | 2026-06-03 |
 | description | 將 Projects Page 從「被動檢視狀態」轉變為「主動管理中樞」。支援手動加入無 Agent 目錄的全新專案，並針對空狀態提供快速匯入 Global Skills 的引導流程 (Onboarding)。 |
 
 Scope:
@@ -240,3 +288,42 @@ Scope:
 - 當選取的專案不包含任何 Skill 時，右側 `ManagedInventory` 不再只顯示 "Empty Inventory"，而是呈現「Skill 推薦與注入介面」。
 - 空狀態推薦介面可列出常用的 Global Skills (可重複利用 `canonicalGlobalOnly` 等既有 UI 元件)，一鍵點擊「匯入」即可由 Felina 自動建立對應的 Agent Skills 資料夾並寫入檔案。
 - 將 Felina 的價值延伸，使其成為開發者建立新專案後，一鍵配置 AI 環境的第一站。
+
+### wsl-ubuntu-project-support
+
+| Field | Value |
+|---|---|
+| type | suggestion |
+| status | not-committed |
+| flagged | 2026-06-01 |
+| last-seen | 2026-06-03 |
+| description | Windows 端透過 `\\wsl$\Ubuntu\...` UNC 路徑存取 WSL 內的專案。需驗證 Tauri file system 跨 WSL boundary 的可行性、`normalizeProjectPath` 對 UNC 路徑的正規化、known_projects::normalize_path 後端對齊。 |
+
+Scope:
+- 跨 platform 路徑識別:WSL UNC 路徑（`\\wsl$\Ubuntu\home\user\proj`）的前端 `normalizeProjectPath` 處理。
+- 後端 `known_projects::normalize_path` 必須對應同步,避免兩端 identity 不一致。
+- 驗證 Tauri 2 `fs` plugin 是否能跨 WSL 邊界讀寫,或需要呼叫 PowerShell / wsl.exe 中介。
+- 評估是否要對 `.agents/skills/` 等 UNC 路徑做特殊 fan-out 處理。
+
+Notes:
+- 由 2026-06-01 OQ 移入。屬探索性 platform feature,需 viability spike 才能切 spectra change。
+- 主要驅動是 Windows 開發者用 WSL 跑專案的 workflow。
+
+### import-staging-folder-picker
+
+| Field | Value |
+|---|---|
+| type | suggestion |
+| status | not-committed |
+| flagged | 2026-06-01 |
+| last-seen | 2026-06-03 |
+| description | ImportStagingDialog 的 Browse Files 目前只收 ZIP（複用 skill_import_scan_zip）。較合理的 UX 是 folder picker,user 選任意目錄後後端當 agent skill 目錄掃描；需要新增後端 command（接受任意路徑 scan SKILL.md）。 |
+
+Scope:
+- 新增後端 command:接受任意 path,掃描 SKILL.md(類似 `skill_import_scan_zip` 但跳過解壓步驟,直接用既有 `collect_zip_candidates_in` 或 `collect_candidates_in` 邏輯)。
+- 前端 `handleBrowseFiles` 改用 Tauri open dialog 的 `directory: true`,UI 切換 ZIP vs Folder 兩種入口（或合併成「Browse」二選一）。
+- 安全:source_path 仍須走 Zip Slip 同等的 `..` segment 拒絕。
+
+Notes:
+- 由 2026-06-01 OQ 移入。`refactor-zip-import-staging` change 的 Non-Goals 明確不改後端匯入邏輯,所以另開 change。
+- Decision 3「ZIP 直送 Staging」的行為若延伸到 folder picker,需確認「使用者明確選擇 = 直送 Staging」對任意路徑也成立(可能要保留 Discovered 給 folder picker 的批次掃描)。

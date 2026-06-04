@@ -102,7 +102,7 @@ export default function SkillEditor({ skill, brokenRaw, onSaved, onCancel, onDel
   const splitEditorRef = useRef<HTMLTextAreaElement>(null);
   const splitPreviewRef = useRef<HTMLDivElement>(null);
   const syncingScroll = useRef(false);
-  const headerCollapsed = bodyMode !== "edit";
+  const metadataCollapsed = bodyMode !== "edit";
   const [containerWidth, setContainerWidth] = useState(0);
   const [renameOpen, setRenameOpen] = useState(false);
   const [popoverTargetIndex, setPopoverTargetIndex] = useState<number | null>(null);
@@ -375,8 +375,7 @@ export default function SkillEditor({ skill, brokenRaw, onSaved, onCancel, onDel
     <div className="flex flex-col h-full">
       {/* ------- Sticky: Document Header + Tab Bar ------- */}
       <div className="sticky top-0 z-10 bg-bg-primary px-4 pt-4">
-      {/* ------- Document Header (collapsible on scroll) ------- */}
-      <div className={`overflow-hidden transition-all duration-200 ${headerCollapsed ? "max-h-0 opacity-0" : "max-h-[500px] opacity-100"}`}>
+      {/* ------- Document Title + Actions (always visible) ------- */}
       <div className="flex items-center justify-between gap-4">
         <div className="flex-1 min-w-0">
           {isNew ? (
@@ -438,6 +437,9 @@ export default function SkillEditor({ skill, brokenRaw, onSaved, onCancel, onDel
           </button>
         </div>
       </div>
+
+      {/* ------- Document Metadata (collapsible in preview/split modes) ------- */}
+      <div className={`overflow-hidden transition-all duration-200 ${metadataCollapsed ? "max-h-0 opacity-0" : "max-h-[500px] opacity-100"}`}>
       <textarea
         ref={(el) => {
           if (el) {
