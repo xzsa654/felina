@@ -181,6 +181,8 @@ pub fn run() {
             commands::market_install::get_skill_directory_hash,
             commands::market_server::get_market_server_url,
             commands::market_server::set_market_server_url,
+            commands::market_publish::publish_canonical_skill,
+            commands::market_publish::delete_market_skill,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

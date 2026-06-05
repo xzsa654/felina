@@ -396,8 +396,12 @@ export const api = {
   },
 
   market: {
-    installSkill: (id: string) =>
-      invoke<string>("install_market_skill", { id }),
+    installSkill: (name: string) =>
+      invoke<string>("install_market_skill", { name }),
+    publishSkill: (name: string) =>
+      invoke<void>("publish_canonical_skill", { name }),
+    deleteSkill: (name: string) =>
+      invoke<void>("delete_market_skill", { name }),
     getSkillDirectoryHash: (name: string) =>
       invoke<string | null>("get_skill_directory_hash", { name }),
     getServerUrl: () => invoke<string>("get_market_server_url"),

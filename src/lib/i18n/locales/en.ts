@@ -15,6 +15,7 @@ const en = {
     weeksAgo: "{n}w ago",
     monthsAgo: "{n}mo ago",
     cancel: "Cancel",
+    close: "Close",
   },
   tokens: {
     title: "Tokens",
@@ -786,6 +787,18 @@ const en = {
     installFailed: "Install failed: {detail}",
     installed: "Installed",
     upToDate: "Up to date",
+    refresh: "Refresh",
+    publish: {
+      button: "Publish Skill",
+      title: "Publish Skill",
+      loading: "Loading Skills…",
+      loadFailed: "Failed to load Skills: {detail}",
+      empty: "No canonical Skills.",
+      confirm: "Publish",
+      publishing: "Publishing…",
+      success: "Published {name}",
+      failure: "Publish failed: {detail}",
+    },
   },
 };
 
