@@ -21,6 +21,7 @@ import type {
   SkillTarget,
   RenameResult,
   SkillFieldDefinition,
+  SkillFileNode,
   AgentId,
   SkillScope,
   CanonicalDeletePolicy,
@@ -116,6 +117,8 @@ export const api = {
       invoke<CanonicalSkillDeleteResult>("canonical_skills_delete_with_policy", { name, policy }),
     rename: (oldName: string, newName: string) =>
       invoke<RenameResult>("canonical_skill_rename", { oldName, newName }),
+    getDirectoryTree: (canonicalId: string) =>
+      invoke<SkillFileNode[]>("get_skill_directory_tree", { canonicalId }),
   },
 
   // Fan-out sync (canonical → agent-native dirs). Push destinations come
@@ -390,6 +393,20 @@ export const api = {
     export: (outputPath: string) =>
       invoke<void>("skill_library_export", { outputPath }),
     reset: () => invoke<SkillLibraryResetResult>("skill_library_reset"),
+  },
+
+  market: {
+    installSkill: (name: string) =>
+      invoke<string>("install_market_skill", { name }),
+    publishSkill: (name: string) =>
+      invoke<void>("publish_canonical_skill", { name }),
+    deleteSkill: (name: string) =>
+      invoke<void>("delete_market_skill", { name }),
+    getSkillDirectoryHash: (name: string) =>
+      invoke<string | null>("get_skill_directory_hash", { name }),
+    getServerUrl: () => invoke<string>("get_market_server_url"),
+    setServerUrl: (url: string) =>
+      invoke<void>("set_market_server_url", { url }),
   },
 } as const;
 

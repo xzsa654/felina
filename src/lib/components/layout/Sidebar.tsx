@@ -37,6 +37,7 @@ import {
   History,
   ChevronsLeft,
   ChevronsRight,
+  Store,
 } from "lucide-react";
 import logoUrl from "$lib/assets/logo.png";
 
@@ -46,6 +47,7 @@ const ICON_MAP: Record<string, React.ComponentType<{ size?: number; className?: 
   tokens: Coins,
   brain: Brain,
   history: History,
+  hub: Store,
 };
 
 function SortableSidebarItem({ item, collapsed, didDrag }: { item: NavItem; collapsed: boolean; didDrag: React.MutableRefObject<boolean> }) {

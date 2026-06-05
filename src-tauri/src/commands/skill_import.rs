@@ -2,6 +2,14 @@
 //! them into canonical. Detection is intentionally cheap (count
 //! subdirs, no content reads); the wizard step (`skill_import_scan`)
 //! does the deeper read with conflict diff.
+//!
+//! Divergence from `skill_package::import_entries` (hub-install-import-parity-and-preview
+//! audit): this module does not decode tar/zip archives. It walks
+//! filesystem-resident agent-native skill directories and reclassifies
+//! fields between Claude / Codex / Gemini schemas. The shared package
+//! helper covers archive-format-agnostic validation + write, which is not
+//! the contract this importer needs. No call site here is migrated to
+//! `import_entries` because none of them ingest a packaged archive.
 
 use crate::commands::agent_paths::{agent_paths_get, AgentPathPair};
 use crate::commands::canonical_skills::{

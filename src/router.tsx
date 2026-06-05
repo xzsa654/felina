@@ -14,6 +14,7 @@ const FelinaSettingsPage = lazy(() => import("$lib/components/settings/FelinaSet
 const TokensPage = lazy(() => import("$lib/components/tokens/TokensPage"));
 const MemoryPage = lazy(() => import("$lib/components/memory/MemoryPage"));
 const HistoryPage = lazy(() => import("$lib/components/history/HistoryPage"));
+const HubPage = lazy(() => import("$lib/components/hub/HubPage"));
 
 function LazyPage({ Component }: { Component: React.ComponentType }) {
   return (
@@ -69,6 +70,7 @@ const routes = [
       { path: "tokens", element: <LazyPage Component={TokensPage} /> },
       { path: "memory", element: <LazyPage Component={MemoryPage} /> },
       { path: "history", element: <LazyPage Component={HistoryPage} /> },
+      { path: "hub", element: <LazyPage Component={HubPage} /> },
     ],
   },
 ];

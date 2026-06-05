@@ -122,6 +122,7 @@ pub fn run() {
             commands::canonical_skills::skill_target_repoint,
             commands::canonical_skills::skill_target_read_content,
             commands::canonical_skills::canonical_skill_rename,
+            commands::canonical_skills::get_skill_directory_tree,
             // Fan-out push.
             commands::fan_out::skill_sync_one,
             commands::fan_out::skill_sync_all,
@@ -175,6 +176,13 @@ pub fn run() {
             // skill_import_scan_zip → staging dialog → skill_import_apply.
             commands::skill_library::skill_library_export,
             commands::skill_library::skill_library_reset,
+            // Market (prototype)
+            commands::market_install::install_market_skill,
+            commands::market_install::get_skill_directory_hash,
+            commands::market_server::get_market_server_url,
+            commands::market_server::set_market_server_url,
+            commands::market_publish::publish_canonical_skill,
+            commands::market_publish::delete_market_skill,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

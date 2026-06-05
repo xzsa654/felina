@@ -394,6 +394,8 @@ pub struct SyncMetaV2 {
     pub last_sync: BTreeMap<String, LastSyncEntry>,
     #[serde(default)]
     pub dirty: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub directory_hash: Option<String>,
 }
 
 impl Default for SyncMetaV2 {
@@ -403,6 +405,7 @@ impl Default for SyncMetaV2 {
             targets: Vec::new(),
             last_sync: BTreeMap::new(),
             dirty: false,
+            directory_hash: None,
         }
     }
 }
@@ -454,6 +457,7 @@ fn backfill_from_skill(skill: &CanonicalSkill, dirty: bool) -> SyncMetaV2 {
         targets,
         last_sync: BTreeMap::new(),
         dirty,
+        directory_hash: None,
     }
 }
 
@@ -1308,6 +1312,75 @@ fn delete_skill_dir_result(path: PathBuf) -> DeletePathResult {
     }
 }
 
+/// Read-only directory tree node for the SkillEditor "directory" tab.
+/// Wire shape (camelCase): `{ name, isDir, sizeBytes, children }`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillFileNode {
+    pub name: String,
+    pub is_dir: bool,
+    pub size_bytes: Option<u64>,
+    pub children: Option<Vec<SkillFileNode>>,
+}
+
+/// Files that must never appear in the directory view. `SKILL.md` is the
+/// primary file already shown in the editor; `.felina-sync-meta.json` is the
+/// per-skill sidecar that callers should not edit by hand.
+const SKILL_DIRECTORY_EXCLUDES: &[&str] = &["SKILL.md", SYNC_META_FILENAME];
+
+fn scan_skill_directory(dir: &Path) -> Result<Vec<SkillFileNode>, String> {
+    let read = fs::read_dir(dir).map_err(|e| format!("failed to read directory: {e}"))?;
+    let mut nodes: Vec<SkillFileNode> = Vec::new();
+    for entry in read {
+        let entry = entry.map_err(|e| format!("failed to read directory entry: {e}"))?;
+        let name = entry.file_name().to_string_lossy().to_string();
+        if SKILL_DIRECTORY_EXCLUDES.iter().any(|x| *x == name) {
+            continue;
+        }
+        let file_type = entry
+            .file_type()
+            .map_err(|e| format!("failed to stat {name}: {e}"))?;
+        if file_type.is_dir() {
+            let children = scan_skill_directory(&entry.path())?;
+            nodes.push(SkillFileNode {
+                name,
+                is_dir: true,
+                size_bytes: None,
+                children: Some(children),
+            });
+        } else if file_type.is_file() {
+            let size_bytes = entry.metadata().ok().map(|m| m.len());
+            nodes.push(SkillFileNode {
+                name,
+                is_dir: false,
+                size_bytes,
+                children: None,
+            });
+        }
+        // Symlinks and other types are intentionally skipped.
+    }
+    // Stable ordering: directories first, then files, each alphabetical.
+    nodes.sort_by(|a, b| match (a.is_dir, b.is_dir) {
+        (true, false) => std::cmp::Ordering::Less,
+        (false, true) => std::cmp::Ordering::Greater,
+        _ => a.name.cmp(&b.name),
+    });
+    Ok(nodes)
+}
+
+/// Return the canonical skill's directory tree, excluding `SKILL.md` and
+/// `.felina-sync-meta.json`. Errors when the skill name is invalid or the
+/// directory does not exist / cannot be read.
+#[tauri::command]
+pub fn get_skill_directory_tree(canonical_id: String) -> Result<Vec<SkillFileNode>, String> {
+    validate_skill_name(&canonical_id)?;
+    let skill_dir = canonical_skills_dir().join(&canonical_id);
+    if !skill_dir.is_dir() {
+        return Err(format!("skill directory not found: {canonical_id}"));
+    }
+    scan_skill_directory(&skill_dir)
+}
+
 fn type_label(v: &serde_yaml::Value) -> &'static str {
     match v {
         serde_yaml::Value::Null => "null",
@@ -1911,6 +1984,7 @@ Hello.\n";
             ],
             last_sync,
             dirty: false,
+            directory_hash: None,
         };
 
         write_sync_meta_v2(&skill_dir, &original).expect("write v2");
@@ -2012,6 +2086,7 @@ Hello.\n";
                 }],
                 last_sync,
                 dirty: false,
+                directory_hash: None,
             },
         )
         .unwrap();
@@ -2084,6 +2159,7 @@ Hello.\n";
                 }],
                 last_sync,
                 dirty: false,
+                directory_hash: None,
             },
         )
         .unwrap();
@@ -2135,6 +2211,7 @@ Hello.\n";
                 targets: vec![],
                 last_sync: BTreeMap::new(),
                 dirty: false,
+                directory_hash: None,
             },
         )
         .unwrap();
@@ -2233,6 +2310,7 @@ Hello.\n";
                 targets: vec![t_anth.clone(), t_codex.clone()],
                 last_sync: ls,
                 dirty: false,
+                directory_hash: None,
             },
         )
         .unwrap();
@@ -2448,6 +2526,7 @@ Hello.\n";
                 targets: vec![target.clone()],
                 last_sync: BTreeMap::new(),
                 dirty: false,
+                directory_hash: None,
             },
         )
         .unwrap();
@@ -2497,6 +2576,7 @@ Hello.\n";
                 targets: vec![target.clone()],
                 last_sync: BTreeMap::new(),
                 dirty: false,
+                directory_hash: None,
             },
         )
         .unwrap();
@@ -3316,5 +3396,39 @@ Hello.\n";
     fn target_mode_manual_serializes_as_manual() {
         let json = serde_json::to_string(&TargetMode::Manual).unwrap();
         assert_eq!(json, r#""manual""#);
+    }
+
+    #[test]
+    fn directory_tree_excludes_skill_md_and_sync_meta() {
+        let tmp = tempdir();
+        let _g = override_felina_home(&tmp);
+        let skills_root = tmp.join(".felina").join("skills");
+        let skill_dir = skills_root.join("alpha");
+        fs::create_dir_all(skill_dir.join("scripts")).unwrap();
+        fs::write(skill_dir.join("SKILL.md"), "x").unwrap();
+        fs::write(skill_dir.join(".felina-sync-meta.json"), "{}").unwrap();
+        fs::write(skill_dir.join("README.md"), "hi").unwrap();
+        fs::write(skill_dir.join("scripts").join("deploy.sh"), "#!/bin/sh\n").unwrap();
+
+        let tree = get_skill_directory_tree("alpha".to_string()).unwrap();
+        // dirs first, then files alphabetical
+        assert_eq!(tree.len(), 2);
+        assert_eq!(tree[0].name, "scripts");
+        assert!(tree[0].is_dir);
+        assert_eq!(tree[1].name, "README.md");
+        assert!(!tree[1].is_dir);
+        assert_eq!(tree[1].size_bytes, Some(2));
+        let kids = tree[0].children.as_ref().unwrap();
+        assert_eq!(kids.len(), 1);
+        assert_eq!(kids[0].name, "deploy.sh");
+        assert!(!kids[0].is_dir);
+    }
+
+    #[test]
+    fn directory_tree_errors_when_missing() {
+        let tmp = tempdir();
+        let _g = override_felina_home(&tmp);
+        let err = get_skill_directory_tree("ghost".to_string()).unwrap_err();
+        assert!(err.contains("not found"), "got: {err}");
     }
 }
