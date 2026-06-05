@@ -394,6 +394,13 @@ export const api = {
       invoke<void>("skill_library_export", { outputPath }),
     reset: () => invoke<SkillLibraryResetResult>("skill_library_reset"),
   },
+
+  market: {
+    installSkill: (id: string) =>
+      invoke<string>("install_market_skill", { id }),
+    getSkillDirectoryHash: (name: string) =>
+      invoke<string | null>("get_skill_directory_hash", { name }),
+  },
 } as const;
 
 export interface SkillLibraryResetResult {

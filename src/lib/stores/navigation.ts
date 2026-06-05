@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
-export type Page = "skills" | "projects" | "tokens" | "memory" | "history";
+export type Page = "skills" | "projects" | "tokens" | "memory" | "history" | "hub";
 
 export interface NavItem {
   id: Page;
@@ -15,6 +15,7 @@ export const NAV_ITEMS: NavItem[] = [
   { id: "tokens", label: "Tokens", icon: "tokens" },
   { id: "memory", label: "Memory", icon: "brain" },
   { id: "history", label: "History", icon: "history" },
+  { id: "hub", label: "Hub", icon: "hub" },
 ];
 
 export function getMergedNavItems(customOrder: string[] | null): NavItem[] {

@@ -761,6 +761,20 @@ const en = {
       resetCancel: "Reset cancelled.",
     },
   },
+
+  hub: {
+    title: "Hub",
+    subtitle: "Browse and install skills from the local market",
+    loading: "Loading skills…",
+    empty: "No skills available.",
+    connectionError: "Failed to connect to market server: {detail}",
+    install: "Install",
+    installing: "Installing…",
+    installSuccess: "Installed {name}",
+    installFailed: "Install failed: {detail}",
+    installed: "Installed",
+    upToDate: "Up to date",
+  },
 };
 
 export default en;

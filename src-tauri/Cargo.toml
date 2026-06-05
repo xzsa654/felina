@@ -38,6 +38,8 @@ sha2 = "0.10"
 similar = "2"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 reqwest = { version = "0.12", features = ["blocking", "json", "native-tls"], default-features = false }
+flate2 = "1"
+tar = "0.4"
 
 [dev-dependencies]
 tempfile = "3"

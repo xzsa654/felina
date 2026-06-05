@@ -394,6 +394,8 @@ pub struct SyncMetaV2 {
     pub last_sync: BTreeMap<String, LastSyncEntry>,
     #[serde(default)]
     pub dirty: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub directory_hash: Option<String>,
 }
 
 impl Default for SyncMetaV2 {
@@ -403,6 +405,7 @@ impl Default for SyncMetaV2 {
             targets: Vec::new(),
             last_sync: BTreeMap::new(),
             dirty: false,
+            directory_hash: None,
         }
     }
 }
@@ -454,6 +457,7 @@ fn backfill_from_skill(skill: &CanonicalSkill, dirty: bool) -> SyncMetaV2 {
         targets,
         last_sync: BTreeMap::new(),
         dirty,
+        directory_hash: None,
     }
 }
 
@@ -1980,6 +1984,7 @@ Hello.\n";
             ],
             last_sync,
             dirty: false,
+            directory_hash: None,
         };
 
         write_sync_meta_v2(&skill_dir, &original).expect("write v2");
@@ -2081,6 +2086,7 @@ Hello.\n";
                 }],
                 last_sync,
                 dirty: false,
+                directory_hash: None,
             },
         )
         .unwrap();
@@ -2153,6 +2159,7 @@ Hello.\n";
                 }],
                 last_sync,
                 dirty: false,
+                directory_hash: None,
             },
         )
         .unwrap();
@@ -2204,6 +2211,7 @@ Hello.\n";
                 targets: vec![],
                 last_sync: BTreeMap::new(),
                 dirty: false,
+                directory_hash: None,
             },
         )
         .unwrap();
@@ -2302,6 +2310,7 @@ Hello.\n";
                 targets: vec![t_anth.clone(), t_codex.clone()],
                 last_sync: ls,
                 dirty: false,
+                directory_hash: None,
             },
         )
         .unwrap();
@@ -2517,6 +2526,7 @@ Hello.\n";
                 targets: vec![target.clone()],
                 last_sync: BTreeMap::new(),
                 dirty: false,
+                directory_hash: None,
             },
         )
         .unwrap();
@@ -2566,6 +2576,7 @@ Hello.\n";
                 targets: vec![target.clone()],
                 last_sync: BTreeMap::new(),
                 dirty: false,
+                directory_hash: None,
             },
         )
         .unwrap();
