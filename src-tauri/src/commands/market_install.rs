@@ -1,27 +1,36 @@
 use crate::paths;
 use flate2::read::GzDecoder;
+use percent_encoding::{percent_encode, AsciiSet, CONTROLS};
 use std::io::Read;
 use tar::Archive;
 
-fn validate_skill_id(id: &str) -> Result<(), String> {
-    if id.is_empty() {
-        return Err("skill id must not be empty".into());
-    }
-    if !id
-        .chars()
-        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.')
-    {
-        return Err("invalid skill id: only alphanumeric, hyphens, underscores, and dots allowed".into());
-    }
-    Ok(())
+const PATH_SEGMENT_ENCODE_SET: &AsciiSet = &CONTROLS
+    .add(b' ')
+    .add(b'"')
+    .add(b'#')
+    .add(b'%')
+    .add(b'/')
+    .add(b'<')
+    .add(b'>')
+    .add(b'?')
+    .add(b'`')
+    .add(b'{')
+    .add(b'}');
+
+fn encoded_skill_name(name: &str) -> String {
+    percent_encode(name.as_bytes(), PATH_SEGMENT_ENCODE_SET).to_string()
 }
 
 #[tauri::command]
-pub async fn install_market_skill(id: String) -> Result<String, String> {
-    validate_skill_id(&id)?;
+pub async fn install_market_skill(name: String) -> Result<String, String> {
+    super::skill_name::validate_skill_name(&name)?;
 
     let base = super::market_server::get_market_server_url()?;
-    let url = format!("{}/api/skills/{}/download", base, id);
+    let url = format!(
+        "{}/api/skills/{}/download",
+        base.trim_end_matches('/'),
+        encoded_skill_name(&name)
+    );
 
     let response = reqwest::get(&url)
         .await
@@ -113,37 +122,11 @@ pub async fn install_market_skill(id: String) -> Result<String, String> {
         }
     }
 
-    if !skill_name.is_empty() {
-        let skill_dir = skills_dir.join(&skill_name);
-        if let Some(hash) = super::fan_out::directory_hash(&skill_dir) {
-            write_directory_hash(&skill_dir, &hash)?;
-        }
-    }
-
     Ok(skill_name)
 }
 
 #[tauri::command]
 pub fn get_skill_directory_hash(name: String) -> Option<String> {
     let skill_dir = paths::felina_global_skills_dir().join(&name);
-    let meta_path = skill_dir.join(".felina-sync-meta.json");
-    let raw = std::fs::read_to_string(&meta_path).ok()?;
-    let val: serde_json::Value = serde_json::from_str(&raw).ok()?;
-    val.get("directoryHash")?.as_str().map(String::from)
-}
-
-fn write_directory_hash(skill_dir: &std::path::Path, hash: &str) -> Result<(), String> {
-    let meta_path = skill_dir.join(".felina-sync-meta.json");
-    let mut meta: serde_json::Value = std::fs::read_to_string(&meta_path)
-        .ok()
-        .and_then(|s| serde_json::from_str(&s).ok())
-        .unwrap_or_else(|| serde_json::json!({"version": 2}));
-    if let Some(obj) = meta.as_object_mut() {
-        obj.insert(
-            "directoryHash".into(),
-            serde_json::Value::String(hash.into()),
-        );
-    }
-    std::fs::write(&meta_path, serde_json::to_string_pretty(&meta).unwrap())
-        .map_err(|e| format!("failed to write sync-meta: {e}"))
+    super::fan_out::directory_hash(&skill_dir)
 }

@@ -17,6 +17,7 @@ const zhTW: TranslationDict = {
     weeksAgo: "{n} 週前",
     monthsAgo: "{n} 個月前",
     cancel: "取消",
+    close: "關閉",
   },
   tokens: {
     title: "Tokens",
@@ -788,6 +789,18 @@ const zhTW: TranslationDict = {
     installFailed: "安裝失敗：{detail}",
     installed: "已安裝",
     upToDate: "已是最新",
+    refresh: "重新整理",
+    publish: {
+      button: "發布 Skill",
+      title: "發布 Skill",
+      loading: "載入 Skills 中…",
+      loadFailed: "無法載入 Skills：{detail}",
+      empty: "尚無主檔 Skill。",
+      confirm: "發布",
+      publishing: "發布中…",
+      success: "已發布 {name}",
+      failure: "發布失敗：{detail}",
+    },
   },
 };
 
