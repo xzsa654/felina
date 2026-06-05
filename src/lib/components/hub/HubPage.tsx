@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { api } from "$lib/tauri/commands";
 import {
   PageHeader,
@@ -11,14 +11,23 @@ import {
   glassListSurfaceClass,
 } from "$lib/components/shared/PageScaffold";
 import Modal from "$lib/components/shared/Modal";
-import { Store, Download, CheckCircle, AlertCircle, UploadCloud, RefreshCw } from "lucide-react";
+import { Store, UploadCloud, RefreshCw, Loader2, CheckCircle, Download, ArrowLeft } from "lucide-react";
 import { t } from "$lib/i18n";
 import { useLocaleStore } from "$lib/stores/locale";
 import type { SkillListEntry } from "$lib/types";
+import MarketSkillList from "./MarketSkillList";
+import MarketSkillPreview from "./MarketSkillPreview";
+
+function stripFrontmatter(markdown: string): string {
+  const normalized = markdown.replace(/^﻿/, "");
+  const match = normalized.match(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/);
+  return match ? normalized.slice(match[0].length) : normalized;
+}
 
 interface MarketSkill {
   name: string;
   version: string | null;
+  description?: string | null;
   contentHash?: string;
 }
 
@@ -26,10 +35,17 @@ export default function HubPage() {
   const locale = useLocaleStore((s) => s.locale);
   const [skills, setSkills] = useState<MarketSkill[]>([]);
   const [loading, setLoading] = useState(true);
+  const [reloading, setReloading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [installing, setInstalling] = useState<string | null>(null);
-  const [installStatus, setInstallStatus] = useState<Record<string, { ok: boolean; msg: string }>>({});
+  const [installStatus, setInstallStatus] = useState<
+    Record<string, { ok: boolean; msg: string }>
+  >({});
   const [upToDateNames, setUpToDateNames] = useState<Set<string>>(new Set());
+  const [selectedName, setSelectedName] = useState<string | null>(null);
+  const [markdownCache, setMarkdownCache] = useState<Record<string, string>>({});
+  const [markdownLoading, setMarkdownLoading] = useState(false);
+  const [markdownError, setMarkdownError] = useState<string | null>(null);
   const [publishOpen, setPublishOpen] = useState(false);
   const [publishLoading, setPublishLoading] = useState(false);
   const [publishEntries, setPublishEntries] = useState<SkillListEntry[]>([]);
@@ -38,23 +54,12 @@ export default function HubPage() {
   const [publishError, setPublishError] = useState<string | null>(null);
   const [publishStatus, setPublishStatus] = useState<string | null>(null);
 
-  const fetchSkills = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const apiBase = await api.market.getServerUrl();
-      const [res, localEntries] = await Promise.all([
-        fetch(`${apiBase}/api/skills`),
-        api.canonicalSkills.list(),
-      ]);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const marketSkills: MarketSkill[] = await res.json();
-      setSkills(marketSkills);
-
+  const recomputeUpToDate = useCallback(
+    async (marketSkills: MarketSkill[]) => {
+      const localEntries = await api.canonicalSkills.list();
       const localNames = new Set(
         localEntries.map((e) => (e.kind === "ok" ? e.skill.name : e.name)),
       );
-
       const matched = new Set<string>();
       await Promise.all(
         marketSkills.map(async (ms) => {
@@ -65,20 +70,45 @@ export default function HubPage() {
           }
         }),
       );
-      setUpToDateNames(matched);
-    } catch (e) {
-      setError(
-        t(locale, "hub.connectionError", {
-          detail: e instanceof Error ? e.message : String(e),
-        }),
-      );
-    } finally {
-      setLoading(false);
-    }
-  }, [locale]);
+      return matched;
+    },
+    [],
+  );
+
+  const fetchSkills = useCallback(
+    async (mode: "initial" | "reload" = "initial") => {
+      if (mode === "reload") setReloading(true);
+      else setLoading(true);
+      setError(null);
+      try {
+        const apiBase = await api.market.getServerUrl();
+        const res = await fetch(`${apiBase}/api/skills`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const marketSkills: MarketSkill[] = await res.json();
+        setSkills(marketSkills);
+        const matched = await recomputeUpToDate(marketSkills);
+        setUpToDateNames(matched);
+      } catch (e) {
+        setError(
+          t(locale, "hub.connectionError", {
+            detail: e instanceof Error ? e.message : String(e),
+          }),
+        );
+      } finally {
+        if (mode === "reload") {
+          // Residual delay matches SkillsPage.handleReload — gives the spinner
+          // a perceptible spin even when the fetch returns instantly.
+          setTimeout(() => setReloading(false), 250);
+        } else {
+          setLoading(false);
+        }
+      }
+    },
+    [locale, recomputeUpToDate],
+  );
 
   useEffect(() => {
-    fetchSkills();
+    void fetchSkills("initial");
   }, [fetchSkills]);
 
   const loadPublishEntries = useCallback(async () => {
@@ -110,6 +140,56 @@ export default function HubPage() {
     }
   }, [loadPublishEntries, publishOpen]);
 
+  // Drop selection if the selected skill disappears from the market list
+  // (e.g. server-side delete observed during refresh).
+  useEffect(() => {
+    if (selectedName && !skills.some((s) => s.name === selectedName)) {
+      setSelectedName(null);
+    }
+  }, [selectedName, skills]);
+
+  // Fetch SKILL.md markdown for the selected skill, cached by name.
+  useEffect(() => {
+    if (!selectedName) {
+      setMarkdownError(null);
+      return;
+    }
+    if (markdownCache[selectedName] !== undefined) {
+      setMarkdownError(null);
+      return;
+    }
+    let cancelled = false;
+    setMarkdownLoading(true);
+    setMarkdownError(null);
+    (async () => {
+      try {
+        const apiBase = await api.market.getServerUrl();
+        const res = await fetch(
+          `${apiBase}/api/skills/${encodeURIComponent(selectedName)}/skill-md`,
+        );
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const text = await res.text();
+        const body = stripFrontmatter(text);
+        if (!cancelled) {
+          setMarkdownCache((prev) => ({ ...prev, [selectedName]: body }));
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setMarkdownError(
+            t(locale, "hub.connectionError", {
+              detail: e instanceof Error ? e.message : String(e),
+            }),
+          );
+        }
+      } finally {
+        if (!cancelled) setMarkdownLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedName, markdownCache, locale]);
+
   async function handleInstall(skill: MarketSkill) {
     setInstalling(skill.name);
     setInstallStatus((prev) => {
@@ -119,11 +199,36 @@ export default function HubPage() {
     });
     try {
       const name = await api.market.installSkill(skill.name);
-      setUpToDateNames((prev) => new Set(prev).add(skill.name));
-      setInstallStatus((prev) => ({
-        ...prev,
-        [skill.name]: { ok: true, msg: t(locale, "hub.installSuccess", { name }) },
-      }));
+      // Per design "Installed state is derived, never cached": do NOT
+      // optimistically mark up-to-date. Recompute the local directory hash
+      // and only flip to up-to-date if it matches the market contentHash.
+      const localHash = await api.market.getSkillDirectoryHash(skill.name);
+      const hashesMatch =
+        !!skill.contentHash && !!localHash && localHash === skill.contentHash;
+      if (hashesMatch) {
+        setUpToDateNames((prev) => new Set(prev).add(skill.name));
+        setInstallStatus((prev) => ({
+          ...prev,
+          [skill.name]: { ok: true, msg: t(locale, "hub.installSuccess", { name }) },
+        }));
+      } else {
+        // Install succeeded but the recomputed hash disagrees with the
+        // server's contentHash. Surface this rather than silently lying.
+        setUpToDateNames((prev) => {
+          const next = new Set(prev);
+          next.delete(skill.name);
+          return next;
+        });
+        setInstallStatus((prev) => ({
+          ...prev,
+          [skill.name]: {
+            ok: false,
+            msg: t(locale, "hub.installFailed", {
+              detail: "hash mismatch after install",
+            }),
+          },
+        }));
+      }
     } catch (e) {
       setInstallStatus((prev) => ({
         ...prev,
@@ -148,7 +253,7 @@ export default function HubPage() {
       await api.market.publishSkill(publishName);
       setPublishStatus(t(locale, "hub.publish.success", { name: publishName }));
       setPublishOpen(false);
-      await fetchSkills();
+      await fetchSkills("reload");
     } catch (e) {
       setPublishError(
         t(locale, "hub.publish.failure", {
@@ -159,6 +264,21 @@ export default function HubPage() {
       setPublishing(false);
     }
   }
+
+  const selectedSkill = useMemo(
+    () => skills.find((s) => s.name === selectedName) ?? null,
+    [skills, selectedName],
+  );
+
+  const listEntries = useMemo(
+    () =>
+      skills.map((s) => ({
+        name: s.name,
+        version: s.version,
+        upToDate: upToDateNames.has(s.name),
+      })),
+    [skills, upToDateNames],
+  );
 
   const publishDialog = (
     <Modal
@@ -223,6 +343,8 @@ export default function HubPage() {
     </Modal>
   );
 
+  const inSplitView = selectedSkill !== null;
+
   return (
     <>
       <PageHeader
@@ -233,10 +355,14 @@ export default function HubPage() {
           <>
             <ActionButton
               variant="secondary"
-              onClick={() => void fetchSkills()}
-              disabled={loading}
+              onClick={() => void fetchSkills("reload")}
+              disabled={reloading || loading}
             >
-              <RefreshCw size={15} />
+              {reloading ? (
+                <Loader2 size={15} className="animate-spin" />
+              ) : (
+                <RefreshCw size={15} />
+              )}
               {t(locale, "hub.refresh")}
             </ActionButton>
             <ActionButton
@@ -267,16 +393,17 @@ export default function HubPage() {
           <p className="text-sm text-text-muted">{t(locale, "hub.empty")}</p>
         )}
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {skills.map((skill) => {
-            const status = installStatus[skill.name];
-            const isUpToDate = upToDateNames.has(skill.name);
-            return (
-              <div
-                key={skill.name}
-                className="bg-bg-secondary/40 backdrop-blur-md border border-white/5 shadow-sm rounded-xl p-5 flex flex-col gap-3"
-              >
-                <div className="flex items-start justify-between gap-2">
+        {!loading && !error && skills.length > 0 && !inSplitView && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 transition-opacity duration-200">
+            {skills.map((skill) => {
+              const isUpToDate = upToDateNames.has(skill.name);
+              return (
+                <button
+                  key={skill.name}
+                  type="button"
+                  onClick={() => setSelectedName(skill.name)}
+                  className="text-left bg-bg-secondary/40 backdrop-blur-md border border-white/5 shadow-sm rounded-xl p-5 flex flex-col gap-3 transition-colors hover:bg-bg-hover/40"
+                >
                   <div className="min-w-0">
                     <h3 className="text-sm font-semibold text-text-primary truncate">
                       {skill.name}
@@ -287,39 +414,68 @@ export default function HubPage() {
                       </p>
                     )}
                   </div>
-                </div>
-                <div className="flex items-center justify-between gap-2">
-                  {isUpToDate ? (
-                    <span className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-success">
-                      <CheckCircle size={13} />
-                      {t(locale, "hub.upToDate")}
-                    </span>
-                  ) : (
-                    <button
-                      type="button"
-                      disabled={installing === skill.name}
-                      onClick={() => handleInstall(skill)}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent hover:bg-accent-hover text-white text-xs font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      <Download size={13} />
-                      {installing === skill.name
-                        ? t(locale, "hub.installing")
-                        : t(locale, "hub.install")}
-                    </button>
+                  {skill.description && (
+                    <p className="text-xs text-text-muted line-clamp-3">
+                      {skill.description}
+                    </p>
                   )}
-                  {status && (
-                    <span
-                      className={`inline-flex items-center gap-1 text-xs ${status.ok ? "text-success" : "text-danger"}`}
-                    >
-                      {status.ok ? <CheckCircle size={12} /> : <AlertCircle size={12} />}
-                      {status.msg}
-                    </span>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
+                  <div className="mt-auto">
+                    {isUpToDate ? (
+                      <span className="inline-flex items-center gap-1.5 text-xs font-medium text-success">
+                        <CheckCircle size={13} />
+                        {t(locale, "hub.upToDate")}
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1.5 text-xs text-text-muted">
+                        <Download size={13} />
+                        {t(locale, "hub.install")}
+                      </span>
+                    )}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        {!loading && !error && skills.length > 0 && inSplitView && selectedSkill && (
+          <div className="grid grid-cols-1 md:grid-cols-[minmax(0,18rem)_1fr] gap-4 transition-opacity duration-200">
+            <div className="flex flex-col gap-2">
+              <button
+                type="button"
+                onClick={() => setSelectedName(null)}
+                className="inline-flex items-center gap-1.5 self-start text-xs text-text-secondary hover:text-text-primary transition-colors px-2 py-1 rounded-md hover:bg-bg-hover"
+              >
+                <ArrowLeft size={13} />
+                {t(locale, "hub.backToGrid")}
+              </button>
+              <MarketSkillList
+                entries={listEntries}
+                selectedName={selectedName}
+                onSelect={(name) => setSelectedName(name)}
+                locale={locale}
+              />
+            </div>
+            <div className="bg-bg-secondary/40 backdrop-blur-md border border-white/5 shadow-sm rounded-xl overflow-hidden">
+              <MarketSkillPreview
+                skill={{
+                  name: selectedSkill.name,
+                  version: selectedSkill.version,
+                  description: selectedSkill.description ?? null,
+                  contentHash: selectedSkill.contentHash ?? null,
+                }}
+                upToDate={upToDateNames.has(selectedSkill.name)}
+                installing={installing === selectedSkill.name}
+                status={installStatus[selectedSkill.name] ?? null}
+                onInstall={() => void handleInstall(selectedSkill)}
+                locale={locale}
+                markdown={markdownCache[selectedSkill.name] ?? null}
+                markdownLoading={markdownLoading}
+                markdownError={markdownError}
+              />
+            </div>
+          </div>
+        )}
       </PageBody>
       {publishDialog}
     </>

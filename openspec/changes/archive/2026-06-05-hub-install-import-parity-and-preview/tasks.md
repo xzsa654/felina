@@ -1,0 +1,31 @@
+## 1. Backend package import parity
+
+- [x] 1.1 Cover Requirement: Local Package Extraction and design decision "Shared helper boundary: validation + write only" with focused Rust tests in `skill_package.rs`: valid entry stream writes `SKILL.md`, packaged `.felina-sync-meta.json` at root AND at nested depth (e.g. `pkg/nested/.felina-sync-meta.json`) is filtered out, symlink/hardlink entries return error before write, absolute paths return error, and `..` traversal returns error. Tests SHALL NOT depend on tar- or zip-specific types — they construct entries directly to verify the helper's archive-format-agnostic contract.
+- [x] 1.2 Implement Requirement: Local Package Extraction and design decision "Shared package helper, not UI coupling" by creating `src-tauri/src/commands/skill_package.rs`. Public API: `fn import_entries<I: Iterator<Item = PackageEntry>>(entries: I, dest_root: &Path) -> Result<String, String>` returning the top-level package directory name. `PackageEntry` describes `relative_path`, `kind` (file/dir/symlink/hardlink), and a content reader for files. The helper performs validation + write; archive decoding stays with callers.
+- [x] 1.3 Implement design decision "Hub install is an import source" by refactoring `install_market_skill(name)` to: download bytes, decode tar.gz, iterate entries into `PackageEntry`, delegate to `skill_package::import_entries`. After import the command MUST NOT write `directoryHash` into local `.felina-sync-meta.json` (regression guard for the install side; Hub installed state is derived live via `get_skill_directory_hash`).
+- [x] 1.4 Add a regression test in `market_install` proving `install_market_skill` does NOT create or mutate a `directoryHash` field inside `.felina-sync-meta.json` after a successful install. Test verification target: after install, parsing the meta file MUST NOT contain key `directoryHash`.
+- [x] 1.5 Audit `skill_import.rs` for callers that can be migrated to `skill_package::import_entries`. Migration is in scope ONLY where the import path can adapt zip entries into `PackageEntry` without behavior change. If a Skills-page import call site uses staging semantics that the shared helper cannot express, leave it on its own write path and add a code comment naming the divergence (e.g. "staging requires preview before commit; shared helper writes immediately"). Hub install MUST use the shared helper regardless of zip-side migration status.
+- [x] 1.6 Run `cd src-tauri && cargo test --lib market_install skill_package` (covers both the install caller and the new helper). Confirm new tests pass and pre-existing `market_install` tests still pass.
+
+## 2. Hub split preview UI
+
+- [x] 2.1 Cover Requirement: Hub UI Presentation by adding `MarketSkillList` component for the Hub left pane: name-keyed rows, selected state, installed/up-to-date indicator, install/update affordance only where appropriate.
+- [x] 2.2 Cover Requirement: Hub UI Presentation and design decision "Readonly Hub preview" by adding `MarketSkillPreview` component for the Hub right pane: readonly name, version, description, content hash/install state, and install/update action.
+- [x] 2.3 Implement design decision "Split view appears on selection" by refactoring `HubPage` selection state so initial load shows the market skill list as primary content, and selecting any Skill switches to left list plus right preview.
+- [x] 2.4 Cover Requirement: Installed State Display and design decision "Installed state is derived, never cached" by changing `HubPage.handleInstall` so that after `api.market.installSkill(name)` resolves, the code calls `api.market.getSkillDirectoryHash(name)` and compares against the market `contentHash`; only then does it add the name to `upToDateNames`. If the recomputed hash does NOT match `contentHash`, the install button SHALL remain visible (do not optimistically mark up-to-date). Verification target: a Vitest or component test where the install command succeeds but the recomputed hash differs from `contentHash` — the row MUST NOT show the up-to-date badge.
+- [x] 2.5 Cover Requirement: Install Skill Action by ensuring install actions in `MarketSkillList` and `MarketSkillPreview` call `api.market.installSkill(name)` with the selected market skill name, not an id.
+- [x] 2.6 Add the following i18n keys to both `src/lib/i18n/locales/en.ts` and `src/lib/i18n/locales/zh-TW.ts` under the `hub` namespace (reuse existing `hub.refresh` already added by `hub-publish-enablement`):
+  - `hub.preview.empty` — placeholder when no skill is selected (split view not yet entered)
+  - `hub.preview.description` — section label for description in preview
+  - `hub.preview.version` — section label for version
+  - `hub.preview.contentHash` — section label for content hash
+  - `hub.preview.update` — verb label when local exists but hash differs
+  - `hub.list.installed` — installed-state badge text in the left list row (distinct from `hub.upToDate` if the visual differs; otherwise reuse)
+- [x] 2.7 Implement design decision "Hub refresh borrows SkillsPage interaction shape only" — the refresh button added by `hub-publish-enablement` already exists at `PageHeader actions`; in this change confirm that clicking refresh in split view (a) re-runs `fetchSkills` (b) preserves `selectedName` (c) does NOT call any drift scan, import count, or canonical entries reload. Verification target: a component test that mounts HubPage with a selection, fires the refresh button click, and asserts `selectedName` is unchanged after fetch completes.
+
+## 3. Verification
+
+- [x] 3.1 Run `npm run check`.
+- [x] 3.2 Run `cd src-tauri && cargo test --lib market_install skill_package`.
+- [x] 3.3 Manual Tauri check: start `npm run tauri dev` with `market-server` running, open Hub, select a market Skill, confirm split list/preview appears, install from preview, confirm preview + list row show up-to-date. Then edit the installed `~/.felina/skills/<name>/SKILL.md`, click Hub refresh, confirm selection is preserved AND the badge flips back to install/update affordance.
+- [x] 3.4 Regression check: after install, inspect `~/.felina/skills/<installed-name>/.felina-sync-meta.json` (if present) and confirm it does NOT contain a `directoryHash` field (sanity for the live-derive contract).

@@ -30,6 +30,11 @@ function extractFrontmatter(markdown) {
 }
 
 async function extractSkillFrontmatter(name, tarball) {
+  const text = await extractSkillMarkdown(name, tarball)
+  return extractFrontmatter(text)
+}
+
+async function extractSkillMarkdown(name, tarball) {
   const expectedPath = `${name}/SKILL.md`
 
   return new Promise((resolve, reject) => {
@@ -57,7 +62,7 @@ async function extractSkillFrontmatter(name, tarball) {
       stream.on('end', () => {
         if (header.name === expectedPath) {
           found = true
-          finish(extractFrontmatter(Buffer.concat(chunks).toString('utf8')))
+          finish(Buffer.concat(chunks).toString('utf8'))
         }
         next()
       })
@@ -78,6 +83,12 @@ async function extractSkillFrontmatter(name, tarball) {
   })
 }
 
+async function streamToBuffer(stream) {
+  const chunks = []
+  for await (const chunk of stream) chunks.push(chunk)
+  return Buffer.concat(chunks)
+}
+
 function badRequest(reply, message) {
   return reply.code(400).send({ error: message })
 }
@@ -96,6 +107,30 @@ export function createApp({ db = defaultDb, storage = defaultStorage, randomUuid
   fastify.get('/health', async () => ({ status: 'ok' }))
 
   fastify.get('/api/skills', async () => db.listSkills())
+
+  fastify.get('/api/skills/:name/skill-md', async (request, reply) => {
+    const { name } = request.params
+    if (!isValidSkillName(name)) {
+      return badRequest(reply, 'invalid skill name')
+    }
+    const skill = await db.getSkill(name)
+    if (!skill) {
+      return reply.code(404).send({ error: 'skill not found' })
+    }
+    if (skill.deleted_at !== null && skill.deleted_at !== undefined) {
+      return reply.code(410).send({ error: 'skill deleted' })
+    }
+    const stream = await storage.getObjectStream(skill.storage_key)
+    const tarball = await streamToBuffer(stream)
+    let markdown
+    try {
+      markdown = await extractSkillMarkdown(name, tarball)
+    } catch (error) {
+      return reply.code(500).send({ error: error.message })
+    }
+    reply.header('content-type', 'text/markdown; charset=utf-8')
+    return markdown
+  })
 
   fastify.get('/api/skills/:name/download', async (request, reply) => {
     const { name } = request.params

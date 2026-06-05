@@ -46,99 +46,140 @@ code:
 ---
 ### Requirement: Hub UI Presentation
 
-The Hub page SHALL read the market server base URL from the persisted setting (via the Market Server URL Read Command) instead of using a hardcoded `http://localhost:3100` constant. The fetch call to `/api/skills` SHALL use this configured URL. The Hub page SHALL identify each market skill by its `name` field as returned by the server; it SHALL NOT depend on a separate `id` field. React keys, install-status maps, and install/uninstall command invocations SHALL all use `name` as the key.
+The Hub page SHALL fetch market skills from the configured market server URL and present them in a browsing experience optimized for selection and preview. Before a selection is made, the page SHALL show the market skill list as the primary content. After the user selects a market skill, the page SHALL render a two-pane layout: a left pane containing the market skill list and a right pane containing a readonly preview for the selected market skill.
 
-#### Scenario: Viewing the Hub page
+The Hub preview SHALL reuse the Skills page browsing mental model where practical, but it SHALL NOT use the editable Skill editor for market content. Market content is remote/read-only until installed.
 
-- **WHEN** the Hub page loads
-- **THEN** the UI SHALL fetch the list of skills from the configured market server URL and render them as glassmorphism cards keyed by `skill.name`, without using HTML tables and without referencing a `skill.id` field
+The Hub preview SHALL provide install/update action only. It SHALL NOT expose a server-side delete action even though the `delete_market_skill` Tauri command exists, because server-side delete affects every Hub user and falls outside this change's scope.
+
+The Hub page SHALL provide a refresh control whose interaction shape mirrors `SkillsPage.handleReload` (button position in PageHeader actions, spinner with brief residual animation, disabled state during reload) but whose behavior is restricted to readonly browsing: refresh SHALL refetch the market list and re-derive installed state, and SHALL NOT trigger drift scan, import-count refresh, or canonical-entries reload. Refresh SHALL preserve the current selection.
+
+#### Scenario: Selecting a market skill opens split preview
+
+- **GIVEN** the Hub page has loaded market skills `code-review` and `doc-writer`
+- **WHEN** the user selects `code-review`
+- **THEN** the page SHALL show a left pane with the market skill list
+- **AND** the page SHALL show a right pane preview for `code-review`
+- **AND** the preview SHALL be readonly
+
+#### Scenario: Preview displays install-relevant metadata
+
+- **GIVEN** the selected market skill has `name`, `version`, `description`, and `contentHash`
+- **WHEN** the preview renders
+- **THEN** it SHALL display the skill name, version when present, description when present, and local install state
+- **AND** it SHALL provide the install or update action when the local content is not up to date
+- **AND** it SHALL display the up-to-date state when the local directory hash matches `contentHash`
 
 
 <!-- @trace
-source: hub-publish-enablement
+source: hub-install-import-parity-and-preview
 updated: 2026-06-05
 code:
-  - src-tauri/src/commands/market_install.rs
-  - src-tauri/src/commands/market_publish.rs
-  - src-tauri/src/lib.rs
-  - src/lib/tauri/commands.ts
+  - .knowledge/knowledge-base/tauri.md
   - src/lib/i18n/locales/zh-TW.ts
-  - .session/product-backlog.md
-  - market-server/src/app.js
-  - src-tauri/Cargo.toml
+  - .knowledge/knowledge-base/architecture.md
+  - .knowledge/knowledge-base/_index.json
+  - src-tauri/src/commands/mod.rs
+  - market-server/.pgmigraterc.json
+  - src-tauri/src/commands/skill_package.rs
+  - src-tauri/src/lib.rs
+  - market-server/src/storage.js
+  - src/lib/components/hub/HubPage.tsx
+  - src-tauri/src/commands/market_publish.rs
+  - .knowledge/_catalog.json
   - market-server/migrations/001_init.sql
   - market-server/package.json
-  - src/lib/components/hub/HubPage.tsx
-  - src-tauri/src/commands/mod.rs
-  - market-server/README.md
-  - market-server/Dockerfile
-  - market-server/.pgmigraterc.json
-  - .knowledge/knowledge-base/architecture.md
-  - .knowledge/knowledge-base/tauri.md
-  - market-server/src/server.js
-  - market-server/src/storage.js
-  - .knowledge/knowledge-base/_index.json
-  - market-server/docker-compose.yml
   - src/lib/i18n/locales/en.ts
-  - src-tauri/src/commands/skill_name.rs
-  - .codex-rescue-prompt.txt
+  - src/lib/tauri/commands.ts
+  - src-tauri/Cargo.toml
+  - .session/product-backlog.md
+  - market-server/Dockerfile
   - market-server/src/db.js
-  - .knowledge/_catalog.json
+  - src/lib/components/hub/MarketSkillPreview.tsx
+  - market-server/README.md
+  - market-server/docker-compose.yml
+  - .codex-rescue-prompt.txt
+  - market-server/src/server.js
+  - src-tauri/src/commands/market_install.rs
+  - market-server/src/app.js
+  - src/lib/components/hub/MarketSkillList.tsx
+  - src-tauri/src/commands/skill_name.rs
+  - src-tauri/src/commands/skill_import.rs
 tests:
-  - market-server/src/app.test.js
   - market-server/src/storage.test.js
+  - market-server/src/app.test.js
   - market-server/src/db.test.js
 -->
 
 ---
 ### Requirement: Installed State Display
 
-The Hub page SHALL indicate which market skills match local content by comparing skill `name` AND `directory_hash`. The `directory_hash` is a SHA-256 digest covering the entire skill directory (SKILL.md + sibling files). The Hub API SHALL provide `contentHash` per skill; the local hash SHALL be read from `.felina-sync-meta.json`. The `name` field SHALL be the sole skill identifier in both UI state and download command parameters; no `id` field SHALL be required.
+The Hub page SHALL derive installed state by recomputing the local canonical directory hash via `get_skill_directory_hash(name)` and comparing it against the market skill `contentHash`. The local hash SHALL be derived live from the on-disk content at the time the comparison runs; the Hub SHALL NOT depend on any cached `directoryHash` field inside `.felina-sync-meta.json`. Installed state SHALL be visible in both the market skill list and the selected market skill preview. After install succeeds, the Hub page SHALL recompute the local hash and re-derive installed state without requiring an app restart.
 
-#### Scenario: Displaying up-to-date state
+#### Scenario: Install recomputes hash and refreshes preview state
 
-- **WHEN** the Hub page loads and a local canonical skill has the same name AND its `directoryHash` in `.felina-sync-meta.json` matches the Hub skill's `contentHash`
-- **THEN** the corresponding card SHALL display an "Up to date" indicator instead of the "Install" button
+- **GIVEN** `code-review` is selected in the Hub preview and is not up to date
+- **WHEN** the user installs `code-review` and the install command returns success
+- **THEN** the Hub page SHALL recompute the local directory hash for `code-review` by calling `get_skill_directory_hash`
+- **AND** the selected preview SHALL update to the up-to-date state only if the recomputed hash equals the market `contentHash`
+- **AND** the left list row for `code-review` SHALL show the same derived installed state
+- **AND** the Hub page SHALL NOT optimistically mark `code-review` as up-to-date based on install success alone
 
-#### Scenario: Installing a market skill
+#### Scenario: Refresh preserves selection and re-derives installed state
 
-- **WHEN** the user clicks Install on a market skill card
-- **THEN** the Hub page SHALL invoke `install_market_skill` with the skill's `name` as the parameter (no separate `id` field is involved)
+- **GIVEN** the Hub split view is open with `code-review` selected
+- **WHEN** the user clicks the refresh button
+- **THEN** the Hub page SHALL refetch the market skill list
+- **AND** SHALL recompute the local directory hash for each listed skill
+- **AND** SHALL keep `code-review` as the selected skill
+- **AND** SHALL NOT invoke drift scan, import count refresh, or canonical entries reload
+
+#### Scenario: Local edit after install is detected on refresh
+
+- **GIVEN** `code-review` was installed from Hub and shows up-to-date
+- **AND** the user edits `~/.felina/skills/code-review/SKILL.md` outside the Hub
+- **WHEN** the user clicks the Hub refresh button
+- **THEN** the recomputed local directory hash SHALL differ from the market `contentHash`
+- **AND** the list row and preview SHALL show the install/update affordance instead of up-to-date
 
 
 <!-- @trace
-source: hub-publish-enablement
+source: hub-install-import-parity-and-preview
 updated: 2026-06-05
 code:
-  - src-tauri/src/commands/market_install.rs
-  - src-tauri/src/commands/market_publish.rs
-  - src-tauri/src/lib.rs
-  - src/lib/tauri/commands.ts
+  - .knowledge/knowledge-base/tauri.md
   - src/lib/i18n/locales/zh-TW.ts
-  - .session/product-backlog.md
-  - market-server/src/app.js
-  - src-tauri/Cargo.toml
+  - .knowledge/knowledge-base/architecture.md
+  - .knowledge/knowledge-base/_index.json
+  - src-tauri/src/commands/mod.rs
+  - market-server/.pgmigraterc.json
+  - src-tauri/src/commands/skill_package.rs
+  - src-tauri/src/lib.rs
+  - market-server/src/storage.js
+  - src/lib/components/hub/HubPage.tsx
+  - src-tauri/src/commands/market_publish.rs
+  - .knowledge/_catalog.json
   - market-server/migrations/001_init.sql
   - market-server/package.json
-  - src/lib/components/hub/HubPage.tsx
-  - src-tauri/src/commands/mod.rs
-  - market-server/README.md
-  - market-server/Dockerfile
-  - market-server/.pgmigraterc.json
-  - .knowledge/knowledge-base/architecture.md
-  - .knowledge/knowledge-base/tauri.md
-  - market-server/src/server.js
-  - market-server/src/storage.js
-  - .knowledge/knowledge-base/_index.json
-  - market-server/docker-compose.yml
   - src/lib/i18n/locales/en.ts
-  - src-tauri/src/commands/skill_name.rs
-  - .codex-rescue-prompt.txt
+  - src/lib/tauri/commands.ts
+  - src-tauri/Cargo.toml
+  - .session/product-backlog.md
+  - market-server/Dockerfile
   - market-server/src/db.js
-  - .knowledge/_catalog.json
+  - src/lib/components/hub/MarketSkillPreview.tsx
+  - market-server/README.md
+  - market-server/docker-compose.yml
+  - .codex-rescue-prompt.txt
+  - market-server/src/server.js
+  - src-tauri/src/commands/market_install.rs
+  - market-server/src/app.js
+  - src/lib/components/hub/MarketSkillList.tsx
+  - src-tauri/src/commands/skill_name.rs
+  - src-tauri/src/commands/skill_import.rs
 tests:
-  - market-server/src/app.test.js
   - market-server/src/storage.test.js
+  - market-server/src/app.test.js
   - market-server/src/db.test.js
 -->
 

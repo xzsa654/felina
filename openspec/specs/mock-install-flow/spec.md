@@ -8,70 +8,127 @@ TBD - created by archiving change 'local-skill-market-prototype'. Update Purpose
 
 ### Requirement: Install Skill Action
 
-The Hub page SHALL provide an "Install" button on each skill card that triggers the local installation process via a Tauri command.
+The Hub page SHALL provide an install action for each selectable market skill. The frontend SHALL invoke the `install_market_skill` Tauri command with the market skill `name` as the canonical skill identity.
 
 #### Scenario: Initiating a skill install
 
-- **WHEN** the user clicks "Install" on a skill card
-- **THEN** the frontend SHALL invoke the `install_market_skill` Tauri command with the skill ID
+- **WHEN** the user clicks install on a market skill named `code-review`
+- **THEN** the frontend SHALL invoke `install_market_skill` with `{ name: "code-review" }`
 
 
 <!-- @trace
-source: local-skill-market-prototype
+source: hub-install-import-parity-and-preview
 updated: 2026-06-05
 code:
-  - market-server/dev.ps1
-  - src/lib/components/hub/HubPage.tsx
-  - src-tauri/src/commands/mod.rs
-  - src-tauri/Cargo.toml
-  - src-tauri/src/commands/fan_out/mod.rs
-  - src-tauri/src/commands/market_install.rs
-  - src-tauri/src/lib.rs
-  - src/lib/i18n/locales/en.ts
-  - src/lib/stores/navigation.ts
-  - src/lib/tauri/commands.ts
-  - market-server/.dockerignore
-  - src-tauri/src/commands/canonical_skills.rs
-  - src/lib/components/layout/Sidebar.tsx
-  - src/router.tsx
+  - .knowledge/knowledge-base/tauri.md
   - src/lib/i18n/locales/zh-TW.ts
+  - .knowledge/knowledge-base/architecture.md
+  - .knowledge/knowledge-base/_index.json
+  - src-tauri/src/commands/mod.rs
+  - market-server/.pgmigraterc.json
+  - src-tauri/src/commands/skill_package.rs
+  - src-tauri/src/lib.rs
+  - market-server/src/storage.js
+  - src/lib/components/hub/HubPage.tsx
+  - src-tauri/src/commands/market_publish.rs
+  - .knowledge/_catalog.json
+  - market-server/migrations/001_init.sql
+  - market-server/package.json
+  - src/lib/i18n/locales/en.ts
+  - src/lib/tauri/commands.ts
+  - src-tauri/Cargo.toml
   - .session/product-backlog.md
   - market-server/Dockerfile
-  - market-server/src/server.js
+  - market-server/src/db.js
+  - src/lib/components/hub/MarketSkillPreview.tsx
+  - market-server/README.md
   - market-server/docker-compose.yml
-  - src-tauri/tauri.conf.json
-  - market-server/package.json
+  - .codex-rescue-prompt.txt
+  - market-server/src/server.js
+  - src-tauri/src/commands/market_install.rs
+  - market-server/src/app.js
+  - src/lib/components/hub/MarketSkillList.tsx
+  - src-tauri/src/commands/skill_name.rs
+  - src-tauri/src/commands/skill_import.rs
+tests:
+  - market-server/src/storage.test.js
+  - market-server/src/app.test.js
+  - market-server/src/db.test.js
 -->
 
 ---
 ### Requirement: Local Package Extraction
 
-The `install_market_skill` Tauri command SHALL download the skill package from the configured market server URL (read via the Market Server URL Read Command) instead of a hardcoded `http://localhost:3100` base URL. All other extraction behavior SHALL remain unchanged.
+The `install_market_skill` Tauri command SHALL download the skill package from the configured market server URL and install it through the shared canonical skill package import pipeline. The Hub install path SHALL NOT maintain a separate archive-to-filesystem writer whose canonical directory rules can drift from Skills page import.
 
-#### Scenario: Successful extraction
+The shared package import pipeline SHALL reject symlinks, hard links, absolute archive paths, and parent-directory traversal before writing files. It SHALL write the imported skill under the canonical skills directory using the top-level package directory as the canonical skill identity. It SHALL filter out any `.felina-sync-meta.json` entry from the package at any depth.
 
-- **WHEN** the `install_market_skill` command executes successfully
-- **THEN** the skill's markdown and manifest files SHALL be written to the canonical skill directory, using the URL from the persisted market server setting
+The shared helper SHALL own validation and write only. Archive format decoding (tar.gz for Hub install, zip for Skills page import) stays with the caller. The helper accepts an iterable of entries (`relative_path`, `kind`, `content`) plus destination root; it MUST NOT depend on tar- or zip-specific types.
+
+The `install_market_skill` command SHALL NOT write `directoryHash` (or any cached hash field) into the destination `.felina-sync-meta.json`. Hub installed-state comparison is derived live by recomputing `fan_out::directory_hash` on demand.
+
+#### Scenario: Successful Hub install uses canonical import semantics
+
+- **GIVEN** the market server returns a tar.gz package containing `code-review/SKILL.md`
+- **WHEN** `install_market_skill("code-review")` completes successfully
+- **THEN** `~/.felina/skills/code-review/SKILL.md` SHALL be written through the shared canonical package import pipeline
+- **AND** any packaged `.felina-sync-meta.json` file SHALL NOT be copied into the destination, at root or nested depth
+- **AND** `~/.felina/skills/code-review/.felina-sync-meta.json` SHALL NOT contain a `directoryHash` field written by install
+
+#### Scenario: Unsafe package is rejected before write
+
+- **GIVEN** the market server returns a tar.gz package containing a symlink, hard link, absolute path, or `..` path component
+- **WHEN** `install_market_skill("code-review")` processes the package
+- **THEN** the command SHALL return an error
+- **AND** the unsafe entry SHALL NOT be written under `~/.felina/skills/`
+
+#### Scenario: Installed-state hash is derived live
+
+- **GIVEN** a skill `code-review` was installed from Hub
+- **WHEN** the Hub page derives the installed-state badge for `code-review`
+- **THEN** the frontend SHALL call `get_skill_directory_hash("code-review")` which computes `fan_out::directory_hash` from the current on-disk content
+- **AND** SHALL compare that value against the market server `contentHash`
+- **AND** SHALL NOT read a cached `directoryHash` from `.felina-sync-meta.json`
 
 
 <!-- @trace
-source: market-server-url-settings
+source: hub-install-import-parity-and-preview
 updated: 2026-06-05
 code:
-  - src/lib/i18n/locales/zh-TW.ts
-  - .knowledge/_catalog.json
-  - src-tauri/src/commands/mod.rs
-  - src-tauri/src/lib.rs
-  - src/lib/components/settings/MarketServerSection.tsx
-  - src-tauri/src/commands/market_server.rs
-  - src/lib/i18n/locales/en.ts
-  - src-tauri/src/commands/market_install.rs
-  - src/lib/tauri/commands.ts
-  - .knowledge/knowledge-base/architecture.md
-  - src/lib/components/settings/FelinaSettingsPage.tsx
-  - .knowledge/knowledge-base/_index.json
   - .knowledge/knowledge-base/tauri.md
+  - src/lib/i18n/locales/zh-TW.ts
+  - .knowledge/knowledge-base/architecture.md
+  - .knowledge/knowledge-base/_index.json
+  - src-tauri/src/commands/mod.rs
+  - market-server/.pgmigraterc.json
+  - src-tauri/src/commands/skill_package.rs
+  - src-tauri/src/lib.rs
+  - market-server/src/storage.js
   - src/lib/components/hub/HubPage.tsx
+  - src-tauri/src/commands/market_publish.rs
+  - .knowledge/_catalog.json
+  - market-server/migrations/001_init.sql
+  - market-server/package.json
+  - src/lib/i18n/locales/en.ts
+  - src/lib/tauri/commands.ts
+  - src-tauri/Cargo.toml
+  - .session/product-backlog.md
+  - market-server/Dockerfile
+  - market-server/src/db.js
+  - src/lib/components/hub/MarketSkillPreview.tsx
+  - market-server/README.md
+  - market-server/docker-compose.yml
+  - .codex-rescue-prompt.txt
+  - market-server/src/server.js
+  - src-tauri/src/commands/market_install.rs
+  - market-server/src/app.js
+  - src/lib/components/hub/MarketSkillList.tsx
+  - src-tauri/src/commands/skill_name.rs
+  - src-tauri/src/commands/skill_import.rs
+tests:
+  - market-server/src/storage.test.js
+  - market-server/src/app.test.js
+  - market-server/src/db.test.js
 -->
 
 ---

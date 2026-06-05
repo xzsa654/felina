@@ -788,6 +788,17 @@ const en = {
     installed: "Installed",
     upToDate: "Up to date",
     refresh: "Refresh",
+    preview: {
+      empty: "Select a skill on the left to see details",
+      description: "Description",
+      version: "Version",
+      contentHash: "Content hash",
+      update: "Update",
+    },
+    list: {
+      installed: "Installed",
+    },
+    backToGrid: "Back to grid",
     publish: {
       button: "Publish Skill",
       title: "Publish Skill",
