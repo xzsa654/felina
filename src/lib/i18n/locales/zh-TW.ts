@@ -749,6 +749,18 @@ const zhTW: TranslationDict = {
       removeError: "移除失敗：{error}",
       loadError: "無法載入自訂專案路徑：{error}",
     },
+    marketServer: {
+      title: "Market Server",
+      description: "技能 market server 的基底 URL。供 Hub 頁面與安裝指令使用。",
+      urlLabel: "URL",
+      placeholder: "http://localhost:3100",
+      save: "儲存",
+      saving: "儲存中…",
+      revert: "還原",
+      saveSuccess: "已儲存。",
+      saveError: "儲存失敗：{error}",
+      loadError: "無法載入 Market Server URL：{error}",
+    },
     skillLibrary: {
       title: "技能庫",
       description: "匯出或重置整個 canonical 技能庫。",

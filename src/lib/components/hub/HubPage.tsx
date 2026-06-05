@@ -19,8 +19,6 @@ interface MarketSkill {
   contentHash?: string;
 }
 
-const API_BASE = "http://localhost:3100";
-
 export default function HubPage() {
   const locale = useLocaleStore((s) => s.locale);
   const [skills, setSkills] = useState<MarketSkill[]>([]);
@@ -34,8 +32,9 @@ export default function HubPage() {
     setLoading(true);
     setError(null);
     try {
+      const apiBase = await api.market.getServerUrl();
       const [res, localEntries] = await Promise.all([
-        fetch(`${API_BASE}/api/skills`),
+        fetch(`${apiBase}/api/skills`),
         api.canonicalSkills.list(),
       ]);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);

@@ -24,4 +24,5 @@ pub mod skill_fields;
 pub mod skill_import;
 pub mod skill_library;
 pub mod market_install;
+pub mod market_server;
 pub mod snapshot;
