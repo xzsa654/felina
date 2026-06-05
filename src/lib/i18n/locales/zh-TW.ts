@@ -790,6 +790,17 @@ const zhTW: TranslationDict = {
     installed: "已安裝",
     upToDate: "已是最新",
     refresh: "重新整理",
+    preview: {
+      empty: "選擇左側的 Skill 以檢視詳情",
+      description: "說明",
+      version: "版本",
+      contentHash: "內容雜湊",
+      update: "更新",
+    },
+    list: {
+      installed: "已安裝",
+    },
+    backToGrid: "返回卡片牆",
     publish: {
       button: "發布 Skill",
       title: "發布 Skill",

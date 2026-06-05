@@ -27,4 +27,5 @@ pub mod market_install;
 pub mod market_publish;
 pub mod market_server;
 pub mod skill_name;
+pub mod skill_package;
 pub mod snapshot;
