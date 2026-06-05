@@ -400,6 +400,9 @@ export const api = {
       invoke<string>("install_market_skill", { id }),
     getSkillDirectoryHash: (name: string) =>
       invoke<string | null>("get_skill_directory_hash", { name }),
+    getServerUrl: () => invoke<string>("get_market_server_url"),
+    setServerUrl: (url: string) =>
+      invoke<void>("set_market_server_url", { url }),
   },
 } as const;
 

@@ -1,5 +1,6 @@
 import AgentPathsSection from "./AgentPathsSection";
 import DataPruningSection from "./DataPruningSection";
+import MarketServerSection from "./MarketServerSection";
 import SavedKnownProjectsSection from "./SavedKnownProjectsSection";
 import SkillLibrarySection from "./SkillLibrarySection";
 import { t } from "$lib/i18n";
@@ -18,6 +19,7 @@ export default function FelinaSettingsPage() {
       <PageBody>
         <div className="space-y-6">
           <AgentPathsSection />
+          <MarketServerSection />
           <SavedKnownProjectsSection />
           <DataPruningSection />
           <SkillLibrarySection />

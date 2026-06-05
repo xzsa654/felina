@@ -20,7 +20,8 @@ fn validate_skill_id(id: &str) -> Result<(), String> {
 pub async fn install_market_skill(id: String) -> Result<String, String> {
     validate_skill_id(&id)?;
 
-    let url = format!("http://localhost:3100/api/skills/{}/download", id);
+    let base = super::market_server::get_market_server_url()?;
+    let url = format!("{}/api/skills/{}/download", base, id);
 
     let response = reqwest::get(&url)
         .await

@@ -46,39 +46,32 @@ code:
 ---
 ### Requirement: Hub UI Presentation
 
-The Hub page SHALL display a list of available skills using a borderless, glassmorphism card design, conforming to the `felina-ui-guidelines`.
+The Hub page SHALL read the market server base URL from the persisted setting (via the Market Server URL Read Command) instead of using a hardcoded `http://localhost:3100` constant. The fetch call to `/api/skills` SHALL use this configured URL. All other presentation behavior SHALL remain unchanged.
 
 #### Scenario: Viewing the Hub page
 
 - **WHEN** the Hub page loads
-- **THEN** the UI SHALL fetch the list of skills from the local market API and render them as glassmorphism cards without using HTML tables
+- **THEN** the UI SHALL fetch the list of skills from the configured market server URL and render them as glassmorphism cards without using HTML tables
 
 
 <!-- @trace
-source: local-skill-market-prototype
+source: market-server-url-settings
 updated: 2026-06-05
 code:
-  - market-server/dev.ps1
-  - src/lib/components/hub/HubPage.tsx
-  - src-tauri/src/commands/mod.rs
-  - src-tauri/Cargo.toml
-  - src-tauri/src/commands/fan_out/mod.rs
-  - src-tauri/src/commands/market_install.rs
-  - src-tauri/src/lib.rs
-  - src/lib/i18n/locales/en.ts
-  - src/lib/stores/navigation.ts
-  - src/lib/tauri/commands.ts
-  - market-server/.dockerignore
-  - src-tauri/src/commands/canonical_skills.rs
-  - src/lib/components/layout/Sidebar.tsx
-  - src/router.tsx
   - src/lib/i18n/locales/zh-TW.ts
-  - .session/product-backlog.md
-  - market-server/Dockerfile
-  - market-server/src/server.js
-  - market-server/docker-compose.yml
-  - src-tauri/tauri.conf.json
-  - market-server/package.json
+  - .knowledge/_catalog.json
+  - src-tauri/src/commands/mod.rs
+  - src-tauri/src/lib.rs
+  - src/lib/components/settings/MarketServerSection.tsx
+  - src-tauri/src/commands/market_server.rs
+  - src/lib/i18n/locales/en.ts
+  - src-tauri/src/commands/market_install.rs
+  - src/lib/tauri/commands.ts
+  - .knowledge/knowledge-base/architecture.md
+  - src/lib/components/settings/FelinaSettingsPage.tsx
+  - .knowledge/knowledge-base/_index.json
+  - .knowledge/knowledge-base/tauri.md
+  - src/lib/components/hub/HubPage.tsx
 -->
 
 ---

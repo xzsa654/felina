@@ -179,6 +179,8 @@ pub fn run() {
             // Market (prototype)
             commands::market_install::install_market_skill,
             commands::market_install::get_skill_directory_hash,
+            commands::market_server::get_market_server_url,
+            commands::market_server::set_market_server_url,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

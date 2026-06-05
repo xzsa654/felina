@@ -747,6 +747,18 @@ const en = {
       removeError: "Remove failed: {error}",
       loadError: "Could not load custom project paths: {error}",
     },
+    marketServer: {
+      title: "Market Server",
+      description: "Base URL of the skill market server. Used by the Hub page and the install command.",
+      urlLabel: "URL",
+      placeholder: "http://localhost:3100",
+      save: "Save",
+      saving: "Saving…",
+      revert: "Revert",
+      saveSuccess: "Saved.",
+      saveError: "Save failed: {error}",
+      loadError: "Could not load market server URL: {error}",
+    },
     skillLibrary: {
       title: "Skill Library",
       description: "Export or reset your entire canonical skill library.",
