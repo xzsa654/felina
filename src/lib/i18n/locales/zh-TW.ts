@@ -763,6 +763,20 @@ const zhTW: TranslationDict = {
       resetCancel: "已取消重置。",
     },
   },
+
+  hub: {
+    title: "Hub",
+    subtitle: "瀏覽並從本地市集安裝技能",
+    loading: "載入技能中…",
+    empty: "目前沒有可用的技能。",
+    connectionError: "無法連線至市集伺服器：{detail}",
+    install: "安裝",
+    installing: "安裝中…",
+    installSuccess: "已安裝 {name}",
+    installFailed: "安裝失敗：{detail}",
+    installed: "已安裝",
+    upToDate: "已是最新",
+  },
 };
 
 export default zhTW;

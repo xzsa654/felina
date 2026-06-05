@@ -176,6 +176,9 @@ pub fn run() {
             // skill_import_scan_zip → staging dialog → skill_import_apply.
             commands::skill_library::skill_library_export,
             commands::skill_library::skill_library_reset,
+            // Market (prototype)
+            commands::market_install::install_market_skill,
+            commands::market_install::get_skill_directory_hash,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

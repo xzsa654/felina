@@ -191,6 +191,21 @@ Notes:
 - 舊的 Vercel + Supabase stack 註記已不作為方向；公司內網與無網際網路部署較適合自管內網 server，例如 Node.js/Fastify + PostgreSQL + MinIO 或公司既有等價服務。
 - 詳細調查文件：`.session/agent-skill-market-complete.md`。
 
+### market-server-url-settings
+
+| Field | Value |
+|---|---|
+| type | planned-change |
+| status | planned |
+| flagged | 2026-06-05 |
+| last-seen | 2026-06-05 |
+| description | Hub 頁面的 Market Server URL 從寫死的 `http://localhost:3100` 改為 Felina Settings 可配置項，讓使用者填入公司內網 market server 位址。 |
+
+Notes:
+- 目前 `API_BASE` 寫死在 `HubPage.tsx`，`install_market_skill` 的 URL 也寫死在 `market_install.rs`。
+- 前後端都要改為從設定讀取。
+- 屬 `local-skill-market-prototype` 的後續延伸，prototype 驗證完再開。
+
 ---
 
 ## UX / General

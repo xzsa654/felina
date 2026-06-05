@@ -478,6 +478,23 @@ fn semantic_hash(content: &str) -> String {
     sha256_hex(&normalized)
 }
 
+/// Produce a composite hash of an entire skill directory: SKILL.md semantic
+/// hash concatenated with sorted sibling file hashes, then SHA-256'd.
+pub(crate) fn directory_hash(skill_dir: &Path) -> Option<String> {
+    let skill_md = skill_dir.join("SKILL.md");
+    let content = fs::read_to_string(&skill_md).ok()?;
+    let main_hash = semantic_hash(&content);
+    let sibling_hashes = compute_sibling_hashes(skill_dir);
+    let mut combined = main_hash;
+    for (name, hash) in &sibling_hashes {
+        combined.push(':');
+        combined.push_str(name);
+        combined.push(':');
+        combined.push_str(hash);
+    }
+    Some(sha256_hex(&combined))
+}
+
 fn normalize_skill_content(content: &str) -> String {
     let Some((fm_raw, body)) = split_frontmatter(content) else {
         return content.trim().to_string();
@@ -2230,6 +2247,7 @@ mod tests {
                 ],
                 last_sync: std::collections::BTreeMap::new(),
                 dirty: true,
+                directory_hash: None,
             },
         )
         .unwrap();
@@ -2399,6 +2417,7 @@ mod tests {
                 ],
                 last_sync: std::collections::BTreeMap::new(),
                 dirty: true,
+                directory_hash: None,
             },
         )
         .unwrap();
@@ -2519,6 +2538,7 @@ mod tests {
                 }],
                 last_sync: std::collections::BTreeMap::new(),
                 dirty: true,
+                directory_hash: None,
             },
         )
         .unwrap();
@@ -2574,6 +2594,7 @@ mod tests {
                 }],
                 last_sync: std::collections::BTreeMap::new(),
                 dirty: true,
+                directory_hash: None,
             },
         )
         .unwrap();
@@ -2721,6 +2742,7 @@ mod tests {
             targets: vec![anthropic.clone(), codex.clone(), gemini.clone()],
             last_sync,
             dirty: true,
+            directory_hash: None,
         };
         write_sync_meta_v2(&canonical_skill_dir, &meta).unwrap();
         let before_meta =
@@ -2810,6 +2832,7 @@ mod tests {
                 targets: vec![anthropic.clone(), gemini.clone()],
                 last_sync,
                 dirty: true,
+                directory_hash: None,
             },
         )
         .unwrap();
@@ -2899,6 +2922,7 @@ mod tests {
                 targets: vec![target.clone()],
                 last_sync: std::collections::BTreeMap::new(),
                 dirty: true,
+                directory_hash: None,
             },
         )
         .unwrap();
@@ -3040,6 +3064,7 @@ mod tests {
                 ],
                 last_sync: std::collections::BTreeMap::new(),
                 dirty: true,
+                directory_hash: None,
             },
         )
         .unwrap();
@@ -3086,6 +3111,7 @@ mod tests {
                 }],
                 last_sync: std::collections::BTreeMap::new(),
                 dirty: true,
+                directory_hash: None,
             },
         )
         .unwrap();
@@ -3115,6 +3141,7 @@ mod tests {
                 }],
                 last_sync: std::collections::BTreeMap::new(),
                 dirty: false,
+                directory_hash: None,
             },
         )
         .unwrap();
@@ -3139,6 +3166,7 @@ mod tests {
                 targets: vec![],
                 last_sync: std::collections::BTreeMap::new(),
                 dirty: true,
+                directory_hash: None,
             },
         )
         .unwrap();
@@ -3170,6 +3198,7 @@ mod tests {
                 }],
                 last_sync: std::collections::BTreeMap::new(),
                 dirty: true,
+                directory_hash: None,
             },
         )
         .unwrap();
@@ -3201,6 +3230,7 @@ mod tests {
                 }],
                 last_sync: std::collections::BTreeMap::new(),
                 dirty: true,
+                directory_hash: None,
             },
         )
         .unwrap();
@@ -3219,6 +3249,7 @@ mod tests {
                 }],
                 last_sync: std::collections::BTreeMap::new(),
                 dirty: false,
+                directory_hash: None,
             },
         )
         .unwrap();
@@ -3257,6 +3288,7 @@ mod tests {
                 }],
                 last_sync: std::collections::BTreeMap::new(),
                 dirty: true,
+                directory_hash: None,
             },
         )
         .unwrap();
@@ -3279,6 +3311,7 @@ mod tests {
                 }],
                 last_sync: std::collections::BTreeMap::new(),
                 dirty: true,
+                directory_hash: None,
             },
         )
         .unwrap();
@@ -3381,6 +3414,7 @@ mod tests {
                 }],
                 last_sync: std::collections::BTreeMap::new(),
                 dirty: true,
+                directory_hash: None,
             },
         )
         .unwrap();
@@ -3439,6 +3473,7 @@ mod tests {
                 }],
                 last_sync: std::collections::BTreeMap::new(),
                 dirty: true,
+                directory_hash: None,
             },
         )
         .unwrap();
@@ -3502,6 +3537,7 @@ mod tests {
                 targets: vec![target],
                 last_sync,
                 dirty: true,
+                directory_hash: None,
             },
         )
         .unwrap();
@@ -3547,6 +3583,7 @@ mod tests {
                 }],
                 last_sync: std::collections::BTreeMap::new(),
                 dirty: true,
+                directory_hash: None,
             },
         )
         .unwrap();
@@ -3585,6 +3622,7 @@ mod tests {
                 targets: vec![target],
                 last_sync: std::collections::BTreeMap::new(),
                 dirty: true,
+                directory_hash: None,
             },
         )
         .unwrap();
@@ -3829,6 +3867,7 @@ mod tests {
                 targets: vec![target.clone()],
                 last_sync: std::collections::BTreeMap::new(),
                 dirty: true,
+                directory_hash: None,
             },
         )
         .unwrap();
@@ -3904,6 +3943,7 @@ mod tests {
                 targets: vec![target.clone()],
                 last_sync: std::collections::BTreeMap::new(),
                 dirty: true,
+                directory_hash: None,
             },
         )
         .unwrap();
@@ -3975,6 +4015,7 @@ mod tests {
                     targets: vec![target],
                     last_sync: std::collections::BTreeMap::new(),
                     dirty: true,
+                    directory_hash: None,
                 },
             )
             .unwrap();
@@ -3991,5 +4032,34 @@ mod tests {
 
         assert_eq!(results.len(), 3, "expected one SyncResult per skill: {results:#?}");
         assert!(results.iter().all(|r| r.success), "all results must succeed: {results:#?}");
+    }
+
+    #[test]
+    fn directory_hash_stable_and_changes_with_sibling() {
+        let tmp = std::env::temp_dir().join(format!(
+            "felina-dirhash-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&tmp).unwrap();
+        fs::write(
+            tmp.join("SKILL.md"),
+            "---\nname: test\ndescription: d\n---\nbody\n",
+        )
+        .unwrap();
+        fs::write(tmp.join("helper.py"), "print('hi')").unwrap();
+
+        let h1 = directory_hash(&tmp).expect("hash should succeed");
+        assert!(!h1.is_empty());
+        let h2 = directory_hash(&tmp).expect("hash should be stable");
+        assert_eq!(h1, h2);
+
+        fs::write(tmp.join("helper.py"), "print('changed')").unwrap();
+        let h3 = directory_hash(&tmp).expect("hash after modification");
+        assert_ne!(h1, h3);
+
+        let _ = fs::remove_dir_all(&tmp);
     }
 }

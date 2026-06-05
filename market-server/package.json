@@ -1,0 +1,14 @@
+{
+  "name": "@felina/market-server",
+  "private": true,
+  "type": "module",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js"
+  },
+  "dependencies": {
+    "@fastify/cors": "^11.2.0",
+    "fastify": "^5",
+    "tar-stream": "^3"
+  }
+}
