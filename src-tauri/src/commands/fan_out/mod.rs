@@ -15,7 +15,7 @@
 use crate::commands::canonical_skills::{
     canonical_skills_dir, parse_skill_md, read_sync_meta_v2, read_sync_meta_v2_no_backfill,
     target_key, write_sync_meta_v2, AgentId, CanonicalSkill, LastSyncEntry, SkillScope,
-    SkillTarget, TargetMode,
+    TargetMode,
 };
 use crate::paths::normalize_display_path;
 use serde::{Deserialize, Serialize};

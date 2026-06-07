@@ -5,14 +5,25 @@ Postgres metadata storage and MinIO tarball storage.
 
 ## Environment
 
-The API container expects these environment variables:
+All secrets are managed via a `.env` file in this directory. Docker Compose
+reads it automatically.
 
-- `DATABASE_URL`: Postgres connection string.
-- `MINIO_ENDPOINT`: MinIO HTTP endpoint, for example `http://minio:9000`.
-- `MINIO_ACCESS_KEY`: MinIO access key.
-- `MINIO_SECRET_KEY`: MinIO secret key.
-- `MINIO_BUCKET`: bucket name for uploaded skill packages. The compose default
-  is `skills`.
+```bash
+cp .env.example .env   # then edit passwords
+```
+
+| Variable | Description |
+|----------|-------------|
+| `POSTGRES_USER` | Postgres username |
+| `POSTGRES_PASSWORD` | Postgres password |
+| `POSTGRES_DB` | Database name |
+| `MINIO_ROOT_USER` | MinIO admin username |
+| `MINIO_ROOT_PASSWORD` | MinIO admin password |
+| `MINIO_BUCKET` | Object storage bucket name |
+
+The API container derives its connection strings from these variables (see
+`docker-compose.yml`). Do **not** commit `.env` — only `.env.example` is
+tracked in git.
 
 ## Docker Compose
 
@@ -62,3 +73,29 @@ Skill packages are stored in the configured bucket using this key shape:
 
 Re-publishing a skill writes a new object and keeps the previous object. The
 database row stores the current `storage_key` and one `previous_storage_key`.
+
+## Sharing the server with other developers on the LAN
+
+The compose stack binds `api` to `0.0.0.0:3100`, so any machine that can reach
+the host over the network can publish, install, and delete skills against this
+single server. Other developers do NOT need to run their own `docker compose`
+— they only run their own Felina app and point it at this host.
+
+Host-side checklist:
+
+1. Keep `docker compose up` running on the host that owns the server.
+2. Find the host's LAN IPv4 address (Windows: `ipconfig` → look at the active
+   Wi-Fi / Ethernet adapter). The LAN IP can change when switching networks.
+3. If inbound 3100 is blocked, allow it through the host firewall. Docker
+   Desktop's vEthernet bridge usually handles this, but verify with a peer.
+4. Sanity check from another machine:
+
+   ```bash
+   curl http://<host-lan-ip>:3100/api/skills
+   ```
+
+   A `200` with a JSON array means the server is reachable.
+
+Each remote developer then opens Felina → Settings → Market Server URL and
+sets it to `http://<host-lan-ip>:3100`. Their Hub page, publish button, and
+install actions will all hit the shared server.
