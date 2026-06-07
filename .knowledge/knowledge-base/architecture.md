@@ -156,3 +156,23 @@ Felina 的高層架構原則。用途是協助未來 agent 做出正確技術判
 - `semantic_hash` 對整個檔案（frontmatter + body）算 hash，agent 端 frontmatter 與 canonical 不同 → 即使 body 相同 hash 也不同。pull 後存的 hash 應基於 agent 端原始內容，才能讓下次 drift scan 正確比對。
 - `copy_bundled_siblings` 是通用複製，需要在其後由 agent-specific 清理邏輯移除已解析的附屬檔案。
 **Keywords:** canonical, agent, skill, frontmatter, body, pull, import, format, hash, drift, bundled siblings, openai.yaml
+
+---
+
+## Hub 定位與已安裝判定：一次性來源，directory hash 比對
+**ID:** kb-architecture-hub-install-identity
+**Date:** 2026-06-05
+**Updated:** 2026-06-05
+**Status:** active
+**Confidence:** confirmed
+**Source:** Session 1 (2026-06-05) handoff; local-skill-market-prototype change 設計討論
+**Context:** Hub 頁面需要判定 market skill 是否已安裝於本地。先嘗試 `x_felina_hub_id` frontmatter origin marker 方案，被使用者指出邏輯漏洞後收斂。
+**Applies when:** 設計 Hub/marketplace 與 local skill 之間的關聯、判定、同步機制時。
+**Lesson:**
+- Hub 定位 = 公司內部 Skill 分享平台，安裝 = 複製一份到 local，之後各自獨立。不存在同步關係——Hub 不是 Git remote，不做 pull/push/drift。
+- 不使用 origin marker（如 `x_felina_hub_id` 注入 frontmatter）：(a) 安裝後使用者修改了 skill，marker 還在但內容已不同，「已安裝」狀態誤導；(b) marker 會汙染 frontmatter，出現在 Skill page 內容顯示和 fan-out target 匯出中；(c) Hub 與 local 可能同名但不同 skill，marker-based 比對不能用 name，最終又回到需要比對內容。
+- 正確方案：`directory_hash` = SHA-256(semantic_hash(SKILL.md) + sorted sibling hashes)。Server 端上傳時算 hash 回傳 `contentHash`；安裝時寫 hash 到 sync-meta `directoryHash`；Hub 頁面以 name + hash 雙重比對：同名 + hash 相同 → 「已是最新」，其餘 → 「安裝」。
+- `directoryHash` 必須在安裝時和 save 時都更新，否則本地修改後 hash 過期會誤顯示「已是最新」。
+- hash 範圍是整個 skill 目錄（SKILL.md + sibling files），不只 SKILL.md——否則 sibling 有差異時會誤判。
+**Keywords:** hub, marketplace, install, identity, origin marker, directory hash, semantic hash, sibling, content hash, sync-meta, x_felina_hub_id
+**Related:** kb-architecture-skill-source-of-truth, kb-dev-docs-hash-migration-sidecar

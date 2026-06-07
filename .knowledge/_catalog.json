@@ -1,5 +1,5 @@
 {
-  "lastUpdated": "2026-05-29",
+  "lastUpdated": "2026-06-05",
   "entries": [
     {
       "id": "kb-architecture-local-only-boundary",
@@ -276,6 +276,42 @@
       "file": "knowledge-base/dev-docs.md",
       "anchor": "push-preview-sibling-check",
       "updated": "2026-05-29"
+    },
+    {
+      "id": "kb-tauri-reqwest-blocking-deadlock",
+      "title": "Tauri async command 中禁用 reqwest::blocking",
+      "type": "knowledge",
+      "status": "active",
+      "confidence": "confirmed",
+      "keywords": ["tauri", "reqwest", "blocking", "deadlock", "tokio", "async", "spawn_blocking", "HTTP"],
+      "appliesWhen": "在 #[tauri::command] pub async fn 中需要發 HTTP 請求時",
+      "file": "knowledge-base/tauri.md",
+      "anchor": "tauri-async-command-reqwest-blocking-deadlock",
+      "updated": "2026-06-05"
+    },
+    {
+      "id": "kb-tauri-csp-connect-src",
+      "title": "Tauri CSP connect-src 對外部 localhost URL 的要求",
+      "type": "knowledge",
+      "status": "active",
+      "confidence": "confirmed",
+      "keywords": ["tauri", "CSP", "connect-src", "fetch", "webview", "localhost", "CORS", "security"],
+      "appliesWhen": "前端 webview 需要對非 self 的 URL 發 fetch/XHR 請求時",
+      "file": "knowledge-base/tauri.md",
+      "anchor": "tauri-csp-connect-src",
+      "updated": "2026-06-05"
+    },
+    {
+      "id": "kb-architecture-hub-install-identity",
+      "title": "Hub 定位與已安裝判定：一次性來源，directory hash 比對",
+      "type": "knowledge",
+      "status": "active",
+      "confidence": "confirmed",
+      "keywords": ["hub", "marketplace", "install", "identity", "origin marker", "directory hash", "semantic hash", "sibling", "content hash", "sync-meta"],
+      "appliesWhen": "設計 Hub/marketplace 與 local skill 之間的關聯、判定、同步機制時",
+      "file": "knowledge-base/architecture.md",
+      "anchor": "hub-install-identity",
+      "updated": "2026-06-05"
     }
   ]
 }

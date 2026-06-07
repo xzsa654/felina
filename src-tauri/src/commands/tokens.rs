@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
+#[cfg(not(target_os = "windows"))]
 use std::process::Command;
 use std::sync::{Arc, Mutex};
 use tauri::State;
@@ -597,7 +598,7 @@ fn reveal_path(path: &Path) -> Result<(), String> {
         .map_err(|e| format!("Cannot reveal transcript: {}", e))?;
 
     #[cfg(target_os = "windows")]
-    let status = Command::new("explorer")
+    let status = crate::tokens::no_window_command("explorer")
         .arg(format!("/select,{}", path.display()))
         .status()
         .map_err(|e| format!("Cannot reveal transcript: {}", e))?;
