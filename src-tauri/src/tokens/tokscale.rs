@@ -1,7 +1,5 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
-use std::process::Command;
-
 use serde_json::Value;
 
 use crate::tokens::reconciliation::{
@@ -130,14 +128,7 @@ fn run_tokscale_command(
     base_args: &[String],
     report_args: &[String],
 ) -> std::io::Result<std::process::Output> {
-    #[cfg(target_os = "windows")]
-    let mut command = {
-        let mut cmd = Command::new("cmd");
-        cmd.arg("/C").arg(bin);
-        cmd
-    };
-    #[cfg(not(target_os = "windows"))]
-    let mut command = Command::new(bin);
+    let mut command = crate::tokens::no_window_command(bin.to_str().unwrap_or("tokscale"));
     for arg in base_args {
         command.arg(arg);
     }
