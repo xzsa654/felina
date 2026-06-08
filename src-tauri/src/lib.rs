@@ -196,6 +196,7 @@ pub fn run() {
             commands::hub_auth::login_hub_account,
             commands::hub_auth::get_hub_auth_status,
             commands::hub_auth::logout_hub_account,
+            commands::hub_auth::read_hub_access_token,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

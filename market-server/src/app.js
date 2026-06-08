@@ -145,8 +145,12 @@ export async function createApp({ db = defaultDb, storage = defaultStorage, auth
       }
       throw err
     }
-    const token = auth.signToken({ sub: user.id, email: user.email })
-    return { token, email: user.email }
+    const accessToken = auth.signToken({ sub: user.id, email: user.email })
+    const refreshToken = auth.generateRefreshToken()
+    const tokenHash = auth.hashRefreshToken(refreshToken)
+    const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
+    await db.createRefreshToken({ userId: user.id, tokenHash, expiresAt })
+    return { accessToken, refreshToken, email: user.email }
   })
 
   fastify.post('/auth/login', { config: authRateLimit }, async (request, reply) => {
@@ -162,11 +166,74 @@ export async function createApp({ db = defaultDb, storage = defaultStorage, auth
     if (!valid) {
       return reply.code(401).send({ error: 'invalid credentials' })
     }
-    const token = auth.signToken({ sub: user.id, email: user.email })
-    return { token, email: user.email }
+    const accessToken = auth.signToken({ sub: user.id, email: user.email })
+    const refreshToken = auth.generateRefreshToken()
+    const tokenHash = auth.hashRefreshToken(refreshToken)
+    const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
+    await db.createRefreshToken({ userId: user.id, tokenHash, expiresAt })
+    return { accessToken, refreshToken, email: user.email }
   })
 
-  fastify.get('/api/skills', async () => db.listSkills())
+  fastify.post('/auth/refresh', { config: authRateLimit }, async (request, reply) => {
+    const { refreshToken } = request.body ?? {}
+    if (!refreshToken || typeof refreshToken !== 'string') {
+      return reply.code(401).send({ error: 'refresh token is required' })
+    }
+    const tokenHash = auth.hashRefreshToken(refreshToken)
+    const stored = await db.findRefreshToken(tokenHash)
+    if (!stored) {
+      return reply.code(401).send({ error: 'invalid refresh token' })
+    }
+    if (new Date(stored.expires_at) <= new Date()) {
+      await db.deleteRefreshToken(tokenHash)
+      return reply.code(401).send({ error: 'refresh token expired' })
+    }
+    await db.deleteRefreshToken(tokenHash)
+    const accessToken = auth.signToken({ sub: stored.user_id, email: stored.email })
+    const newRefreshToken = auth.generateRefreshToken()
+    const newTokenHash = auth.hashRefreshToken(newRefreshToken)
+    const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
+    await db.createRefreshToken({ userId: stored.user_id, tokenHash: newTokenHash, expiresAt })
+    return { accessToken, refreshToken: newRefreshToken, email: stored.email }
+  })
+
+  fastify.post('/auth/logout', async (request, reply) => {
+    const { refreshToken } = request.body ?? {}
+    if (refreshToken && typeof refreshToken === 'string') {
+      const tokenHash = auth.hashRefreshToken(refreshToken)
+      await db.deleteRefreshToken(tokenHash)
+      return { success: true }
+    }
+    const header = request.headers.authorization
+    if (header && header.startsWith('Bearer ')) {
+      try {
+        const payload = auth.verifyToken(header.slice(7))
+        await db.deleteAllRefreshTokens(payload.sub)
+      } catch {
+        // invalid token — still return 200
+      }
+    }
+    return { success: true }
+  })
+
+  fastify.get('/api/skills', async (request) => {
+    const skills = await db.listSkills()
+    let userEmail = null
+    const header = request.headers.authorization
+    if (header && header.startsWith('Bearer ')) {
+      try {
+        const payload = auth.verifyToken(header.slice(7))
+        userEmail = payload.email
+      } catch {
+        // invalid/expired token — treat as unauthenticated
+      }
+    }
+    return skills.map((s) => ({
+      ...s,
+      author: s.author != null && s.author.includes('@') ? s.author.split('@')[0] : s.author,
+      isOwner: userEmail != null && s.author === userEmail,
+    }))
+  })
 
   fastify.get('/api/skills/:name/skill-md', async (request, reply) => {
     const { name } = request.params

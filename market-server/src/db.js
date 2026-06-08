@@ -101,6 +101,33 @@ export function createDb({ pool = new Pool({ connectionString: process.env.DATAB
       return result.rows[0] ?? null
     },
 
+    async createRefreshToken({ userId, tokenHash, expiresAt }) {
+      const result = await pool.query(`
+        INSERT INTO refresh_tokens (user_id, token_hash, expires_at)
+        VALUES ($1, $2, $3)
+        RETURNING id, user_id, token_hash, expires_at, created_at
+      `, [userId, tokenHash, expiresAt])
+      return result.rows[0]
+    },
+
+    async findRefreshToken(tokenHash) {
+      const result = await pool.query(`
+        SELECT rt.id, rt.user_id, rt.token_hash, rt.expires_at, rt.created_at, u.email
+        FROM refresh_tokens rt
+        JOIN users u ON u.id = rt.user_id
+        WHERE rt.token_hash = $1
+      `, [tokenHash])
+      return result.rows[0] ?? null
+    },
+
+    async deleteRefreshToken(tokenHash) {
+      await pool.query(`DELETE FROM refresh_tokens WHERE token_hash = $1`, [tokenHash])
+    },
+
+    async deleteAllRefreshTokens(userId) {
+      await pool.query(`DELETE FROM refresh_tokens WHERE user_id = $1`, [userId])
+    },
+
     async softDeleteSkill(name) {
       const update = await pool.query(`
         UPDATE skills
@@ -125,3 +152,7 @@ export const upsertSkill = db.upsertSkill
 export const softDeleteSkill = db.softDeleteSkill
 export const createUser = db.createUser
 export const getUserByEmail = db.getUserByEmail
+export const createRefreshToken = db.createRefreshToken
+export const findRefreshToken = db.findRefreshToken
+export const deleteRefreshToken = db.deleteRefreshToken
+export const deleteAllRefreshTokens = db.deleteAllRefreshTokens

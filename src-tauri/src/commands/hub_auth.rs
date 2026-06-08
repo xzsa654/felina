@@ -3,12 +3,14 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::fs;
 
-const HUB_TOKEN_KEY: &str = "hubToken";
+const HUB_ACCESS_TOKEN_KEY: &str = "hubAccessToken";
+const HUB_REFRESH_TOKEN_KEY: &str = "hubRefreshToken";
 const HUB_EMAIL_KEY: &str = "hubEmail";
 
 #[derive(Serialize, Deserialize)]
 pub struct HubAuthResult {
-    pub token: String,
+    pub access_token: String,
+    pub refresh_token: String,
     pub email: String,
 }
 
@@ -18,8 +20,10 @@ pub struct HubAuthStatus {
 }
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct AuthResponse {
-    token: String,
+    access_token: String,
+    refresh_token: String,
     email: String,
 }
 
@@ -47,20 +51,35 @@ fn write_settings(root: &Value) -> Result<(), String> {
     fs::write(&path, pretty).map_err(|e| format!("failed to write settings.json: {e}"))
 }
 
-fn save_auth(token: &str, email: &str) -> Result<(), String> {
+pub fn save_auth_public(access_token: &str, refresh_token: &str, email: &str) -> Result<(), String> {
+    save_auth(access_token, refresh_token, email)
+}
+
+fn save_auth(access_token: &str, refresh_token: &str, email: &str) -> Result<(), String> {
     let mut root = read_settings()?;
     let obj = root
         .as_object_mut()
         .ok_or("settings.json root must be an object")?;
-    obj.insert(HUB_TOKEN_KEY.to_string(), Value::String(token.to_string()));
+    obj.insert(HUB_ACCESS_TOKEN_KEY.to_string(), Value::String(access_token.to_string()));
+    obj.insert(HUB_REFRESH_TOKEN_KEY.to_string(), Value::String(refresh_token.to_string()));
     obj.insert(HUB_EMAIL_KEY.to_string(), Value::String(email.to_string()));
     write_settings(&root)
 }
 
-pub fn read_hub_token() -> Result<Option<String>, String> {
+#[tauri::command]
+pub fn read_hub_access_token() -> Result<Option<String>, String> {
     let root = read_settings()?;
     Ok(root
-        .get(HUB_TOKEN_KEY)
+        .get(HUB_ACCESS_TOKEN_KEY)
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string()))
+}
+
+pub fn read_hub_refresh_token() -> Result<Option<String>, String> {
+    let root = read_settings()?;
+    Ok(root
+        .get(HUB_REFRESH_TOKEN_KEY)
         .and_then(|v| v.as_str())
         .filter(|s| !s.is_empty())
         .map(|s| s.to_string()))
@@ -96,9 +115,10 @@ async fn auth_request(
 
     let auth: AuthResponse =
         serde_json::from_str(&body).map_err(|e| format!("parse error: {e}"))?;
-    save_auth(&auth.token, &auth.email)?;
+    save_auth(&auth.access_token, &auth.refresh_token, &auth.email)?;
     Ok(HubAuthResult {
-        token: auth.token,
+        access_token: auth.access_token,
+        refresh_token: auth.refresh_token,
         email: auth.email,
     })
 }
@@ -127,7 +147,7 @@ pub fn get_hub_auth_status() -> Result<Option<HubAuthStatus>, String> {
         .and_then(|v| v.as_str())
         .filter(|s| !s.is_empty());
     let token = root
-        .get(HUB_TOKEN_KEY)
+        .get(HUB_ACCESS_TOKEN_KEY)
         .and_then(|v| v.as_str())
         .filter(|s| !s.is_empty());
     match (email, token) {
@@ -142,7 +162,8 @@ pub fn get_hub_auth_status() -> Result<Option<HubAuthStatus>, String> {
 pub fn logout_hub_account() -> Result<(), String> {
     let mut root = read_settings()?;
     if let Some(obj) = root.as_object_mut() {
-        obj.remove(HUB_TOKEN_KEY);
+        obj.remove(HUB_ACCESS_TOKEN_KEY);
+        obj.remove(HUB_REFRESH_TOKEN_KEY);
         obj.remove(HUB_EMAIL_KEY);
     }
     write_settings(&root)
