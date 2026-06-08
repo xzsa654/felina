@@ -132,7 +132,7 @@ test('GET /api/skills/:name/download distinguishes missing, deleted, and live sk
 
 test('PUT /api/skills/:name returns 401 without auth token', async () => {
   const app = await createApp({
-    db: { async upsertSkill() {} },
+    db: { async getSkill() { return null }, async upsertSkill() {} },
     storage: { async putObject() {} },
   })
   const body = multipartPayload(Buffer.from('not-a-tarball'))
@@ -142,14 +142,14 @@ test('PUT /api/skills/:name returns 401 without auth token', async () => {
 
 test('multipart upload defaults to 10MB limit', async () => {
   const app = await createApp({
-    db: { async upsertSkill() {} },
+    db: { async getSkill() { return null }, async upsertSkill() {} },
     storage: { async putObject() {} },
   })
   const prev = process.env.UPLOAD_MAX_SIZE_MB
   delete process.env.UPLOAD_MAX_SIZE_MB
   try {
     const bigApp = await createApp({
-      db: { async upsertSkill() {} },
+      db: { async getSkill() { return null }, async upsertSkill() {} },
       storage: { async putObject() {} },
     })
     const bigPayload = Buffer.alloc(11 * 1024 * 1024)
@@ -168,7 +168,7 @@ test('multipart upload defaults to 10MB limit', async () => {
 
 test('PUT /api/skills/:name rejects invalid content hash format', async () => {
   const app = await createApp({
-    db: { async upsertSkill() {} },
+    db: { async getSkill() { return null }, async upsertSkill() {} },
     storage: { async putObject() {} },
   })
   const body = multipartPayload(Buffer.from('not-a-tarball'))
@@ -186,7 +186,7 @@ test('PUT /api/skills/:name accepts valid 64-hex content hash', async () => {
   const body = multipartPayload(tarball)
   const validHash = 'a'.repeat(64)
   const app = await createApp({
-    db: { async upsertSkill(v) { return { ...v, updatedAt: '2026-01-01' } } },
+    db: { async getSkill() { return null }, async upsertSkill(v) { return { ...v, updatedAt: '2026-01-01' } } },
     storage: { async putObject() {} },
     randomUuid: () => '00000000-0000-4000-8000-000000000000',
   })
@@ -201,7 +201,7 @@ test('PUT /api/skills/:name accepts valid 64-hex content hash', async () => {
 test('PUT /api/skills/:name validates name and content hash before writes', async () => {
   const writes = []
   const app = await createApp({
-    db: { async upsertSkill(value) { writes.push(['db', value]) } },
+    db: { async getSkill() { return null }, async upsertSkill(value) { writes.push(['db', value]) } },
     storage: { async putObject(key, buffer) { writes.push(['storage', key, buffer]) } },
   })
   const body = multipartPayload(Buffer.from('not-a-tarball'))
@@ -229,6 +229,7 @@ description: Automated code review skill
   const writes = []
   const app = await createApp({
     db: {
+      async getSkill() { return null },
       async upsertSkill(value) {
         writes.push(['db', value])
         return { ...value, updatedAt: '2026-06-05T07:00:00.000Z' }
@@ -271,7 +272,7 @@ test('PUT /api/skills/:name rejects packages without matching top-level SKILL.md
   const body = multipartPayload(tarball)
   const writes = []
   const app = await createApp({
-    db: { async upsertSkill(value) { writes.push(['db', value]) } },
+    db: { async getSkill() { return null }, async upsertSkill(value) { writes.push(['db', value]) } },
     storage: { async putObject(key, buffer) { writes.push(['storage', key, buffer]) } },
   })
 
@@ -688,6 +689,7 @@ test('PUT /api/skills/:name deletes previous storage object on upsert', async ()
   let deletedKey = null
   const app = await createApp({
     db: {
+      async getSkill() { return null },
       async upsertSkill(v) { return { ...v, previousStorageKey: 'code-review/old-uuid.tar.gz', updatedAt: '2026-01-01' } },
     },
     storage: {
@@ -711,6 +713,7 @@ test('PUT /api/skills/:name does not delete when no previous storage key', async
   let deletedKey = null
   const app = await createApp({
     db: {
+      async getSkill() { return null },
       async upsertSkill(v) { return { ...v, previousStorageKey: null, updatedAt: '2026-01-01' } },
     },
     storage: {
@@ -733,12 +736,50 @@ test('PUT /api/skills/:name succeeds even if previous object deletion fails', as
   const body = multipartPayload(tarball)
   const app = await createApp({
     db: {
+      async getSkill() { return null },
       async upsertSkill(v) { return { ...v, previousStorageKey: 'old-key', updatedAt: '2026-01-01' } },
     },
     storage: {
       async putObject() {},
       async deleteObject() { throw new Error('MinIO down') },
     },
+    randomUuid: () => '00000000-0000-4000-8000-000000000000',
+  })
+  const res = await app.inject({
+    method: 'PUT', url: '/api/skills/code-review',
+    headers: { ...body.headers, ...authHeader(), 'x-content-hash': 'a'.repeat(64) },
+    payload: body.payload,
+  })
+  assert.equal(res.statusCode, 200)
+})
+
+test('PUT /api/skills/:name returns 403 when non-author tries to overwrite', async () => {
+  const tarball = await createTarGz([['code-review/SKILL.md', '---\nversion: 1.0.0\n---\n# test']])
+  const body = multipartPayload(tarball)
+  const app = await createApp({
+    db: {
+      async getSkill() { return { author: 'other@corp.local', deleted_at: null } },
+      async upsertSkill(v) { return { ...v, updatedAt: '2026-01-01' } },
+    },
+    storage: { async putObject() {} },
+  })
+  const res = await app.inject({
+    method: 'PUT', url: '/api/skills/code-review',
+    headers: { ...body.headers, ...authHeader(), 'x-content-hash': 'a'.repeat(64) },
+    payload: body.payload,
+  })
+  assert.equal(res.statusCode, 403)
+})
+
+test('PUT /api/skills/:name allows author to overwrite own skill', async () => {
+  const tarball = await createTarGz([['code-review/SKILL.md', '---\nversion: 1.0.0\n---\n# test']])
+  const body = multipartPayload(tarball)
+  const app = await createApp({
+    db: {
+      async getSkill() { return { author: 'alice@corp.local', deleted_at: null } },
+      async upsertSkill(v) { return { ...v, updatedAt: '2026-01-01' } },
+    },
+    storage: { async putObject() {} },
     randomUuid: () => '00000000-0000-4000-8000-000000000000',
   })
   const res = await app.inject({

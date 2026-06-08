@@ -299,6 +299,11 @@ export async function createApp({ db = defaultDb, storage = defaultStorage, auth
       return badRequest(reply, 'invalid content hash format')
     }
 
+    const existing = await db.getSkill(name)
+    if (existing && existing.author && existing.author !== request.user.email && existing.deleted_at === null) {
+      return reply.code(403).send({ error: 'you are not the author of this skill' })
+    }
+
     const file = await request.file()
     if (!file || file.fieldname !== 'package') {
       return badRequest(reply, 'multipart field "package" is required')
