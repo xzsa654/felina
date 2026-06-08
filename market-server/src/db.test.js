@@ -86,6 +86,7 @@ test('upsertSkill overwrites by name and preserves previous storage key', async 
     contentHash: 'content-a',
     tarballHash: 'tar-a',
     storageKey: 'code-review/uuid.tar.gz',
+    previousStorageKey: null,
     updatedAt: '2026-06-05T07:00:00.000Z',
   })
 })

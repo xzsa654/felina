@@ -165,3 +165,72 @@ Conventions, workflows, UI consistency rules, and reusable design-time checklist
 - 同理，`canonical_skills_list` 載入時也需比較 canonical sibling，設 `dirty` + `siblingsDirty` 讓 push badge 出現
 - 未來若有其他 push 附帶檔案（如 manifest），同樣需要加入 preview 比較
 **Keywords:** push, preview, NoOp, sibling, copy_bundled_siblings, dirty, fan-out
+
+---
+
+## React Modal useEffect 不應依賴 inline callback
+**ID:** kb-react-modal-useeffect-inline-callback
+**Date:** 2026-06-08
+**Updated:** 2026-06-08
+**Status:** active
+**Confidence:** confirmed
+**Source:** Session 4 — hub-auth-install-safety e2e 測試時發現
+**Context:** Modal 元件的 useEffect 依賴 `[open, onClose]`，呼叫端傳入 inline arrow function 作為 onClose，導致每次父元件 re-render 時 useEffect 重跑並 auto-focus 第一個 input
+**Applies when:** 任何 Modal/Dialog 元件的 useEffect 有 auto-focus 邏輯且依賴 prop callback 時
+**Lesson:**
+- useEffect 中的 auto-focus 只應在 dialog 開啟時觸發，不應因 callback reference 變化而重跑
+- 修法：用 useRef 保存 callback，useEffect 只依賴 `[open]`
+- 症狀：使用者在非第一個 input 打字時，每輸入一個字元游標跳回第一個 input
+**Keywords:** react, modal, useEffect, focus, inline callback, useRef, auto-focus
+
+---
+
+## Docker Compose restart 不重讀 .env
+**ID:** kb-docker-compose-restart-env
+**Date:** 2026-06-08
+**Updated:** 2026-06-08
+**Status:** active
+**Confidence:** confirmed
+**Source:** Session 4 — market-server JWT_SECRET 補設後 restart 無效
+**Context:** `docker compose restart` 只重啟 container process，不重建 container，因此不會重讀 `.env` 或 `docker-compose.yml` 中的環境變數變更
+**Applies when:** 修改 `.env` 或 `docker-compose.yml` 環境變數後需要生效時
+**Lesson:**
+- `docker compose restart` ≠ 重新載入環境變數，只是 stop + start 同一個 container
+- 要讓 .env 變更生效，需要 `docker compose up <service> -d --force-recreate`
+- 若 Dockerfile 或 source code 也改了，加 `--build`
+**Keywords:** docker, compose, restart, env, force-recreate, environment variable
+
+---
+
+## SQL upsert COALESCE 處理 null 欄位接管
+**ID:** kb-sql-upsert-coalesce-null-takeover
+**Date:** 2026-06-08
+**Updated:** 2026-06-08
+**Status:** active
+**Confidence:** confirmed
+**Source:** Session 4 — market-server author 欄位 legacy null 無法被新 publish 覆寫
+**Context:** `ON CONFLICT DO UPDATE` 刻意不覆蓋 author（保留原始發布者），但 legacy 資料 author=null 時，重新 publish 也無法填入 author
+**Applies when:** upsert SQL 中有「保留原值、不覆蓋」的欄位，且該欄位可能為 null（legacy 資料）時
+**Lesson:**
+- `ON CONFLICT DO UPDATE` 省略某欄位 = 保留舊值，但舊值是 null 時等於永遠 null
+- 修法：`author = COALESCE(skills.author, EXCLUDED.author)` — 有值保留，null 則接管
+- 適用於任何「first-writer-wins but legacy has no writer」的場景
+**Keywords:** sql, upsert, coalesce, null, on conflict, legacy data, author, ownership
+
+---
+
+## Fastify v5 register() 需 await
+**ID:** kb-dev-docs-fastify-v5-await-register
+**Date:** 2026-06-08
+**Updated:** 2026-06-08
+**Status:** active
+**Confidence:** confirmed
+**Source:** Session 5 — market-server-security-hardening，rate-limit plugin 完全不生效
+**Context:** Fastify v5 的 `register()` 不 `await` 時 plugin 不會在 `inject()`/`ready()` 時自動 resolve，導致 plugin hooks 完全缺失
+**Applies when:** 在 Fastify v5 專案中註冊 plugin（rate-limit、cors、multipart 等），且 `createApp` 為 sync function 時
+**Lesson:**
+- Fastify v4 允許 sync `register()` + `inject()` 自動觸發 `ready()` 來 resolve 所有 queued plugins；v5 不再如此
+- 不 `await` 的 `register()` 在 v5 中 plugin 完全不生效：無 response headers、無 hooks、無 decorators
+- 修法：`createApp` 改為 `async function`，每個 `fastify.register(plugin, opts)` 前加 `await`
+- 所有 caller（server.js、test files）必須同步改為 `await createApp()`
+**Keywords:** fastify, v5, register, await, plugin, rate-limit, breaking change, async

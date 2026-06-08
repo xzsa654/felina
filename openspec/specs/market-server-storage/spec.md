@@ -174,3 +174,132 @@ tests:
   - market-server/src/storage.test.js
   - market-server/src/db.test.js
 -->
+
+---
+### Requirement: Old object cleanup on upsert
+
+When a skill package upload (PUT /api/skills/:name) succeeds and the upserted row has a non-null `previous_storage_key`, the server SHALL delete the old MinIO object identified by `previous_storage_key`. Deletion failure SHALL be logged as a warning but SHALL NOT affect the HTTP response to the client.
+
+#### Scenario: Old tarball deleted after update
+
+- **WHEN** a client uploads a new version of skill "code-review" and the previous storage_key was "code-review/old-uuid.tar.gz"
+- **THEN** the server SHALL delete "code-review/old-uuid.tar.gz" from MinIO after the upsert succeeds
+
+
+<!-- @trace
+source: market-server-storage-ops
+updated: 2026-06-08
+code:
+  - market-server/src/app.js
+  - market-server/src/server.js
+  - src/lib/components/hub/HubPage.tsx
+  - market-server/package.json
+  - market-server/src/db.js
+  - src-tauri/src/lib.rs
+  - src/lib/i18n/locales/en.ts
+  - src/lib/i18n/locales/zh-TW.ts
+  - market-server/migrations/003_refresh_tokens.sql
+  - market-server/docker-compose.yml
+  - .knowledge/_catalog.json
+  - market-server/migrations/004_skills_indexes.sql
+  - market-server/src/migrate.js
+  - src-tauri/src/commands/hub_auth.rs
+  - market-server/Dockerfile
+  - market-server/.env.example
+  - src/lib/components/hub/LoginDialog.tsx
+  - src/lib/tauri/commands.ts
+  - .knowledge/knowledge-base/dev-docs.md
+  - market-server/src/auth.js
+  - market-server/src/storage.js
+  - src-tauri/src/commands/market_publish.rs
+tests:
+  - market-server/src/storage.test.js
+  - market-server/src/app.test.js
+  - market-server/src/db.test.js
+-->
+
+---
+### Requirement: Object cleanup on soft delete
+
+When a skill is soft-deleted (DELETE /api/skills/:name), the server SHALL delete the MinIO object identified by the skill's `storage_key`. Deletion failure SHALL be logged as a warning but SHALL NOT affect the HTTP response.
+
+#### Scenario: Tarball deleted on soft delete
+
+- **WHEN** an authorized client deletes skill "code-review" with storage_key "code-review/uuid.tar.gz"
+- **THEN** the server SHALL soft-delete the DB row AND delete "code-review/uuid.tar.gz" from MinIO
+
+
+<!-- @trace
+source: market-server-storage-ops
+updated: 2026-06-08
+code:
+  - market-server/src/app.js
+  - market-server/src/server.js
+  - src/lib/components/hub/HubPage.tsx
+  - market-server/package.json
+  - market-server/src/db.js
+  - src-tauri/src/lib.rs
+  - src/lib/i18n/locales/en.ts
+  - src/lib/i18n/locales/zh-TW.ts
+  - market-server/migrations/003_refresh_tokens.sql
+  - market-server/docker-compose.yml
+  - .knowledge/_catalog.json
+  - market-server/migrations/004_skills_indexes.sql
+  - market-server/src/migrate.js
+  - src-tauri/src/commands/hub_auth.rs
+  - market-server/Dockerfile
+  - market-server/.env.example
+  - src/lib/components/hub/LoginDialog.tsx
+  - src/lib/tauri/commands.ts
+  - .knowledge/knowledge-base/dev-docs.md
+  - market-server/src/auth.js
+  - market-server/src/storage.js
+  - src-tauri/src/commands/market_publish.rs
+tests:
+  - market-server/src/storage.test.js
+  - market-server/src/app.test.js
+  - market-server/src/db.test.js
+-->
+
+---
+### Requirement: Private bucket policy
+
+The market server SHALL set an explicit private bucket policy on the skills bucket during initialization. The policy SHALL deny all anonymous/public read access. The server SHALL apply this policy idempotently on every startup (no error if already set).
+
+#### Scenario: Anonymous access denied
+
+- **GIVEN** the skills bucket has the private policy applied
+- **WHEN** an unauthenticated HTTP request attempts to read an object directly from MinIO
+- **THEN** the request SHALL be denied
+
+<!-- @trace
+source: market-server-storage-ops
+updated: 2026-06-08
+code:
+  - market-server/src/app.js
+  - market-server/src/server.js
+  - src/lib/components/hub/HubPage.tsx
+  - market-server/package.json
+  - market-server/src/db.js
+  - src-tauri/src/lib.rs
+  - src/lib/i18n/locales/en.ts
+  - src/lib/i18n/locales/zh-TW.ts
+  - market-server/migrations/003_refresh_tokens.sql
+  - market-server/docker-compose.yml
+  - .knowledge/_catalog.json
+  - market-server/migrations/004_skills_indexes.sql
+  - market-server/src/migrate.js
+  - src-tauri/src/commands/hub_auth.rs
+  - market-server/Dockerfile
+  - market-server/.env.example
+  - src/lib/components/hub/LoginDialog.tsx
+  - src/lib/tauri/commands.ts
+  - .knowledge/knowledge-base/dev-docs.md
+  - market-server/src/auth.js
+  - market-server/src/storage.js
+  - src-tauri/src/commands/market_publish.rs
+tests:
+  - market-server/src/storage.test.js
+  - market-server/src/app.test.js
+  - market-server/src/db.test.js
+-->

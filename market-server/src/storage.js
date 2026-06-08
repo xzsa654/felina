@@ -42,6 +42,17 @@ export function createStorage({ env = process.env, ClientCtor = Client } = {}) {
       if (!exists) {
         await client.makeBucket(bucket)
       }
+      const policy = {
+        Version: '2012-10-17',
+        Statement: [{
+          Effect: 'Deny',
+          Principal: '*',
+          Action: ['s3:GetObject'],
+          Resource: [`arn:aws:s3:::${bucket}/*`],
+          Condition: { StringEquals: { 's3:authType': 'REST-ANONYMOUS' } },
+        }],
+      }
+      await client.setBucketPolicy(bucket, JSON.stringify(policy))
     },
 
     async putObject(key, buffer) {
