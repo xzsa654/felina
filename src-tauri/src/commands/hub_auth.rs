@@ -6,6 +6,7 @@ use std::fs;
 const HUB_ACCESS_TOKEN_KEY: &str = "hubAccessToken";
 const HUB_REFRESH_TOKEN_KEY: &str = "hubRefreshToken";
 const HUB_EMAIL_KEY: &str = "hubEmail";
+const HUB_REMEMBER_ME_KEY: &str = "hubRememberMe";
 
 #[derive(Serialize, Deserialize)]
 pub struct HubAuthResult {
@@ -52,10 +53,10 @@ fn write_settings(root: &Value) -> Result<(), String> {
 }
 
 pub fn save_auth_public(access_token: &str, refresh_token: &str, email: &str) -> Result<(), String> {
-    save_auth(access_token, refresh_token, email)
+    save_auth(access_token, refresh_token, email, true)
 }
 
-fn save_auth(access_token: &str, refresh_token: &str, email: &str) -> Result<(), String> {
+fn save_auth(access_token: &str, refresh_token: &str, email: &str, remember_me: bool) -> Result<(), String> {
     let mut root = read_settings()?;
     let obj = root
         .as_object_mut()
@@ -63,6 +64,7 @@ fn save_auth(access_token: &str, refresh_token: &str, email: &str) -> Result<(),
     obj.insert(HUB_ACCESS_TOKEN_KEY.to_string(), Value::String(access_token.to_string()));
     obj.insert(HUB_REFRESH_TOKEN_KEY.to_string(), Value::String(refresh_token.to_string()));
     obj.insert(HUB_EMAIL_KEY.to_string(), Value::String(email.to_string()));
+    obj.insert(HUB_REMEMBER_ME_KEY.to_string(), Value::Bool(remember_me));
     write_settings(&root)
 }
 
@@ -89,6 +91,7 @@ async fn auth_request(
     endpoint: &str,
     email: &str,
     password: &str,
+    remember_me: bool,
 ) -> Result<HubAuthResult, String> {
     let base = super::market_server::get_market_server_url()?;
     let url = format!("{}/{}", base.trim_end_matches('/'), endpoint);
@@ -115,7 +118,7 @@ async fn auth_request(
 
     let auth: AuthResponse =
         serde_json::from_str(&body).map_err(|e| format!("parse error: {e}"))?;
-    save_auth(&auth.access_token, &auth.refresh_token, &auth.email)?;
+    save_auth(&auth.access_token, &auth.refresh_token, &auth.email, remember_me)?;
     Ok(HubAuthResult {
         access_token: auth.access_token,
         refresh_token: auth.refresh_token,
@@ -128,20 +131,29 @@ pub async fn register_hub_account(
     email: String,
     password: String,
 ) -> Result<HubAuthResult, String> {
-    auth_request("auth/register", &email, &password).await
+    auth_request("auth/register", &email, &password, true).await
 }
 
 #[tauri::command]
 pub async fn login_hub_account(
     email: String,
     password: String,
+    remember_me: bool,
 ) -> Result<HubAuthResult, String> {
-    auth_request("auth/login", &email, &password).await
+    auth_request("auth/login", &email, &password, remember_me).await
 }
 
 #[tauri::command]
 pub fn get_hub_auth_status() -> Result<Option<HubAuthStatus>, String> {
     let root = read_settings()?;
+    let remember = root
+        .get(HUB_REMEMBER_ME_KEY)
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
+    if !remember {
+        logout_hub_account()?;
+        return Ok(None);
+    }
     let email = root
         .get(HUB_EMAIL_KEY)
         .and_then(|v| v.as_str())
@@ -165,6 +177,7 @@ pub fn logout_hub_account() -> Result<(), String> {
         obj.remove(HUB_ACCESS_TOKEN_KEY);
         obj.remove(HUB_REFRESH_TOKEN_KEY);
         obj.remove(HUB_EMAIL_KEY);
+        obj.remove(HUB_REMEMBER_ME_KEY);
     }
     write_settings(&root)
 }
