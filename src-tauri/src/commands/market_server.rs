@@ -9,7 +9,7 @@ use serde_json::Value;
 use std::fs;
 
 const SETTINGS_KEY: &str = "marketServerUrl";
-pub const DEFAULT_URL: &str = "http://localhost:3100";
+pub const DEFAULT_URL: &str = "http://192.168.16.72:9100";
 
 /// Return the persisted market server base URL, or the default if unset.
 /// Always returns a value with no trailing slash so callers can concatenate
