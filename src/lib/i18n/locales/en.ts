@@ -810,6 +810,37 @@ const en = {
       success: "Published {name}",
       failure: "Publish failed: {detail}",
     },
+    auth: {
+      login: "Login",
+      register: "Register",
+      logout: "Logout",
+      email: "Email",
+      password: "Password",
+      loginRequired: "Login required to publish",
+      registerSuccess: "Account created",
+      loginSuccess: "Logged in",
+      emailExists: "Email already registered",
+      invalidCredentials: "Invalid email or password",
+      sessionExpired: "Session expired, please log in again",
+      loggedInAs: "Logged in as {email}",
+    },
+    confirm: {
+      title: "Confirm Install",
+      overwriteWarning: "Installing will overwrite the local version",
+      author: "Author",
+      updatedAt: "Updated",
+      version: "Version",
+    },
+    uninstall: {
+      button: "Uninstall",
+      confirm: "Are you sure you want to remove {name}? You will need to reinstall it.",
+      success: "Uninstalled {name}",
+    },
+    delete: {
+      button: "Remove from Hub",
+      confirm: "Are you sure you want to remove {name} from the Hub? Others will no longer be able to install it.",
+      success: "Removed {name} from Hub",
+    },
   },
 };
 

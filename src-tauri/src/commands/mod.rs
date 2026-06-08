@@ -23,6 +23,7 @@ pub mod known_projects;
 pub mod skill_fields;
 pub mod skill_import;
 pub mod skill_library;
+pub mod hub_auth;
 pub mod market_install;
 pub mod market_publish;
 pub mod market_server;

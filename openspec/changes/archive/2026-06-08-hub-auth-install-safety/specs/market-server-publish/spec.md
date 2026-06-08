@@ -1,10 +1,4 @@
-# market-server-publish Specification
-
-## Purpose
-
-TBD - created by archiving change 'hub-publish-enablement'. Update Purpose after archive.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Skill Package Upload
 
@@ -55,39 +49,6 @@ The market server SHALL accept skill package uploads via PUT /api/skills/:name. 
 - **WHEN** a client PUT /api/skills/.. or /api/skills/ (empty) or /api/skills/has%20space
 - **THEN** the server SHALL respond HTTP 400 Bad Request and SHALL NOT write to MinIO or Postgres
 
-
-<!-- @trace
-source: hub-auth-install-safety
-updated: 2026-06-08
-code:
-  - src/lib/i18n/locales/en.ts
-  - src/lib/i18n/locales/zh-TW.ts
-  - market-server/src/db.js
-  - market-server/docker-compose.yml
-  - market-server/dev.ps1
-  - src-tauri/src/commands/mod.rs
-  - src/lib/tauri/commands.ts
-  - src-tauri/src/commands/market_install.rs
-  - src/lib/components/hub/MarketSkillList.tsx
-  - market-server/package.json
-  - market-server/.env.example
-  - src/lib/components/hub/LoginDialog.tsx
-  - src-tauri/src/commands/market_publish.rs
-  - src/lib/components/hub/HubPage.tsx
-  - src/lib/components/hub/MarketSkillPreview.tsx
-  - src/lib/components/hub/AccountDropdown.tsx
-  - market-server/src/auth.js
-  - market-server/migrations/002_auth.sql
-  - market-server/src/app.js
-  - src/lib/components/shared/Modal.tsx
-  - src-tauri/src/lib.rs
-  - src-tauri/src/commands/hub_auth.rs
-tests:
-  - market-server/src/db.test.js
-  - market-server/src/app.test.js
--->
-
----
 ### Requirement: Skill Soft Delete
 
 The market server SHALL accept skill deletion via DELETE /api/skills/:name. The request SHALL include a valid JWT in the `Authorization: Bearer <token>` header; requests without a valid token SHALL be rejected with 401. Deletion SHALL be implemented as a soft delete by setting deleted_at = now() on the matching row. The server SHALL enforce ownership: if the skill row has a non-NULL `author` field and the authenticated email does not match the `author`, the server SHALL respond 403 with an error message identifying the original author. If the skill row has a NULL `author` (legacy row published before auth was added), the delete SHALL be allowed. The MinIO objects SHALL NOT be deleted.
@@ -116,34 +77,3 @@ The market server SHALL accept skill deletion via DELETE /api/skills/:name. The 
 
 - **WHEN** a client DELETE /api/skills/code-review with a valid Bearer token and no row matches the name
 - **THEN** the server SHALL respond HTTP 404 Not Found
-
-<!-- @trace
-source: hub-auth-install-safety
-updated: 2026-06-08
-code:
-  - src/lib/i18n/locales/en.ts
-  - src/lib/i18n/locales/zh-TW.ts
-  - market-server/src/db.js
-  - market-server/docker-compose.yml
-  - market-server/dev.ps1
-  - src-tauri/src/commands/mod.rs
-  - src/lib/tauri/commands.ts
-  - src-tauri/src/commands/market_install.rs
-  - src/lib/components/hub/MarketSkillList.tsx
-  - market-server/package.json
-  - market-server/.env.example
-  - src/lib/components/hub/LoginDialog.tsx
-  - src-tauri/src/commands/market_publish.rs
-  - src/lib/components/hub/HubPage.tsx
-  - src/lib/components/hub/MarketSkillPreview.tsx
-  - src/lib/components/hub/AccountDropdown.tsx
-  - market-server/src/auth.js
-  - market-server/migrations/002_auth.sql
-  - market-server/src/app.js
-  - src/lib/components/shared/Modal.tsx
-  - src-tauri/src/lib.rs
-  - src-tauri/src/commands/hub_auth.rs
-tests:
-  - market-server/src/db.test.js
-  - market-server/src/app.test.js
--->

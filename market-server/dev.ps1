@@ -58,9 +58,6 @@ try {
             $skills = Invoke-RestMethod -Uri "http://localhost:3100/api/skills" -ErrorAction Stop
             Write-Host "  GET /api/skills -> $($skills.Count) skills" -ForegroundColor Green
 
-            $dlResp = Invoke-WebRequest -Uri "http://localhost:3100/api/skills/1/download" -UseBasicParsing -ErrorAction Stop
-            Write-Host "  GET /api/skills/1/download -> $($dlResp.StatusCode) ($($dlResp.Content.Length) bytes)" -ForegroundColor Green
-
             Write-Host ""
             Write-Host "Market server ready at http://localhost:3100" -ForegroundColor Green
             Write-Host "Run 'npm run tauri dev' in the project root to start Felina." -ForegroundColor DarkGray

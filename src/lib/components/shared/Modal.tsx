@@ -34,6 +34,8 @@ export default function Modal({
   children,
 }: Props) {
   const contentRef = useRef<HTMLDivElement | null>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
 
   useEffect(() => {
     if (!open) return;
@@ -41,11 +43,6 @@ export default function Modal({
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
 
-    // Auto-focus the first text input only. Action-only dialogs (no input)
-    // intentionally do NOT auto-focus a button — programmatic .focus() on a
-    // button shows the browser's focus ring, which reads as visual noise on
-    // a dialog the user just opened with the mouse. Tab navigation still
-    // works because the container itself is focusable (tabindex=-1).
     const initialFocus = contentRef.current?.querySelector<HTMLElement>(
       INITIAL_FOCUS_SELECTOR,
     );
@@ -58,7 +55,7 @@ export default function Modal({
     function handleKeydown(e: KeyboardEvent) {
       if (e.key === "Escape") {
         e.stopPropagation();
-        onClose();
+        onCloseRef.current();
         return;
       }
       if (e.key !== "Tab") return;
@@ -83,14 +80,8 @@ export default function Modal({
     return () => {
       document.removeEventListener("keydown", handleKeydown);
       document.body.style.overflow = prevOverflow;
-      // Intentionally NOT returning focus to previouslyFocusedRef. Even with
-      // :focus-visible CSS in place, programmatic .focus() on a trigger
-      // button can leave a visible focus ring under Chromium's modality
-      // heuristic — user-reported regression. Letting focus fall naturally
-      // to document.body (because the focused descendant was unmounted)
-      // matches the pre-migration UX. Keyboard users can re-Tab from body.
     };
-  }, [open, onClose]);
+  }, [open]);
 
   if (!open) return null;
 

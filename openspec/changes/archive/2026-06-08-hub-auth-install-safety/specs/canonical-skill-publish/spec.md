@@ -1,10 +1,4 @@
-# canonical-skill-publish Specification
-
-## Purpose
-
-TBD - created by archiving change 'hub-publish-enablement'. Update Purpose after archive.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Publish Canonical Skill Command
 
@@ -45,39 +39,6 @@ The Felina backend SHALL provide a Tauri command `publish_canonical_skill(name)`
 - **WHEN** publish_canonical_skill is invoked with a name containing characters outside the canonical skill identifier ruleset (e.g. `../escape`, empty string, `name with spaces`, path separators)
 - **THEN** the command SHALL return an Err string identifying the invalid name and SHALL NOT touch the filesystem or perform an HTTP request
 
-
-<!-- @trace
-source: hub-auth-install-safety
-updated: 2026-06-08
-code:
-  - src/lib/i18n/locales/en.ts
-  - src/lib/i18n/locales/zh-TW.ts
-  - market-server/src/db.js
-  - market-server/docker-compose.yml
-  - market-server/dev.ps1
-  - src-tauri/src/commands/mod.rs
-  - src/lib/tauri/commands.ts
-  - src-tauri/src/commands/market_install.rs
-  - src/lib/components/hub/MarketSkillList.tsx
-  - market-server/package.json
-  - market-server/.env.example
-  - src/lib/components/hub/LoginDialog.tsx
-  - src-tauri/src/commands/market_publish.rs
-  - src/lib/components/hub/HubPage.tsx
-  - src/lib/components/hub/MarketSkillPreview.tsx
-  - src/lib/components/hub/AccountDropdown.tsx
-  - market-server/src/auth.js
-  - market-server/migrations/002_auth.sql
-  - market-server/src/app.js
-  - src/lib/components/shared/Modal.tsx
-  - src-tauri/src/lib.rs
-  - src-tauri/src/commands/hub_auth.rs
-tests:
-  - market-server/src/db.test.js
-  - market-server/src/app.test.js
--->
-
----
 ### Requirement: Delete Market Skill Command
 
 The Felina backend SHALL provide a Tauri command `delete_market_skill(name)` that sends DELETE to the configured market server. The command SHALL first read the Hub authentication token from `~/.felina/settings.json` under the `hubToken` key; if the token is absent or empty, the command SHALL return an Err string indicating that Hub login is required. The command SHALL validate `name` against the canonical skill identifier ruleset and URL-encode the name segment before constructing the URL `<baseUrl>/api/skills/<encodedName>`. The DELETE request SHALL include an `Authorization: Bearer <token>` header. HTTP 2xx and 404 SHALL both be treated as success. HTTP 401 SHALL return an Err indicating session expiry. HTTP 403 SHALL return an Err containing the server error message (ownership denied).
@@ -111,34 +72,3 @@ The Felina backend SHALL provide a Tauri command `delete_market_skill(name)` tha
 
 - **WHEN** delete_market_skill is invoked with a name outside the canonical skill identifier ruleset
 - **THEN** the command SHALL return an Err string identifying the invalid name and SHALL NOT perform an HTTP request
-
-<!-- @trace
-source: hub-auth-install-safety
-updated: 2026-06-08
-code:
-  - src/lib/i18n/locales/en.ts
-  - src/lib/i18n/locales/zh-TW.ts
-  - market-server/src/db.js
-  - market-server/docker-compose.yml
-  - market-server/dev.ps1
-  - src-tauri/src/commands/mod.rs
-  - src/lib/tauri/commands.ts
-  - src-tauri/src/commands/market_install.rs
-  - src/lib/components/hub/MarketSkillList.tsx
-  - market-server/package.json
-  - market-server/.env.example
-  - src/lib/components/hub/LoginDialog.tsx
-  - src-tauri/src/commands/market_publish.rs
-  - src/lib/components/hub/HubPage.tsx
-  - src/lib/components/hub/MarketSkillPreview.tsx
-  - src/lib/components/hub/AccountDropdown.tsx
-  - market-server/src/auth.js
-  - market-server/migrations/002_auth.sql
-  - market-server/src/app.js
-  - src/lib/components/shared/Modal.tsx
-  - src-tauri/src/lib.rs
-  - src-tauri/src/commands/hub_auth.rs
-tests:
-  - market-server/src/db.test.js
-  - market-server/src/app.test.js
--->

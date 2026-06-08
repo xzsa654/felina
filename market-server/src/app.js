@@ -9,6 +9,7 @@ import yaml from 'js-yaml'
 
 import * as defaultDb from './db.js'
 import * as defaultStorage from './storage.js'
+import * as defaultAuth from './auth.js'
 
 const SKILL_NAME_PATTERN = /^(?!.*\.\.)[A-Za-z0-9._-]+$/
 
@@ -93,7 +94,7 @@ function badRequest(reply, message) {
   return reply.code(400).send({ error: message })
 }
 
-export function createApp({ db = defaultDb, storage = defaultStorage, randomUuid = randomUUID } = {}) {
+export function createApp({ db = defaultDb, storage = defaultStorage, auth = defaultAuth, randomUuid = randomUUID } = {}) {
   const fastify = Fastify({ logger: true })
 
   fastify.register(cors)
@@ -105,6 +106,45 @@ export function createApp({ db = defaultDb, storage = defaultStorage, randomUuid
   })
 
   fastify.get('/health', async () => ({ status: 'ok' }))
+
+  fastify.post('/auth/register', async (request, reply) => {
+    const { email, password } = request.body ?? {}
+    if (!email || typeof email !== 'string' || email.trim() === '') {
+      return badRequest(reply, 'email is required')
+    }
+    if (!password || typeof password !== 'string' || password.trim() === '') {
+      return badRequest(reply, 'password is required')
+    }
+    const passwordHash = await auth.hashPassword(password)
+    let user
+    try {
+      user = await db.createUser({ email: email.trim(), passwordHash })
+    } catch (err) {
+      if (err.code === '23505') {
+        return reply.code(409).send({ error: 'email already registered' })
+      }
+      throw err
+    }
+    const token = auth.signToken({ sub: user.id, email: user.email })
+    return { token, email: user.email }
+  })
+
+  fastify.post('/auth/login', async (request, reply) => {
+    const { email, password } = request.body ?? {}
+    if (!email || typeof email !== 'string' || !password || typeof password !== 'string') {
+      return reply.code(401).send({ error: 'invalid credentials' })
+    }
+    const user = await db.getUserByEmail(email.trim())
+    if (!user) {
+      return reply.code(401).send({ error: 'invalid credentials' })
+    }
+    const valid = await auth.comparePassword(password, user.password_hash)
+    if (!valid) {
+      return reply.code(401).send({ error: 'invalid credentials' })
+    }
+    const token = auth.signToken({ sub: user.id, email: user.email })
+    return { token, email: user.email }
+  })
 
   fastify.get('/api/skills', async () => db.listSkills())
 
@@ -151,7 +191,7 @@ export function createApp({ db = defaultDb, storage = defaultStorage, randomUuid
     return reply.send(await storage.getObjectStream(skill.storage_key))
   })
 
-  fastify.put('/api/skills/:name', async (request, reply) => {
+  fastify.put('/api/skills/:name', { onRequest: auth.requireAuth }, async (request, reply) => {
     const { name } = request.params
     if (!isValidSkillName(name)) {
       return badRequest(reply, 'invalid skill name')
@@ -185,6 +225,9 @@ export function createApp({ db = defaultDb, storage = defaultStorage, randomUuid
       contentHash: contentHash.trim(),
       tarballHash,
       storageKey,
+      author: request.user.email,
+      updatedBy: request.user.email,
+      updatedIp: request.ip,
     })
 
     return {
@@ -196,10 +239,20 @@ export function createApp({ db = defaultDb, storage = defaultStorage, randomUuid
     }
   })
 
-  fastify.delete('/api/skills/:name', async (request, reply) => {
+  fastify.delete('/api/skills/:name', { onRequest: auth.requireAuth }, async (request, reply) => {
     const { name } = request.params
     if (!isValidSkillName(name)) {
       return badRequest(reply, 'invalid skill name')
+    }
+
+    const skill = await db.getSkill(name)
+    if (!skill) {
+      return reply.code(404).send({ error: 'skill not found' })
+    }
+    if (skill.author && skill.author !== request.user.email) {
+      return reply.code(403).send({
+        error: `this skill was published by ${skill.author}, only the original author can delete it`,
+      })
     }
 
     const result = await db.softDeleteSkill(name)

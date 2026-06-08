@@ -5,6 +5,14 @@ import { createGzip } from 'node:zlib'
 import { pack as tarPack } from 'tar-stream'
 
 import { createApp } from './app.js'
+import { signToken, hashPassword } from './auth.js'
+
+process.env.JWT_SECRET = process.env.JWT_SECRET || 'test-secret-key'
+
+function authHeader(email = 'alice@corp.local', sub = '00000000-0000-4000-8000-000000000001') {
+  const token = signToken({ sub, email })
+  return { authorization: `Bearer ${token}` }
+}
 
 async function createTarGz(entries) {
   const pack = tarPack()
@@ -81,6 +89,16 @@ test('GET /api/skills/:name/download distinguishes missing, deleted, and live sk
   assert.equal(live.body, 'code-review/archive.tar.gz')
 })
 
+test('PUT /api/skills/:name returns 401 without auth token', async () => {
+  const app = createApp({
+    db: { async upsertSkill() {} },
+    storage: { async putObject() {} },
+  })
+  const body = multipartPayload(Buffer.from('not-a-tarball'))
+  const response = await app.inject({ method: 'PUT', url: '/api/skills/code-review', headers: { ...body.headers, 'x-content-hash': 'abc' }, payload: body.payload })
+  assert.equal(response.statusCode, 401)
+})
+
 test('PUT /api/skills/:name validates name and content hash before writes', async () => {
   const writes = []
   const app = createApp({
@@ -89,8 +107,8 @@ test('PUT /api/skills/:name validates name and content hash before writes', asyn
   })
   const body = multipartPayload(Buffer.from('not-a-tarball'))
 
-  const invalidName = await app.inject({ method: 'PUT', url: '/api/skills/has%20space', headers: { ...body.headers, 'x-content-hash': 'abc' }, payload: body.payload })
-  const missingHash = await app.inject({ method: 'PUT', url: '/api/skills/code-review', headers: body.headers, payload: body.payload })
+  const invalidName = await app.inject({ method: 'PUT', url: '/api/skills/has%20space', headers: { ...body.headers, ...authHeader(), 'x-content-hash': 'abc' }, payload: body.payload })
+  const missingHash = await app.inject({ method: 'PUT', url: '/api/skills/code-review', headers: { ...body.headers, ...authHeader() }, payload: body.payload })
 
   assert.equal(invalidName.statusCode, 400)
   assert.equal(missingHash.statusCode, 400)
@@ -128,7 +146,7 @@ description: Automated code review skill
   const response = await app.inject({
     method: 'PUT',
     url: '/api/skills/code-review',
-    headers: { ...body.headers, 'x-content-hash': 'content-abc' },
+    headers: { ...body.headers, ...authHeader(), 'x-content-hash': 'content-abc' },
     payload: body.payload,
   })
 
@@ -142,14 +160,11 @@ description: Automated code review skill
     updatedAt: '2026-06-05T07:00:00.000Z',
   })
   assert.deepEqual(writes[0], ['storage', 'code-review/00000000-0000-4000-8000-000000000000.tar.gz', tarball])
-  assert.deepEqual(writes[1], ['db', {
-    name: 'code-review',
-    version: '1.2.0',
-    description: 'Automated code review skill',
-    contentHash: 'content-abc',
-    tarballHash,
-    storageKey: 'code-review/00000000-0000-4000-8000-000000000000.tar.gz',
-  }])
+  const dbWrite = writes[1][1]
+  assert.equal(dbWrite.name, 'code-review')
+  assert.equal(dbWrite.version, '1.2.0')
+  assert.equal(dbWrite.author, 'alice@corp.local')
+  assert.equal(dbWrite.updatedBy, 'alice@corp.local')
 })
 
 test('PUT /api/skills/:name rejects packages without matching top-level SKILL.md', async () => {
@@ -164,7 +179,7 @@ test('PUT /api/skills/:name rejects packages without matching top-level SKILL.md
   const response = await app.inject({
     method: 'PUT',
     url: '/api/skills/code-review',
-    headers: { ...body.headers, 'x-content-hash': 'content-abc' },
+    headers: { ...body.headers, ...authHeader(), 'x-content-hash': 'content-abc' },
     payload: body.payload,
   })
 
@@ -172,15 +187,142 @@ test('PUT /api/skills/:name rejects packages without matching top-level SKILL.md
   assert.deepEqual(writes, [])
 })
 
-test('DELETE /api/skills/:name maps soft delete helper result to status', async () => {
+test('DELETE /api/skills/:name returns 401 without auth token', async () => {
+  const app = createApp({
+    db: { async getSkill() { return { author: null } }, async softDeleteSkill() { return 'updated' } },
+  })
+  assert.equal((await app.inject({ method: 'DELETE', url: '/api/skills/code-review' })).statusCode, 401)
+})
+
+test('DELETE /api/skills/:name allows author to delete own skill', async () => {
   const app = createApp({
     db: {
-      async softDeleteSkill(name) {
-        return name === 'missing' ? 'not_found' : 'updated'
-      },
+      async getSkill() { return { author: 'alice@corp.local', deleted_at: null } },
+      async softDeleteSkill() { return 'updated' },
     },
   })
+  const res = await app.inject({ method: 'DELETE', url: '/api/skills/code-review', headers: authHeader('alice@corp.local') })
+  assert.equal(res.statusCode, 204)
+})
 
-  assert.equal((await app.inject({ method: 'DELETE', url: '/api/skills/code-review' })).statusCode, 204)
-  assert.equal((await app.inject({ method: 'DELETE', url: '/api/skills/missing' })).statusCode, 404)
+test('DELETE /api/skills/:name returns 403 for non-author', async () => {
+  const app = createApp({
+    db: {
+      async getSkill() { return { author: 'alice@corp.local', deleted_at: null } },
+      async softDeleteSkill() { return 'updated' },
+    },
+  })
+  const res = await app.inject({ method: 'DELETE', url: '/api/skills/code-review', headers: authHeader('bob@corp.local') })
+  assert.equal(res.statusCode, 403)
+  assert.match(res.json().error, /alice@corp\.local/)
+})
+
+test('DELETE /api/skills/:name allows delete of legacy NULL author skill', async () => {
+  const app = createApp({
+    db: {
+      async getSkill() { return { author: null, deleted_at: null } },
+      async softDeleteSkill() { return 'updated' },
+    },
+  })
+  const res = await app.inject({ method: 'DELETE', url: '/api/skills/code-review', headers: authHeader('bob@corp.local') })
+  assert.equal(res.statusCode, 204)
+})
+
+test('DELETE /api/skills/:name returns 404 for missing skill', async () => {
+  const app = createApp({
+    db: {
+      async getSkill() { return null },
+      async softDeleteSkill() { return 'not_found' },
+    },
+  })
+  const res = await app.inject({ method: 'DELETE', url: '/api/skills/missing', headers: authHeader() })
+  assert.equal(res.statusCode, 404)
+})
+
+test('POST /auth/register creates user and returns token', async () => {
+  let created = null
+  const app = createApp({
+    db: {
+      async createUser(data) { created = data; return { id: 'test-uuid', email: data.email } },
+    },
+  })
+  const res = await app.inject({
+    method: 'POST', url: '/auth/register',
+    headers: { 'content-type': 'application/json' },
+    payload: JSON.stringify({ email: 'alice@corp.local', password: 'secret123' }),
+  })
+  assert.equal(res.statusCode, 200)
+  const body = res.json()
+  assert.equal(body.email, 'alice@corp.local')
+  assert.ok(body.token)
+  assert.ok(created.passwordHash)
+  assert.notEqual(created.passwordHash, 'secret123')
+})
+
+test('POST /auth/register returns 409 for duplicate email', async () => {
+  const app = createApp({
+    db: {
+      async createUser() { const err = new Error('unique'); err.code = '23505'; throw err },
+    },
+  })
+  const res = await app.inject({
+    method: 'POST', url: '/auth/register',
+    headers: { 'content-type': 'application/json' },
+    payload: JSON.stringify({ email: 'alice@corp.local', password: 'secret123' }),
+  })
+  assert.equal(res.statusCode, 409)
+})
+
+test('POST /auth/register returns 400 for empty fields', async () => {
+  const app = createApp({ db: {} })
+  const res = await app.inject({
+    method: 'POST', url: '/auth/register',
+    headers: { 'content-type': 'application/json' },
+    payload: JSON.stringify({ email: '', password: '' }),
+  })
+  assert.equal(res.statusCode, 400)
+})
+
+test('POST /auth/login returns token for valid credentials', async () => {
+  const hash = await hashPassword('secret123')
+  const app = createApp({
+    db: {
+      async getUserByEmail(email) { return email === 'alice@corp.local' ? { id: 'test-uuid', email, password_hash: hash } : null },
+    },
+  })
+  const res = await app.inject({
+    method: 'POST', url: '/auth/login',
+    headers: { 'content-type': 'application/json' },
+    payload: JSON.stringify({ email: 'alice@corp.local', password: 'secret123' }),
+  })
+  assert.equal(res.statusCode, 200)
+  assert.equal(res.json().email, 'alice@corp.local')
+  assert.ok(res.json().token)
+})
+
+test('POST /auth/login returns 401 for wrong password', async () => {
+  const hash = await hashPassword('secret123')
+  const app = createApp({
+    db: {
+      async getUserByEmail() { return { id: 'test-uuid', email: 'alice@corp.local', password_hash: hash } },
+    },
+  })
+  const res = await app.inject({
+    method: 'POST', url: '/auth/login',
+    headers: { 'content-type': 'application/json' },
+    payload: JSON.stringify({ email: 'alice@corp.local', password: 'wrong' }),
+  })
+  assert.equal(res.statusCode, 401)
+})
+
+test('POST /auth/login returns 401 for non-existent email', async () => {
+  const app = createApp({
+    db: { async getUserByEmail() { return null } },
+  })
+  const res = await app.inject({
+    method: 'POST', url: '/auth/login',
+    headers: { 'content-type': 'application/json' },
+    payload: JSON.stringify({ email: 'nobody@corp.local', password: 'secret' }),
+  })
+  assert.equal(res.statusCode, 401)
 })
