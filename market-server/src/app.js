@@ -1,5 +1,6 @@
 import Fastify from 'fastify'
 import cors from '@fastify/cors'
+import rateLimit from '@fastify/rate-limit'
 import multipart from '@fastify/multipart'
 import { randomUUID } from 'node:crypto'
 import { createHash } from 'node:crypto'
@@ -94,26 +95,45 @@ function badRequest(reply, message) {
   return reply.code(400).send({ error: message })
 }
 
-export function createApp({ db = defaultDb, storage = defaultStorage, auth = defaultAuth, randomUuid = randomUUID } = {}) {
-  const fastify = Fastify({ logger: true })
+export async function createApp({ db = defaultDb, storage = defaultStorage, auth = defaultAuth, randomUuid = randomUUID } = {}) {
+  const fastify = Fastify({ logger: { level: process.env.LOG_LEVEL || 'info' } })
 
-  fastify.register(cors)
-  fastify.register(multipart, {
+  await fastify.register(rateLimit, {
+    max: parseInt(process.env.RATE_LIMIT_MAX, 10) || 100,
+    timeWindow: '1 minute',
+  })
+
+  const corsOrigin = process.env.CORS_ORIGIN
+  await fastify.register(cors, corsOrigin
+    ? { origin: corsOrigin.split(',').map(s => s.trim()) }
+    : { origin: true }
+  )
+  await fastify.register(multipart, {
     limits: {
-      fileSize: 50 * 1024 * 1024,
+      fileSize: (parseInt(process.env.UPLOAD_MAX_SIZE_MB, 10) || 10) * 1024 * 1024,
       files: 1,
     },
   })
 
   fastify.get('/health', async () => ({ status: 'ok' }))
 
-  fastify.post('/auth/register', async (request, reply) => {
+  const authRateLimit = {
+    rateLimit: {
+      max: parseInt(process.env.RATE_LIMIT_AUTH_MAX, 10) || 5,
+      timeWindow: `${parseInt(process.env.RATE_LIMIT_AUTH_WINDOW, 10) || 15} minutes`,
+    },
+  }
+
+  fastify.post('/auth/register', { config: authRateLimit }, async (request, reply) => {
     const { email, password } = request.body ?? {}
     if (!email || typeof email !== 'string' || email.trim() === '') {
       return badRequest(reply, 'email is required')
     }
     if (!password || typeof password !== 'string' || password.trim() === '') {
       return badRequest(reply, 'password is required')
+    }
+    if (password.length < 8) {
+      return badRequest(reply, 'password must be at least 8 characters')
     }
     const passwordHash = await auth.hashPassword(password)
     let user
@@ -129,7 +149,7 @@ export function createApp({ db = defaultDb, storage = defaultStorage, auth = def
     return { token, email: user.email }
   })
 
-  fastify.post('/auth/login', async (request, reply) => {
+  fastify.post('/auth/login', { config: authRateLimit }, async (request, reply) => {
     const { email, password } = request.body ?? {}
     if (!email || typeof email !== 'string' || !password || typeof password !== 'string') {
       return reply.code(401).send({ error: 'invalid credentials' })
@@ -200,6 +220,9 @@ export function createApp({ db = defaultDb, storage = defaultStorage, auth = def
     const contentHash = request.headers['x-content-hash']
     if (typeof contentHash !== 'string' || contentHash.trim() === '') {
       return badRequest(reply, 'x-content-hash is required')
+    }
+    if (!/^[0-9a-f]{64}$/i.test(contentHash.trim())) {
+      return badRequest(reply, 'invalid content hash format')
     }
 
     const file = await request.file()

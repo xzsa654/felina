@@ -3,7 +3,7 @@ import { runner as migrate } from 'node-pg-migrate'
 import { createApp } from './app.js'
 import { ensureBucket } from './storage.js'
 
-const fastify = createApp()
+const fastify = await createApp()
 
 async function runMigrations() {
   await migrate({
