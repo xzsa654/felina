@@ -1,3 +1,4 @@
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use crate::paths;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -87,6 +88,27 @@ pub fn read_hub_refresh_token() -> Result<Option<String>, String> {
         .map(|s| s.to_string()))
 }
 
+pub(crate) fn is_token_expired(token: &str) -> bool {
+    let parts: Vec<&str> = token.split('.').collect();
+    if parts.len() != 3 {
+        return true;
+    }
+    let payload = match URL_SAFE_NO_PAD.decode(parts[1]) {
+        Ok(bytes) => bytes,
+        Err(_) => return true,
+    };
+    let json: serde_json::Value = match serde_json::from_slice(&payload) {
+        Ok(v) => v,
+        Err(_) => return true,
+    };
+    let exp = json.get("exp").and_then(|v| v.as_i64()).unwrap_or(0);
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64;
+    now >= exp
+}
+
 async fn auth_request(
     endpoint: &str,
     email: &str,
@@ -143,8 +165,29 @@ pub async fn login_hub_account(
     auth_request("auth/login", &email, &password, remember_me).await
 }
 
+pub(crate) async fn try_refresh_token() -> Result<String, String> {
+    let refresh_token = read_hub_refresh_token()?
+        .ok_or_else(|| "no refresh token".to_string())?;
+    let base = super::market_server::get_market_server_url()?;
+    let url = format!("{}/auth/refresh", base.trim_end_matches('/'));
+    let response = reqwest::Client::new()
+        .post(&url)
+        .json(&serde_json::json!({ "refreshToken": refresh_token }))
+        .send()
+        .await
+        .map_err(|e| format!("refresh request failed: {e}"))?;
+    if !response.status().is_success() {
+        return Err("refresh failed".to_string());
+    }
+    let body = response.text().await.unwrap_or_default();
+    let resp: AuthResponse =
+        serde_json::from_str(&body).map_err(|e| format!("parse refresh response: {e}"))?;
+    save_auth_public(&resp.access_token, &resp.refresh_token, &resp.email)?;
+    Ok(resp.access_token)
+}
+
 #[tauri::command]
-pub fn get_hub_auth_status() -> Result<Option<HubAuthStatus>, String> {
+pub async fn get_hub_auth_status() -> Result<Option<HubAuthStatus>, String> {
     let root = read_settings()?;
     let remember = root
         .get(HUB_REMEMBER_ME_KEY)
@@ -157,15 +200,34 @@ pub fn get_hub_auth_status() -> Result<Option<HubAuthStatus>, String> {
     let email = root
         .get(HUB_EMAIL_KEY)
         .and_then(|v| v.as_str())
-        .filter(|s| !s.is_empty());
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string());
     let token = root
         .get(HUB_ACCESS_TOKEN_KEY)
         .and_then(|v| v.as_str())
-        .filter(|s| !s.is_empty());
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string());
     match (email, token) {
-        (Some(email), Some(_)) => Ok(Some(HubAuthStatus {
-            email: email.to_string(),
-        })),
+        (Some(email), Some(t)) if !is_token_expired(&t) => {
+            Ok(Some(HubAuthStatus { email }))
+        }
+        (Some(_), Some(_)) | (Some(_), None) => {
+            match try_refresh_token().await {
+                Ok(_) => {
+                    let fresh = read_settings()?;
+                    let email = fresh
+                        .get(HUB_EMAIL_KEY)
+                        .and_then(|v| v.as_str())
+                        .filter(|s| !s.is_empty())
+                        .map(|s| s.to_string());
+                    Ok(email.map(|e| HubAuthStatus { email: e }))
+                }
+                Err(_) => {
+                    logout_hub_account()?;
+                    Ok(None)
+                }
+            }
+        }
         _ => Ok(None),
     }
 }

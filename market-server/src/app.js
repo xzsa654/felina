@@ -124,6 +124,13 @@ export async function createApp({ db = defaultDb, storage = defaultStorage, auth
     },
   }
 
+  const refreshRateLimit = {
+    rateLimit: {
+      max: parseInt(process.env.RATE_LIMIT_REFRESH_MAX, 10) || 30,
+      timeWindow: `${parseInt(process.env.RATE_LIMIT_REFRESH_WINDOW, 10) || 15} minutes`,
+    },
+  }
+
   fastify.post('/auth/register', { config: authRateLimit }, async (request, reply) => {
     const { email, password } = request.body ?? {}
     if (!email || typeof email !== 'string' || email.trim() === '') {
@@ -174,7 +181,7 @@ export async function createApp({ db = defaultDb, storage = defaultStorage, auth
     return { accessToken, refreshToken, email: user.email }
   })
 
-  fastify.post('/auth/refresh', { config: authRateLimit }, async (request, reply) => {
+  fastify.post('/auth/refresh', { config: refreshRateLimit }, async (request, reply) => {
     const { refreshToken } = request.body ?? {}
     if (!refreshToken || typeof refreshToken !== 'string') {
       return reply.code(401).send({ error: 'refresh token is required' })
