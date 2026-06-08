@@ -8,105 +8,58 @@ TBD - created by archiving change 'hub-auth-install-safety'. Update Purpose afte
 
 ### Requirement: User registration
 
-The market server SHALL expose `POST /auth/register` accepting `{ email, password }` JSON body. The server SHALL hash the password with bcrypt, INSERT a new row into the `users` table with a UUID primary key, and return `{ token, email }` where token is a JWT signed with HS256 using the `JWT_SECRET` environment variable. The JWT payload SHALL contain `{ sub: <user-uuid>, email: <email>, iat, exp }` with a 7-day expiration. If the email already exists, the server SHALL respond 409. If email or password is empty or missing, the server SHALL respond 400.
-
-#### Scenario: Successful registration
-
-- **WHEN** a client sends POST /auth/register with `{ email: "alice@corp.local", password: "secret123" }`
-- **THEN** the server SHALL respond 200 with `{ token: "<jwt>", email: "alice@corp.local" }`
-- **THEN** a row SHALL exist in the users table with the registered email and a bcrypt-hashed password
-
-#### Scenario: Duplicate email registration
-
-- **WHEN** a client sends POST /auth/register with an email that already exists in the users table
-- **THEN** the server SHALL respond 409 with `{ error: "email already registered" }`
-
-#### Scenario: Missing fields
-
-- **WHEN** a client sends POST /auth/register with empty email or empty password
-- **THEN** the server SHALL respond 400
+The market server SHALL expose `POST /auth/register` accepting `{ email, password }` JSON body. The server SHALL hash the password with bcrypt, INSERT a new row into the `users` table with a UUID primary key, and return `{ accessToken, refreshToken, email }` where accessToken is a short-lived JWT (default 15 minutes, configurable via `ACCESS_TOKEN_EXPIRY` environment variable) signed with HS256 using the `JWT_SECRET` environment variable, and refreshToken is a UUID v4 stored as a SHA-256 hash in the `refresh_tokens` table with a 30-day expiration. The JWT payload SHALL contain `{ sub: <user-uuid>, email: <email>, iat, exp }`. If the email already exists, the server SHALL respond 409. If email or password is empty or missing, the server SHALL respond 400.
 
 
 <!-- @trace
-source: hub-auth-install-safety
+source: market-server-auth-lifecycle
 updated: 2026-06-08
 code:
-  - src/lib/i18n/locales/en.ts
-  - src/lib/i18n/locales/zh-TW.ts
-  - market-server/src/db.js
-  - market-server/docker-compose.yml
-  - market-server/dev.ps1
-  - src-tauri/src/commands/mod.rs
-  - src/lib/tauri/commands.ts
-  - src-tauri/src/commands/market_install.rs
-  - src/lib/components/hub/MarketSkillList.tsx
-  - market-server/package.json
-  - market-server/.env.example
-  - src/lib/components/hub/LoginDialog.tsx
-  - src-tauri/src/commands/market_publish.rs
-  - src/lib/components/hub/HubPage.tsx
-  - src/lib/components/hub/MarketSkillPreview.tsx
-  - src/lib/components/hub/AccountDropdown.tsx
-  - market-server/src/auth.js
-  - market-server/migrations/002_auth.sql
+  - market-server/Dockerfile
+  - market-server/src/server.js
   - market-server/src/app.js
-  - src/lib/components/shared/Modal.tsx
+  - market-server/migrations/003_refresh_tokens.sql
+  - market-server/.env.example
+  - market-server/src/auth.js
+  - .knowledge/_catalog.json
+  - src/lib/components/hub/HubPage.tsx
   - src-tauri/src/lib.rs
+  - market-server/package.json
+  - .knowledge/knowledge-base/dev-docs.md
   - src-tauri/src/commands/hub_auth.rs
+  - market-server/src/db.js
+  - src/lib/tauri/commands.ts
+  - src-tauri/src/commands/market_publish.rs
 tests:
-  - market-server/src/db.test.js
   - market-server/src/app.test.js
 -->
 
 ---
 ### Requirement: User login
 
-The market server SHALL expose `POST /auth/login` accepting `{ email, password }` JSON body. The server SHALL query the users table by email, verify the password against the stored bcrypt hash, and return `{ token, email }` with a fresh JWT on success. If the email does not exist or the password does not match, the server SHALL respond 401.
-
-#### Scenario: Successful login
-
-- **WHEN** a registered user sends POST /auth/login with correct email and password
-- **THEN** the server SHALL respond 200 with `{ token: "<jwt>", email: "<email>" }`
-
-#### Scenario: Wrong password
-
-- **WHEN** a client sends POST /auth/login with a valid email but incorrect password
-- **THEN** the server SHALL respond 401
-
-#### Scenario: Non-existent email
-
-- **WHEN** a client sends POST /auth/login with an email not in the users table
-- **THEN** the server SHALL respond 401
+The market server SHALL expose `POST /auth/login` accepting `{ email, password }` JSON body. The server SHALL look up the user by email, compare the password with bcrypt, and on success return `{ accessToken, refreshToken, email }` with the same token semantics as registration. If the email is not found or password does not match, the server SHALL respond 401.
 
 
 <!-- @trace
-source: hub-auth-install-safety
+source: market-server-auth-lifecycle
 updated: 2026-06-08
 code:
-  - src/lib/i18n/locales/en.ts
-  - src/lib/i18n/locales/zh-TW.ts
-  - market-server/src/db.js
-  - market-server/docker-compose.yml
-  - market-server/dev.ps1
-  - src-tauri/src/commands/mod.rs
-  - src/lib/tauri/commands.ts
-  - src-tauri/src/commands/market_install.rs
-  - src/lib/components/hub/MarketSkillList.tsx
-  - market-server/package.json
-  - market-server/.env.example
-  - src/lib/components/hub/LoginDialog.tsx
-  - src-tauri/src/commands/market_publish.rs
-  - src/lib/components/hub/HubPage.tsx
-  - src/lib/components/hub/MarketSkillPreview.tsx
-  - src/lib/components/hub/AccountDropdown.tsx
-  - market-server/src/auth.js
-  - market-server/migrations/002_auth.sql
+  - market-server/Dockerfile
+  - market-server/src/server.js
   - market-server/src/app.js
-  - src/lib/components/shared/Modal.tsx
+  - market-server/migrations/003_refresh_tokens.sql
+  - market-server/.env.example
+  - market-server/src/auth.js
+  - .knowledge/_catalog.json
+  - src/lib/components/hub/HubPage.tsx
   - src-tauri/src/lib.rs
+  - market-server/package.json
+  - .knowledge/knowledge-base/dev-docs.md
   - src-tauri/src/commands/hub_auth.rs
+  - market-server/src/db.js
+  - src/lib/tauri/commands.ts
+  - src-tauri/src/commands/market_publish.rs
 tests:
-  - market-server/src/db.test.js
   - market-server/src/app.test.js
 -->
 
@@ -337,6 +290,85 @@ code:
   - market-server/package.json
   - market-server/src/server.js
   - market-server/Dockerfile
+tests:
+  - market-server/src/app.test.js
+-->
+
+---
+### Requirement: Token refresh
+
+The market server SHALL expose `POST /auth/refresh` accepting `{ refreshToken }` JSON body. The server SHALL hash the provided refresh token with SHA-256, look up the hash in the `refresh_tokens` table, and verify the token has not expired. On success, the server SHALL delete the used refresh token, generate a new access token and new refresh token (token rotation), store the new refresh token hash, and return `{ accessToken, refreshToken, email }`. If the refresh token is invalid or expired, the server SHALL respond 401.
+
+#### Scenario: Successful token refresh
+
+- **WHEN** a client sends POST /auth/refresh with a valid, non-expired refresh token
+- **THEN** the server SHALL respond 200 with new `{ accessToken, refreshToken, email }`
+- **AND** the old refresh token SHALL be deleted from the database
+
+#### Scenario: Expired refresh token
+
+- **WHEN** a client sends POST /auth/refresh with an expired refresh token
+- **THEN** the server SHALL respond 401
+
+
+<!-- @trace
+source: market-server-auth-lifecycle
+updated: 2026-06-08
+code:
+  - market-server/Dockerfile
+  - market-server/src/server.js
+  - market-server/src/app.js
+  - market-server/migrations/003_refresh_tokens.sql
+  - market-server/.env.example
+  - market-server/src/auth.js
+  - .knowledge/_catalog.json
+  - src/lib/components/hub/HubPage.tsx
+  - src-tauri/src/lib.rs
+  - market-server/package.json
+  - .knowledge/knowledge-base/dev-docs.md
+  - src-tauri/src/commands/hub_auth.rs
+  - market-server/src/db.js
+  - src/lib/tauri/commands.ts
+  - src-tauri/src/commands/market_publish.rs
+tests:
+  - market-server/src/app.test.js
+-->
+
+---
+### Requirement: Server-side logout with token revocation
+
+The market server SHALL expose `POST /auth/logout`. When the request body contains `{ refreshToken }`, the server SHALL delete that specific refresh token from the database. When the request body is empty or does not contain refreshToken, and the request includes a valid Bearer token, the server SHALL delete all refresh tokens for the authenticated user (all-device logout). The server SHALL respond 200 on success.
+
+#### Scenario: Logout revokes specific refresh token
+
+- **WHEN** a client sends POST /auth/logout with `{ refreshToken: "<token>" }`
+- **THEN** the server SHALL delete that refresh token from the database
+- **AND** subsequent POST /auth/refresh with that token SHALL fail with 401
+
+#### Scenario: Logout revokes all sessions
+
+- **WHEN** an authenticated client sends POST /auth/logout with empty body
+- **THEN** the server SHALL delete all refresh tokens for that user
+
+<!-- @trace
+source: market-server-auth-lifecycle
+updated: 2026-06-08
+code:
+  - market-server/Dockerfile
+  - market-server/src/server.js
+  - market-server/src/app.js
+  - market-server/migrations/003_refresh_tokens.sql
+  - market-server/.env.example
+  - market-server/src/auth.js
+  - .knowledge/_catalog.json
+  - src/lib/components/hub/HubPage.tsx
+  - src-tauri/src/lib.rs
+  - market-server/package.json
+  - .knowledge/knowledge-base/dev-docs.md
+  - src-tauri/src/commands/hub_auth.rs
+  - market-server/src/db.js
+  - src/lib/tauri/commands.ts
+  - src-tauri/src/commands/market_publish.rs
 tests:
   - market-server/src/app.test.js
 -->

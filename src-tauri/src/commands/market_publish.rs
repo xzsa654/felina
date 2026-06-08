@@ -1,4 +1,5 @@
 use crate::paths;
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use flate2::write::GzEncoder;
 use flate2::Compression;
 use percent_encoding::{percent_encode, AsciiSet, CONTROLS};
@@ -74,10 +75,65 @@ fn package_skill_dir(name: &str, skill_dir: &Path) -> Result<Vec<u8>, String> {
         .map_err(|e| format!("failed to compress package: {e}"))
 }
 
+fn is_token_expired(token: &str) -> bool {
+    let parts: Vec<&str> = token.split('.').collect();
+    if parts.len() != 3 {
+        return true;
+    }
+    let payload = match URL_SAFE_NO_PAD.decode(parts[1]) {
+        Ok(bytes) => bytes,
+        Err(_) => return true,
+    };
+    let json: serde_json::Value = match serde_json::from_slice(&payload) {
+        Ok(v) => v,
+        Err(_) => return true,
+    };
+    let exp = json.get("exp").and_then(|v| v.as_i64()).unwrap_or(0);
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64;
+    now >= exp
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RefreshResponse {
+    access_token: String,
+    refresh_token: String,
+    #[allow(dead_code)]
+    email: String,
+}
+
+async fn get_valid_token() -> Result<String, String> {
+    let access_token = super::hub_auth::read_hub_access_token()?
+        .ok_or_else(|| "請先登入 Hub 帳號".to_string())?;
+    if !is_token_expired(&access_token) {
+        return Ok(access_token);
+    }
+    let refresh_token = super::hub_auth::read_hub_refresh_token()?
+        .ok_or_else(|| "登入已過期，請重新登入".to_string())?;
+    let base = super::market_server::get_market_server_url()?;
+    let url = format!("{}/auth/refresh", base.trim_end_matches('/'));
+    let response = reqwest::Client::new()
+        .post(&url)
+        .json(&serde_json::json!({ "refreshToken": refresh_token }))
+        .send()
+        .await
+        .map_err(|e| format!("refresh request failed: {e}"))?;
+    if !response.status().is_success() {
+        return Err("登入已過期，請重新登入".to_string());
+    }
+    let body = response.text().await.unwrap_or_default();
+    let resp: RefreshResponse =
+        serde_json::from_str(&body).map_err(|e| format!("parse refresh response: {e}"))?;
+    super::hub_auth::save_auth_public(&resp.access_token, &resp.refresh_token, &resp.email)?;
+    Ok(resp.access_token)
+}
+
 #[tauri::command]
 pub async fn publish_canonical_skill(name: String) -> Result<(), String> {
-    let token = super::hub_auth::read_hub_token()?
-        .ok_or_else(|| "請先登入 Hub 帳號".to_string())?;
+    let token = get_valid_token().await?;
     super::skill_name::validate_skill_name(&name)?;
 
     let skill_dir = paths::felina_global_skills_dir().join(&name);
@@ -126,8 +182,7 @@ pub async fn publish_canonical_skill(name: String) -> Result<(), String> {
 
 #[tauri::command]
 pub async fn delete_market_skill(name: String) -> Result<(), String> {
-    let token = super::hub_auth::read_hub_token()?
-        .ok_or_else(|| "請先登入 Hub 帳號".to_string())?;
+    let token = get_valid_token().await?;
     super::skill_name::validate_skill_name(&name)?;
     let base = super::market_server::get_market_server_url()?;
     let url = format!(
@@ -166,9 +221,13 @@ mod tests {
     fn set_test_hub_token(root: &std::path::Path) {
         let settings_path = root.join(".felina").join("settings.json");
         std::fs::create_dir_all(settings_path.parent().unwrap()).unwrap();
+        // Create a non-expired JWT-like token for testing (exp far in future)
+        let header = URL_SAFE_NO_PAD.encode(r#"{"alg":"HS256"}"#);
+        let payload = URL_SAFE_NO_PAD.encode(format!(r#"{{"sub":"test","email":"test@test.com","exp":{}}}"#, i64::MAX));
+        let fake_jwt = format!("{header}.{payload}.sig");
         std::fs::write(
             &settings_path,
-            r#"{"hubToken":"test-token","hubEmail":"test@test.com"}"#,
+            format!(r#"{{"hubAccessToken":"{fake_jwt}","hubRefreshToken":"test-refresh","hubEmail":"test@test.com"}}"#),
         )
         .unwrap();
     }

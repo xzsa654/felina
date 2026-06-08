@@ -35,6 +35,7 @@ interface MarketSkill {
   description?: string | null;
   contentHash?: string;
   author?: string | null;
+  isOwner?: boolean;
   updatedAt?: string | null;
 }
 
@@ -96,7 +97,10 @@ export default function HubPage() {
       setError(null);
       try {
         const apiBase = await api.market.getServerUrl();
-        const res = await fetch(`${apiBase}/api/skills`);
+        const token = await api.market.getAccessToken();
+        const headers: Record<string, string> = {};
+        if (token) headers["Authorization"] = `Bearer ${token}`;
+        const res = await fetch(`${apiBase}/api/skills`, { headers });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const marketSkills: MarketSkill[] = await res.json();
         setSkills(marketSkills);
@@ -435,7 +439,10 @@ export default function HubPage() {
               <AccountDropdown
                 email={authEmail}
                 onLogout={() => {
-                  void api.market.logout().then(() => setAuthEmail(null));
+                  void api.market.logout().then(() => {
+                    setAuthEmail(null);
+                    void fetchSkills("reload");
+                  });
                 }}
                 locale={locale}
               />
@@ -485,7 +492,7 @@ export default function HubPage() {
                     </h3>
                     {(skill.version || skill.author) && (
                       <p className="text-xs text-text-muted mt-0.5">
-                        {[skill.author?.split("@")[0], skill.version ? `v${skill.version}` : null].filter(Boolean).join(" · ")}
+                        {[skill.author, skill.version ? `v${skill.version}` : null].filter(Boolean).join(" · ")}
                       </p>
                     )}
                   </div>
@@ -543,7 +550,7 @@ export default function HubPage() {
                 installing={installing === selectedSkill.name}
                 status={installStatus[selectedSkill.name] ?? null}
                 onInstall={() => void handleInstallCheck(selectedSkill)}
-                isAuthor={!!authEmail && selectedSkill.author === authEmail}
+                isAuthor={selectedSkill.isOwner === true}
                 onDelete={() => void handleDelete(selectedSkill.name)}
                 locale={locale}
                 markdown={markdownCache[selectedSkill.name] ?? null}

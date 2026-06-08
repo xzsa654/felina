@@ -5,7 +5,7 @@ import { createGzip } from 'node:zlib'
 import { pack as tarPack } from 'tar-stream'
 
 import { createApp } from './app.js'
-import { signToken, hashPassword } from './auth.js'
+import { signToken, hashPassword, generateRefreshToken, hashRefreshToken, verifyToken } from './auth.js'
 
 process.env.JWT_SECRET = process.env.JWT_SECRET || 'test-secret-key'
 
@@ -53,14 +53,55 @@ test('GET /api/skills returns persisted skills from db helper', async () => {
   const app = await createApp({
     db: {
       async listSkills() {
-        return [{ name: 'code-review', version: '1.0.0', description: 'Review', contentHash: 'abc', updatedAt: '2026-06-05T07:00:00.000Z' }]
+        return [{ name: 'code-review', version: '1.0.0', description: 'Review', contentHash: 'abc', updatedAt: '2026-06-05T07:00:00.000Z', author: null }]
       },
     },
   })
 
   const response = await app.inject({ method: 'GET', url: '/api/skills' })
   assert.equal(response.statusCode, 200)
-  assert.deepEqual(response.json(), [{ name: 'code-review', version: '1.0.0', description: 'Review', contentHash: 'abc', updatedAt: '2026-06-05T07:00:00.000Z' }])
+  assert.deepEqual(response.json(), [{ name: 'code-review', version: '1.0.0', description: 'Review', contentHash: 'abc', updatedAt: '2026-06-05T07:00:00.000Z', author: null, isOwner: false }])
+})
+
+test('GET /api/skills masks author email to username and sets isOwner false without auth', async () => {
+  const app = await createApp({
+    db: {
+      async listSkills() {
+        return [
+          { name: 'skill-a', version: '1.0.0', description: 'A', contentHash: 'abc', updatedAt: '2026-06-05T07:00:00.000Z', author: 'alice@corp.local' },
+          { name: 'skill-b', version: '1.0.0', description: 'B', contentHash: 'def', updatedAt: '2026-06-05T07:00:00.000Z', author: null },
+        ]
+      },
+    },
+  })
+  const response = await app.inject({ method: 'GET', url: '/api/skills' })
+  const skills = response.json()
+  assert.equal(skills[0].author, 'alice')
+  assert.equal(skills[0].isOwner, false)
+  assert.equal(skills[1].author, null)
+  assert.equal(skills[1].isOwner, false)
+})
+
+test('GET /api/skills sets isOwner true for authenticated author', async () => {
+  const app = await createApp({
+    db: {
+      async listSkills() {
+        return [
+          { name: 'mine', version: '1.0.0', description: 'M', contentHash: 'abc', updatedAt: '2026-06-05T07:00:00.000Z', author: 'alice@corp.local' },
+          { name: 'theirs', version: '1.0.0', description: 'T', contentHash: 'def', updatedAt: '2026-06-05T07:00:00.000Z', author: 'bob@corp.local' },
+        ]
+      },
+    },
+  })
+  const response = await app.inject({
+    method: 'GET', url: '/api/skills',
+    headers: authHeader('alice@corp.local'),
+  })
+  const skills = response.json()
+  assert.equal(skills[0].isOwner, true)
+  assert.equal(skills[0].author, 'alice')
+  assert.equal(skills[1].isOwner, false)
+  assert.equal(skills[1].author, 'bob')
 })
 
 test('GET /api/skills/:name/download distinguishes missing, deleted, and live skills', async () => {
@@ -387,11 +428,13 @@ test('CORS allows all origins when CORS_ORIGIN is not set', async () => {
   }
 })
 
-test('POST /auth/register creates user and returns token', async () => {
+test('POST /auth/register returns accessToken, refreshToken, and email', async () => {
   let created = null
+  let storedRefreshToken = null
   const app = await createApp({
     db: {
       async createUser(data) { created = data; return { id: 'test-uuid', email: data.email } },
+      async createRefreshToken(data) { storedRefreshToken = data; return data },
     },
   })
   const res = await app.inject({
@@ -402,9 +445,14 @@ test('POST /auth/register creates user and returns token', async () => {
   assert.equal(res.statusCode, 200)
   const body = res.json()
   assert.equal(body.email, 'alice@corp.local')
-  assert.ok(body.token)
+  assert.ok(body.accessToken)
+  assert.ok(body.refreshToken)
+  assert.equal(body.token, undefined)
   assert.ok(created.passwordHash)
   assert.notEqual(created.passwordHash, 'secret123')
+  assert.ok(storedRefreshToken)
+  assert.equal(storedRefreshToken.userId, 'test-uuid')
+  assert.equal(storedRefreshToken.tokenHash, hashRefreshToken(body.refreshToken))
 })
 
 test('POST /auth/register returns 409 for duplicate email', async () => {
@@ -434,7 +482,10 @@ test('POST /auth/register returns 400 for short password', async () => {
 
 test('POST /auth/register accepts password with exactly 8 characters', async () => {
   const app = await createApp({
-    db: { async createUser(data) { return { id: 'test-uuid', email: data.email } } },
+    db: {
+      async createUser(data) { return { id: 'test-uuid', email: data.email } },
+      async createRefreshToken() { return {} },
+    },
   })
   const res = await app.inject({
     method: 'POST', url: '/auth/register',
@@ -454,11 +505,13 @@ test('POST /auth/register returns 400 for empty fields', async () => {
   assert.equal(res.statusCode, 400)
 })
 
-test('POST /auth/login returns token for valid credentials', async () => {
+test('POST /auth/login returns accessToken, refreshToken, and email', async () => {
   const hash = await hashPassword('secret123')
+  let storedRefreshToken = null
   const app = await createApp({
     db: {
       async getUserByEmail(email) { return email === 'alice@corp.local' ? { id: 'test-uuid', email, password_hash: hash } : null },
+      async createRefreshToken(data) { storedRefreshToken = data; return data },
     },
   })
   const res = await app.inject({
@@ -467,8 +520,14 @@ test('POST /auth/login returns token for valid credentials', async () => {
     payload: JSON.stringify({ email: 'alice@corp.local', password: 'secret123' }),
   })
   assert.equal(res.statusCode, 200)
-  assert.equal(res.json().email, 'alice@corp.local')
-  assert.ok(res.json().token)
+  const body = res.json()
+  assert.equal(body.email, 'alice@corp.local')
+  assert.ok(body.accessToken)
+  assert.ok(body.refreshToken)
+  assert.equal(body.token, undefined)
+  assert.ok(storedRefreshToken)
+  assert.equal(storedRefreshToken.userId, 'test-uuid')
+  assert.equal(storedRefreshToken.tokenHash, hashRefreshToken(body.refreshToken))
 })
 
 test('POST /auth/login returns 401 for wrong password', async () => {
@@ -484,6 +543,143 @@ test('POST /auth/login returns 401 for wrong password', async () => {
     payload: JSON.stringify({ email: 'alice@corp.local', password: 'wrong' }),
   })
   assert.equal(res.statusCode, 401)
+})
+
+test('generateRefreshToken returns a UUID v4 string', () => {
+  const token = generateRefreshToken()
+  assert.match(token, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
+})
+
+test('hashRefreshToken returns SHA-256 hex of the input', () => {
+  const token = 'test-token-value'
+  const hash = hashRefreshToken(token)
+  const expected = createHash('sha256').update(token).digest('hex')
+  assert.equal(hash, expected)
+  assert.equal(hash.length, 64)
+})
+
+test('signToken uses ACCESS_TOKEN_EXPIRY env var', () => {
+  const prev = process.env.ACCESS_TOKEN_EXPIRY
+  process.env.ACCESS_TOKEN_EXPIRY = '30s'
+  try {
+    const token = signToken({ sub: 'test-uuid', email: 'test@test.com' })
+    const payload = verifyToken(token)
+    assert.ok(payload.exp - payload.iat <= 30)
+  } finally {
+    if (prev === undefined) delete process.env.ACCESS_TOKEN_EXPIRY
+    else process.env.ACCESS_TOKEN_EXPIRY = prev
+  }
+})
+
+test('signToken defaults to 15m expiry', () => {
+  const prev = process.env.ACCESS_TOKEN_EXPIRY
+  delete process.env.ACCESS_TOKEN_EXPIRY
+  try {
+    const token = signToken({ sub: 'test-uuid', email: 'test@test.com' })
+    const payload = verifyToken(token)
+    assert.equal(payload.exp - payload.iat, 900)
+  } finally {
+    if (prev === undefined) delete process.env.ACCESS_TOKEN_EXPIRY
+    else process.env.ACCESS_TOKEN_EXPIRY = prev
+  }
+})
+
+test('POST /auth/refresh returns new token pair for valid refresh token', async () => {
+  const originalRefresh = generateRefreshToken()
+  const originalHash = hashRefreshToken(originalRefresh)
+  let deletedHash = null
+  let storedNew = null
+  const app = await createApp({
+    db: {
+      async findRefreshToken(hash) {
+        if (hash === originalHash) {
+          return { id: 'rt-1', user_id: 'test-uuid', token_hash: hash, expires_at: new Date(Date.now() + 86400000), email: 'alice@corp.local' }
+        }
+        return null
+      },
+      async deleteRefreshToken(hash) { deletedHash = hash },
+      async createRefreshToken(data) { storedNew = data; return data },
+    },
+  })
+  const res = await app.inject({
+    method: 'POST', url: '/auth/refresh',
+    headers: { 'content-type': 'application/json' },
+    payload: JSON.stringify({ refreshToken: originalRefresh }),
+  })
+  assert.equal(res.statusCode, 200)
+  const body = res.json()
+  assert.ok(body.accessToken)
+  assert.ok(body.refreshToken)
+  assert.equal(body.email, 'alice@corp.local')
+  assert.notEqual(body.refreshToken, originalRefresh)
+  assert.equal(deletedHash, originalHash)
+  assert.ok(storedNew)
+  assert.equal(storedNew.tokenHash, hashRefreshToken(body.refreshToken))
+})
+
+test('POST /auth/refresh returns 401 for invalid refresh token', async () => {
+  const app = await createApp({
+    db: {
+      async findRefreshToken() { return null },
+    },
+  })
+  const res = await app.inject({
+    method: 'POST', url: '/auth/refresh',
+    headers: { 'content-type': 'application/json' },
+    payload: JSON.stringify({ refreshToken: 'invalid-token' }),
+  })
+  assert.equal(res.statusCode, 401)
+})
+
+test('POST /auth/refresh returns 401 for expired refresh token', async () => {
+  const expiredRefresh = generateRefreshToken()
+  const app = await createApp({
+    db: {
+      async findRefreshToken(hash) {
+        return { id: 'rt-1', user_id: 'test-uuid', token_hash: hash, expires_at: new Date(Date.now() - 1000), email: 'alice@corp.local' }
+      },
+      async deleteRefreshToken() {},
+    },
+  })
+  const res = await app.inject({
+    method: 'POST', url: '/auth/refresh',
+    headers: { 'content-type': 'application/json' },
+    payload: JSON.stringify({ refreshToken: expiredRefresh }),
+  })
+  assert.equal(res.statusCode, 401)
+})
+
+test('POST /auth/logout deletes specific refresh token when provided', async () => {
+  let deletedHash = null
+  const app = await createApp({
+    db: {
+      async deleteRefreshToken(hash) { deletedHash = hash },
+    },
+  })
+  const token = generateRefreshToken()
+  const res = await app.inject({
+    method: 'POST', url: '/auth/logout',
+    headers: { 'content-type': 'application/json' },
+    payload: JSON.stringify({ refreshToken: token }),
+  })
+  assert.equal(res.statusCode, 200)
+  assert.equal(deletedHash, hashRefreshToken(token))
+})
+
+test('POST /auth/logout deletes all refresh tokens when no refreshToken but has Bearer', async () => {
+  let deletedUserId = null
+  const app = await createApp({
+    db: {
+      async deleteAllRefreshTokens(userId) { deletedUserId = userId },
+    },
+  })
+  const res = await app.inject({
+    method: 'POST', url: '/auth/logout',
+    headers: { 'content-type': 'application/json', ...authHeader('alice@corp.local', 'user-uuid-1') },
+    payload: JSON.stringify({}),
+  })
+  assert.equal(res.statusCode, 200)
+  assert.equal(deletedUserId, 'user-uuid-1')
 })
 
 test('POST /auth/login returns 401 for non-existent email', async () => {

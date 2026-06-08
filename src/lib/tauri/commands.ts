@@ -410,12 +410,13 @@ export const api = {
     setServerUrl: (url: string) =>
       invoke<void>("set_market_server_url", { url }),
     register: (email: string, password: string) =>
-      invoke<{ token: string; email: string }>("register_hub_account", { email, password }),
+      invoke<{ accessToken: string; refreshToken: string; email: string }>("register_hub_account", { email, password }),
     login: (email: string, password: string) =>
-      invoke<{ token: string; email: string }>("login_hub_account", { email, password }),
+      invoke<{ accessToken: string; refreshToken: string; email: string }>("login_hub_account", { email, password }),
     getAuthStatus: () =>
       invoke<{ email: string } | null>("get_hub_auth_status"),
     logout: () => invoke<void>("logout_hub_account"),
+    getAccessToken: () => invoke<string | null>("read_hub_access_token"),
   },
 } as const;
 
