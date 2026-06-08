@@ -20,6 +20,7 @@ export default function LoginDialog({
   const [tab, setTab] = useState<Tab>("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [rememberMe, setRememberMe] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -44,7 +45,7 @@ export default function LoginDialog({
       const result =
         tab === "register"
           ? await api.market.register(email.trim(), password)
-          : await api.market.login(email.trim(), password);
+          : await api.market.login(email.trim(), password, rememberMe);
       reset();
       onSuccess(result.email);
       onClose();
@@ -108,6 +109,17 @@ export default function LoginDialog({
             autoComplete={tab === "register" ? "new-password" : "current-password"}
             required
           />
+          {tab === "login" && (
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={rememberMe}
+                onChange={(e) => setRememberMe(e.target.checked)}
+                className="rounded border-border accent-accent"
+              />
+              <span className="text-xs text-text-secondary">{t(locale, "hub.auth.rememberMe")}</span>
+            </label>
+          )}
           <button
             type="submit"
             disabled={loading || !email.trim() || !password}

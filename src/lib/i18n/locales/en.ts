@@ -822,6 +822,7 @@ const en = {
       emailExists: "Email already registered",
       invalidCredentials: "Invalid email or password",
       sessionExpired: "Session expired, please log in again",
+      rememberMe: "Remember me",
       loggedInAs: "Logged in as {email}",
     },
     confirm: {

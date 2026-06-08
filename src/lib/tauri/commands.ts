@@ -411,8 +411,8 @@ export const api = {
       invoke<void>("set_market_server_url", { url }),
     register: (email: string, password: string) =>
       invoke<{ accessToken: string; refreshToken: string; email: string }>("register_hub_account", { email, password }),
-    login: (email: string, password: string) =>
-      invoke<{ accessToken: string; refreshToken: string; email: string }>("login_hub_account", { email, password }),
+    login: (email: string, password: string, rememberMe: boolean) =>
+      invoke<{ accessToken: string; refreshToken: string; email: string }>("login_hub_account", { email, password, rememberMe }),
     getAuthStatus: () =>
       invoke<{ email: string } | null>("get_hub_auth_status"),
     logout: () => invoke<void>("logout_hub_account"),

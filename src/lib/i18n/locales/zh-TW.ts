@@ -824,6 +824,7 @@ const zhTW: TranslationDict = {
       emailExists: "此 Email 已註冊",
       invalidCredentials: "帳號或密碼錯誤",
       sessionExpired: "登入已過期，請重新登入",
+      rememberMe: "記住我",
       loggedInAs: "已登入 {email}",
     },
     confirm: {
