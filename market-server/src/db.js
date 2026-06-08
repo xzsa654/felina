@@ -31,7 +31,12 @@ function mapUpsertRow(row) {
   }
 }
 
-export function createDb({ pool = new Pool({ connectionString: process.env.DATABASE_URL }) } = {}) {
+export function createDb({ pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  max: parseInt(process.env.DB_POOL_MAX, 10) || 20,
+  idleTimeoutMillis: parseInt(process.env.DB_POOL_IDLE_TIMEOUT, 10) || 30000,
+  connectionTimeoutMillis: parseInt(process.env.DB_POOL_CONNECTION_TIMEOUT, 10) || 5000,
+}) } = {}) {
   return {
     async listSkills() {
       const result = await pool.query(`
