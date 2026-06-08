@@ -1,4 +1,5 @@
 use crate::paths;
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use flate2::write::GzEncoder;
 use flate2::Compression;
 use percent_encoding::{percent_encode, AsciiSet, CONTROLS};
@@ -74,8 +75,65 @@ fn package_skill_dir(name: &str, skill_dir: &Path) -> Result<Vec<u8>, String> {
         .map_err(|e| format!("failed to compress package: {e}"))
 }
 
+fn is_token_expired(token: &str) -> bool {
+    let parts: Vec<&str> = token.split('.').collect();
+    if parts.len() != 3 {
+        return true;
+    }
+    let payload = match URL_SAFE_NO_PAD.decode(parts[1]) {
+        Ok(bytes) => bytes,
+        Err(_) => return true,
+    };
+    let json: serde_json::Value = match serde_json::from_slice(&payload) {
+        Ok(v) => v,
+        Err(_) => return true,
+    };
+    let exp = json.get("exp").and_then(|v| v.as_i64()).unwrap_or(0);
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64;
+    now >= exp
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RefreshResponse {
+    access_token: String,
+    refresh_token: String,
+    #[allow(dead_code)]
+    email: String,
+}
+
+async fn get_valid_token() -> Result<String, String> {
+    let access_token = super::hub_auth::read_hub_access_token()?
+        .ok_or_else(|| "請先登入 Hub 帳號".to_string())?;
+    if !is_token_expired(&access_token) {
+        return Ok(access_token);
+    }
+    let refresh_token = super::hub_auth::read_hub_refresh_token()?
+        .ok_or_else(|| "登入已過期，請重新登入".to_string())?;
+    let base = super::market_server::get_market_server_url()?;
+    let url = format!("{}/auth/refresh", base.trim_end_matches('/'));
+    let response = reqwest::Client::new()
+        .post(&url)
+        .json(&serde_json::json!({ "refreshToken": refresh_token }))
+        .send()
+        .await
+        .map_err(|e| format!("refresh request failed: {e}"))?;
+    if !response.status().is_success() {
+        return Err("登入已過期，請重新登入".to_string());
+    }
+    let body = response.text().await.unwrap_or_default();
+    let resp: RefreshResponse =
+        serde_json::from_str(&body).map_err(|e| format!("parse refresh response: {e}"))?;
+    super::hub_auth::save_auth_public(&resp.access_token, &resp.refresh_token, &resp.email)?;
+    Ok(resp.access_token)
+}
+
 #[tauri::command]
 pub async fn publish_canonical_skill(name: String) -> Result<(), String> {
+    let token = get_valid_token().await?;
     super::skill_name::validate_skill_name(&name)?;
 
     let skill_dir = paths::felina_global_skills_dir().join(&name);
@@ -104,6 +162,7 @@ pub async fn publish_canonical_skill(name: String) -> Result<(), String> {
     let response = reqwest::Client::new()
         .put(url)
         .header("X-Content-Hash", content_hash)
+        .header("Authorization", format!("Bearer {token}"))
         .multipart(form)
         .send()
         .await
@@ -115,11 +174,15 @@ pub async fn publish_canonical_skill(name: String) -> Result<(), String> {
 
     let status = response.status();
     let body = response.text().await.unwrap_or_default();
+    if status.as_u16() == 401 {
+        return Err("登入已過期，請重新登入".to_string());
+    }
     Err(format!("server returned {status}: {body}"))
 }
 
 #[tauri::command]
 pub async fn delete_market_skill(name: String) -> Result<(), String> {
+    let token = get_valid_token().await?;
     super::skill_name::validate_skill_name(&name)?;
     let base = super::market_server::get_market_server_url()?;
     let url = format!(
@@ -129,14 +192,17 @@ pub async fn delete_market_skill(name: String) -> Result<(), String> {
     );
     let response = reqwest::Client::new()
         .delete(url)
+        .header("Authorization", format!("Bearer {token}"))
         .send()
         .await
         .map_err(|e| format!("delete failed: {e}"))?;
 
-    if response.status().is_success() || response.status() == reqwest::StatusCode::NOT_FOUND {
+    let status = response.status();
+    if status.is_success() || status == reqwest::StatusCode::NOT_FOUND {
         Ok(())
+    } else if status.as_u16() == 401 {
+        Err("登入已過期，請重新登入".to_string())
     } else {
-        let status = response.status();
         let body = response.text().await.unwrap_or_default();
         Err(format!("server returned {status}: {body}"))
     }
@@ -151,6 +217,20 @@ mod tests {
     use std::io::{Read, Write};
     use std::net::TcpListener;
     use tar::Archive;
+
+    fn set_test_hub_token(root: &std::path::Path) {
+        let settings_path = root.join(".felina").join("settings.json");
+        std::fs::create_dir_all(settings_path.parent().unwrap()).unwrap();
+        // Create a non-expired JWT-like token for testing (exp far in future)
+        let header = URL_SAFE_NO_PAD.encode(r#"{"alg":"HS256"}"#);
+        let payload = URL_SAFE_NO_PAD.encode(format!(r#"{{"sub":"test","email":"test@test.com","exp":{}}}"#, i64::MAX));
+        let fake_jwt = format!("{header}.{payload}.sig");
+        std::fs::write(
+            &settings_path,
+            format!(r#"{{"hubAccessToken":"{fake_jwt}","hubRefreshToken":"test-refresh","hubEmail":"test@test.com"}}"#),
+        )
+        .unwrap();
+    }
 
     fn create_skill(root: &std::path::Path, name: &str) -> std::path::PathBuf {
         let skill_dir = root.join(".felina").join("skills").join(name);
@@ -206,6 +286,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         create_skill(tmp.path(), "code-review");
         set_felina_home_override_for_test(Some(tmp.path().join(".felina")));
+        set_test_hub_token(tmp.path());
         let (url, handle) = spawn_put_server("200 OK", "{}");
         set_market_server_url(url).unwrap();
 
@@ -225,6 +306,7 @@ mod tests {
     async fn publish_rejects_missing_skill_before_http() {
         let tmp = tempfile::tempdir().unwrap();
         set_felina_home_override_for_test(Some(tmp.path().join(".felina")));
+        set_test_hub_token(tmp.path());
         let (url, _handle) = spawn_put_server("200 OK", "{}");
         set_market_server_url(url).unwrap();
 
@@ -239,6 +321,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         create_skill(tmp.path(), "code-review");
         set_felina_home_override_for_test(Some(tmp.path().join(".felina")));
+        set_test_hub_token(tmp.path());
         let (url, handle) = spawn_put_server("500 Internal Server Error", "upload failed");
         set_market_server_url(url).unwrap();
 
@@ -254,6 +337,7 @@ mod tests {
     async fn delete_treats_404_as_success() {
         let tmp = tempfile::tempdir().unwrap();
         set_felina_home_override_for_test(Some(tmp.path().join(".felina")));
+        set_test_hub_token(tmp.path());
         let (url, handle) = spawn_put_server("404 Not Found", "missing");
         set_market_server_url(url).unwrap();
 
@@ -269,6 +353,7 @@ mod tests {
     async fn delete_returns_status_and_body_on_server_error() {
         let tmp = tempfile::tempdir().unwrap();
         set_felina_home_override_for_test(Some(tmp.path().join(".felina")));
+        set_test_hub_token(tmp.path());
         let (url, handle) = spawn_put_server("500 Internal Server Error", "delete failed");
         set_market_server_url(url).unwrap();
 

@@ -191,7 +191,7 @@ Notes:
 - 舊的 Vercel + Supabase stack 註記已不作為方向；公司內網與無網際網路部署較適合自管內網 server，例如 Node.js/Fastify + PostgreSQL + MinIO 或公司既有等價服務。
 - 詳細調查文件：`.session/agent-skill-market-complete.md`。
 
-### market-server-url-settings
+### hub-install-safety-and-author-attribution
 
 | Field | Value |
 |---|---|
@@ -199,12 +199,74 @@ Notes:
 | status | planned |
 | flagged | 2026-06-05 |
 | last-seen | 2026-06-05 |
-| description | Hub 頁面的 Market Server URL 從寫死的 `http://localhost:3100` 改為 Felina Settings 可配置項，讓使用者填入公司內網 market server 位址。 |
+| blocked-by | Change 1（Hub publish enablement，server 接 Postgres+MinIO + PUT/DELETE endpoint）|
+| description | Hub 安裝側 UX 補完 + author attribution 同時上：local 已裝且 hash 不同時跳確認 dialog（顯示 author / updated_at / version 差異）、Hub 加 Uninstall 按鈕、Install/Uninstall 完成 toast；同時把 author 機制接起來（client 從 `git config user.email` 讀 → `X-Author` header → server 存 author/updated_by/updated_ip 三欄）。|
+
+Scope:
+- 後端 schema 加 `author TEXT, updated_by TEXT, updated_ip INET` 三欄（nullable，Change 1 既有 row NULL 不需 backfill）
+- Server hook：所有 mutation endpoint 強制 `X-Author` 非空（不驗格式）
+- Client（Felina app）：boot 時讀 `git config --global --get user.email`（用 git CLI shell out，禁止自己解 INI），沒設跳 dialog 強制填，Settings 可 override
+- Hub UI：Install 動作前若 local 已裝且 hash 不同 → 確認 dialog 顯示新版 author/updated_at/version
+- Hub UI：Uninstall 按鈕（從 `~/.felina/skills/<name>/` 移除 + 清 sync-meta）
+- Toast：Install/Uninstall/Publish 完成提示
 
 Notes:
-- 目前 `API_BASE` 寫死在 `HubPage.tsx`，`install_market_skill` 的 URL 也寫死在 `market_install.rs`。
-- 前後端都要改為從設定讀取。
-- 屬 `local-skill-market-prototype` 的後續延伸，prototype 驗證完再開。
+- 之所以 author 跟 install safety 同一個 change：author 一出生就要有 UI 出口（confirm dialog 顯示「alice 改了 X」），避免做了 attribution 卻沒地方秀
+- Change 1 → Change 2 中間期間 publish 的 row 會是 NULL author，可接受；Change 1 完工後建議「只開給自己測」，Change 2 上線才廣播給同事
+- 上一輪討論結論：(b) Anonymous + attribution-only，不走 (c) token 中間階段；未來升 (d) SSO 路徑保留（schema 已有 author 欄位，未來加 `users` table + 把 header 信任改成 OAuth verified）
+- 不做：channel/draft/stable、yank/410 Gone、owner authz、admin allowlist、SSO、audit log table、semver 強制、UNIQUE(name, version) 強制 bump
+
+### hub-discoverability
+
+| Field | Value |
+|---|---|
+| type | planned-change |
+| status | planned |
+| flagged | 2026-06-05 |
+| last-seen | 2026-06-05 |
+| blocked-by | hub-install-safety-and-author-attribution（需要真實 author + updated_at 資料才能在列表/詳細頁有意義地呈現）|
+| description | Hub 從「能用」進化到「找得到 + 看得懂 + 敢裝」：搜尋 / 過濾 / 排序、skill 詳細頁（顯示完整 description、SKILL.md 預覽、author/updated_at/version 顯眼化）、loading skeleton、server 連線失敗的 retry UX。|
+
+Scope:
+- Hub 列表加搜尋欄（name + description fuzzy match，先做 client-side，skill 量 < 200 都夠）
+- Hub 列表加排序（最近更新 / name / author）
+- Skill 詳細頁路由（點 card 進去看完整內容）
+- 詳細頁顯示 SKILL.md 預覽（讀 server 給的 tar.gz 解壓後 render）
+- 顯眼化 publish date（「alice 3 天前更新」）
+- Loading skeleton 取代 spinner
+- Server unavailable 時 retry 按鈕 + 上次成功 cache 的列表（offline read-only fallback，optional）
+
+Notes:
+- 搜尋先 client-side；要 server-side search 是 skill 規模 > 500 才考慮，到時拆獨立 change
+- 不在這個 change 做：tag / category / collection / rating / download count — 等使用者實際反映需求再加
+- Loading skeleton 跟 retry UX 屬於 cross-cutting polish，跟主要功能一起做不獨立切 change
+
+---
+
+## Installer / Distribution
+
+### bundle-tokscale-optional-install
+
+| Field | Value |
+|---|---|
+| type | planned-change |
+| status | planned |
+| flagged | 2026-06-08 |
+| last-seen | 2026-06-08 |
+| blocked-by | eliminate-subprocess-cmd-windows（先修 CMD 彈窗，再 bundle） |
+| description | 安裝程式提供 optional checkbox 讓使用者選擇是否一併安裝 tokscale binary 並加入 User PATH。無 tokscale 時 Token page fallback 到自行 parse agent log，資料品質較差。 |
+
+Scope:
+- NSIS custom script 加 optional section（checkbox 預設勾選）
+- tokscale binary 放在安裝目錄下 `tools/tokscale.exe`
+- 安裝時寫 User PATH（不需 admin）
+- 解除安裝時移除 PATH entry + 刪 binary
+- MSI 對應 feature selection（optional component）
+
+Open:
+- tokscale license 是否允許 redistribute（需確認）
+- Binary 來源：CI pre-build 還是從 npm registry 抓
+- 版本更新策略：跟 Felina updater 一起，還是 app 內提示
 
 ---
 

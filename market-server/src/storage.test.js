@@ -32,6 +32,10 @@ class FakeMinioClient {
   async removeObject(bucket, key) {
     this.calls.push(['removeObject', bucket, key])
   }
+
+  async setBucketPolicy(bucket, policy) {
+    this.calls.push(['setBucketPolicy', bucket, policy])
+  }
 }
 
 test('storage adapter provisions bucket and routes object operations', async () => {
@@ -63,12 +67,14 @@ test('storage adapter provisions bucket and routes object operations', async () 
     accessKey: 'minioadmin',
     secretKey: 'minioadmin',
   })
-  assert.deepEqual(client.calls, [
-    ['bucketExists', 'skills'],
-    ['makeBucket', 'skills'],
-    ['putObject', 'skills', 'code-review/archive.tar.gz', 'pkg', 3],
-    ['getObject', 'skills', 'code-review/archive.tar.gz'],
-    ['removeObject', 'skills', 'code-review/archive.tar.gz'],
-  ])
+  assert.equal(client.calls[0][0], 'bucketExists')
+  assert.equal(client.calls[1][0], 'makeBucket')
+  assert.equal(client.calls[2][0], 'setBucketPolicy')
+  assert.equal(client.calls[2][1], 'skills')
+  const policy = JSON.parse(client.calls[2][2])
+  assert.equal(policy.Statement[0].Effect, 'Deny')
+  assert.deepEqual(client.calls[3], ['putObject', 'skills', 'code-review/archive.tar.gz', 'pkg', 3])
+  assert.deepEqual(client.calls[4], ['getObject', 'skills', 'code-review/archive.tar.gz'])
+  assert.deepEqual(client.calls[5], ['removeObject', 'skills', 'code-review/archive.tar.gz'])
   assert.deepEqual(stream, { bucket: 'skills', key: 'code-review/archive.tar.gz' })
 })

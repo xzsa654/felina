@@ -16,6 +16,7 @@ test('listSkills returns live skill rows in API shape', async () => {
             description: 'Automated review',
             content_hash: 'content-a',
             updated_at: new Date('2026-06-05T07:00:00Z'),
+            author: 'alice@corp.local',
           },
         ],
       }
@@ -31,6 +32,7 @@ test('listSkills returns live skill rows in API shape', async () => {
       description: 'Automated review',
       contentHash: 'content-a',
       updatedAt: '2026-06-05T07:00:00.000Z',
+      author: 'alice@corp.local',
     },
   ])
   assert.match(pool.queries[0][0], /WHERE deleted_at IS NULL/)
@@ -49,6 +51,9 @@ test('upsertSkill overwrites by name and preserves previous storage key', async 
         'content-a',
         'tar-a',
         'code-review/uuid.tar.gz',
+        'alice@corp.local',
+        'alice@corp.local',
+        '127.0.0.1',
       ])
       return {
         rows: [
@@ -73,11 +78,15 @@ test('upsertSkill overwrites by name and preserves previous storage key', async 
     contentHash: 'content-a',
     tarballHash: 'tar-a',
     storageKey: 'code-review/uuid.tar.gz',
+    author: 'alice@corp.local',
+    updatedBy: 'alice@corp.local',
+    updatedIp: '127.0.0.1',
   }), {
     name: 'code-review',
     contentHash: 'content-a',
     tarballHash: 'tar-a',
     storageKey: 'code-review/uuid.tar.gz',
+    previousStorageKey: null,
     updatedAt: '2026-06-05T07:00:00.000Z',
   })
 })

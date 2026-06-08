@@ -8,137 +8,175 @@ TBD - created by archiving change 'hub-publish-enablement'. Update Purpose after
 
 ### Requirement: Skill Package Upload
 
-The market server SHALL accept skill package uploads via PUT /api/skills/:name. The request body SHALL be multipart with a field named `package` containing a tar.gz binary. The request SHALL include an X-Content-Hash header carrying the client-computed semantic hash. The server SHALL validate `:name` against the canonical skill identifier ruleset (ASCII alphanumeric, hyphens, underscores, dots; non-empty) and respond 400 for invalid names. The server SHALL compute SHA-256 of the tar.gz bytes as tarball_hash, store the binary in MinIO under key `<name>/<uuid>.tar.gz`, parse SKILL.md frontmatter from the package to derive `version` and `description` values, and upsert the metadata row keyed by name. `version` and `description` are derived solely from frontmatter: if the frontmatter `version` field is present and a non-empty string it SHALL be stored verbatim, otherwise NULL; the same rule applies to `description`. When the upsert overwrites an existing row, the prior storage_key SHALL be moved into previous_storage_key and the prior MinIO object SHALL NOT be deleted. The upsert SHALL also clear deleted_at, allowing re-publish to revive a soft-deleted record. Packages that do not contain a top-level `<name>/SKILL.md` entry SHALL be rejected with 400.
-
-#### Scenario: New skill upload
-
-- **WHEN** a client PUT /api/skills/code-review with a tar.gz body and header X-Content-Hash: abc123, and no row exists for name=code-review
-- **THEN** the server SHALL insert a row with name=code-review, content_hash=abc123, tarball_hash=SHA-256 of the bytes, storage_key set to the new MinIO object key, previous_storage_key NULL, deleted_at NULL, and respond HTTP 200 with JSON `{ name, contentHash, tarballHash, storageKey, updatedAt }`
-
-#### Scenario: Re-upload overwrites and preserves previous
-
-- **WHEN** a client PUT /api/skills/code-review with a new tar.gz body and a row already exists for name=code-review with storage_key=K1
-- **THEN** the server SHALL update content_hash, tarball_hash, version, description with new values, set storage_key to a new key K2, set previous_storage_key to K1, set updated_at to now(), and SHALL NOT delete the K1 MinIO object
-
-#### Scenario: Missing X-Content-Hash header
-
-- **WHEN** a client PUT /api/skills/code-review without an X-Content-Hash header or with an empty value
-- **THEN** the server SHALL respond HTTP 400 Bad Request and SHALL NOT write to MinIO or Postgres
-
-#### Scenario: Re-publish revives soft-deleted record
-
-- **WHEN** a client PUT /api/skills/code-review and a row already exists for name=code-review with deleted_at set
-- **THEN** the server SHALL upsert as in the re-upload scenario AND SHALL clear deleted_at to NULL
-
-#### Scenario: Frontmatter version and description derivation
-
-- **WHEN** a client PUT /api/skills/code-review with a tar.gz whose top-level `code-review/SKILL.md` frontmatter contains `version: 1.2.0` and `description: Automated code review skill`
-- **THEN** the server SHALL store `version='1.2.0'` and `description='Automated code review skill'` in the row
-
-#### Scenario: Missing frontmatter fields fall back to NULL
-
-- **WHEN** a client PUT /api/skills/code-review with a tar.gz whose `SKILL.md` frontmatter omits `version` or `description`, or those fields are empty strings
-- **THEN** the server SHALL store NULL in the corresponding column rather than rejecting the upload
-
-#### Scenario: Missing SKILL.md is rejected
-
-- **WHEN** a client PUT /api/skills/code-review with a tar.gz that does not contain a `code-review/SKILL.md` entry
-- **THEN** the server SHALL respond HTTP 400 Bad Request and SHALL NOT write to MinIO or Postgres
-
-#### Scenario: Invalid name is rejected
-
-- **WHEN** a client PUT /api/skills/.. or /api/skills/ (empty) or /api/skills/has%20space
-- **THEN** the server SHALL respond HTTP 400 Bad Request and SHALL NOT write to MinIO or Postgres
+The market server SHALL accept skill package uploads via PUT /api/skills/:name. After a successful upsert, if the database returns a non-null `previous_storage_key`, the server SHALL delete the old MinIO object. The upsert response SHALL include `previous_storage_key` in the RETURNING clause. All other upload behavior (auth, validation, storage, frontmatter parsing) remains unchanged.
 
 
 <!-- @trace
-source: hub-publish-enablement
-updated: 2026-06-05
+source: market-server-storage-ops
+updated: 2026-06-08
 code:
-  - src-tauri/src/commands/market_install.rs
-  - src-tauri/src/commands/market_publish.rs
-  - src-tauri/src/lib.rs
-  - src/lib/tauri/commands.ts
-  - src/lib/i18n/locales/zh-TW.ts
-  - .session/product-backlog.md
   - market-server/src/app.js
-  - src-tauri/Cargo.toml
-  - market-server/migrations/001_init.sql
-  - market-server/package.json
-  - src/lib/components/hub/HubPage.tsx
-  - src-tauri/src/commands/mod.rs
-  - market-server/README.md
-  - market-server/Dockerfile
-  - market-server/.pgmigraterc.json
-  - .knowledge/knowledge-base/architecture.md
-  - .knowledge/knowledge-base/tauri.md
   - market-server/src/server.js
-  - market-server/src/storage.js
-  - .knowledge/knowledge-base/_index.json
-  - market-server/docker-compose.yml
-  - src/lib/i18n/locales/en.ts
-  - src-tauri/src/commands/skill_name.rs
-  - .codex-rescue-prompt.txt
+  - src/lib/components/hub/HubPage.tsx
+  - market-server/package.json
   - market-server/src/db.js
+  - src-tauri/src/lib.rs
+  - src/lib/i18n/locales/en.ts
+  - src/lib/i18n/locales/zh-TW.ts
+  - market-server/migrations/003_refresh_tokens.sql
+  - market-server/docker-compose.yml
   - .knowledge/_catalog.json
+  - market-server/migrations/004_skills_indexes.sql
+  - market-server/src/migrate.js
+  - src-tauri/src/commands/hub_auth.rs
+  - market-server/Dockerfile
+  - market-server/.env.example
+  - src/lib/components/hub/LoginDialog.tsx
+  - src/lib/tauri/commands.ts
+  - .knowledge/knowledge-base/dev-docs.md
+  - market-server/src/auth.js
+  - market-server/src/storage.js
+  - src-tauri/src/commands/market_publish.rs
 tests:
-  - market-server/src/app.test.js
   - market-server/src/storage.test.js
+  - market-server/src/app.test.js
   - market-server/src/db.test.js
 -->
 
 ---
 ### Requirement: Skill Soft Delete
 
-The market server SHALL accept skill deletion via DELETE /api/skills/:name. Deletion SHALL be implemented as a soft delete by setting deleted_at = now() on the matching row. The MinIO objects SHALL NOT be deleted. The endpoint SHALL NOT check identity or authorization in this change.
+The market server SHALL accept skill deletion via DELETE /api/skills/:name. The request SHALL include a valid JWT in the `Authorization: Bearer <token>` header; requests without a valid token SHALL be rejected with 401. Deletion SHALL be implemented as a soft delete by setting deleted_at = now() on the matching row. The server SHALL enforce ownership: if the skill row has a non-NULL `author` field and the authenticated email does not match the `author`, the server SHALL respond 403 with an error message identifying the original author. If the skill row has a NULL `author` (legacy row published before auth was added), the delete SHALL be allowed. The MinIO objects SHALL NOT be deleted.
 
-#### Scenario: Delete an existing non-deleted skill
+#### Scenario: Delete own skill
 
-- **WHEN** a client DELETE /api/skills/code-review and a row exists with deleted_at IS NULL
+- **WHEN** a client DELETE /api/skills/code-review with a valid Bearer token (email: alice@corp.local) and the skill row has author=alice@corp.local and deleted_at IS NULL
 - **THEN** the server SHALL update deleted_at to now() and respond HTTP 204 No Content
 
-#### Scenario: Delete an already soft-deleted skill
+#### Scenario: Delete another user's skill
 
-- **WHEN** a client DELETE /api/skills/code-review and a row exists with deleted_at set
-- **THEN** the server SHALL respond HTTP 204 No Content without further state change
+- **WHEN** a client DELETE /api/skills/code-review with a valid Bearer token (email: bob@corp.local) and the skill row has author=alice@corp.local
+- **THEN** the server SHALL respond HTTP 403 with an error message indicating the skill was published by alice@corp.local
+
+#### Scenario: Delete legacy skill with NULL author
+
+- **WHEN** a client DELETE /api/skills/old-skill with a valid Bearer token and the skill row has author=NULL
+- **THEN** the server SHALL allow the delete and respond HTTP 204 No Content
+
+#### Scenario: Unauthenticated DELETE request
+
+- **WHEN** a client DELETE /api/skills/code-review without an Authorization header
+- **THEN** the server SHALL respond HTTP 401
 
 #### Scenario: Delete a non-existent skill
 
-- **WHEN** a client DELETE /api/skills/code-review and no row matches the name
+- **WHEN** a client DELETE /api/skills/code-review with a valid Bearer token and no row matches the name
 - **THEN** the server SHALL respond HTTP 404 Not Found
 
 <!-- @trace
-source: hub-publish-enablement
-updated: 2026-06-05
+source: hub-auth-install-safety
+updated: 2026-06-08
 code:
-  - src-tauri/src/commands/market_install.rs
-  - src-tauri/src/commands/market_publish.rs
-  - src-tauri/src/lib.rs
-  - src/lib/tauri/commands.ts
-  - src/lib/i18n/locales/zh-TW.ts
-  - .session/product-backlog.md
-  - market-server/src/app.js
-  - src-tauri/Cargo.toml
-  - market-server/migrations/001_init.sql
-  - market-server/package.json
-  - src/lib/components/hub/HubPage.tsx
-  - src-tauri/src/commands/mod.rs
-  - market-server/README.md
-  - market-server/Dockerfile
-  - market-server/.pgmigraterc.json
-  - .knowledge/knowledge-base/architecture.md
-  - .knowledge/knowledge-base/tauri.md
-  - market-server/src/server.js
-  - market-server/src/storage.js
-  - .knowledge/knowledge-base/_index.json
-  - market-server/docker-compose.yml
   - src/lib/i18n/locales/en.ts
-  - src-tauri/src/commands/skill_name.rs
-  - .codex-rescue-prompt.txt
+  - src/lib/i18n/locales/zh-TW.ts
   - market-server/src/db.js
+  - market-server/docker-compose.yml
+  - market-server/dev.ps1
+  - src-tauri/src/commands/mod.rs
+  - src/lib/tauri/commands.ts
+  - src-tauri/src/commands/market_install.rs
+  - src/lib/components/hub/MarketSkillList.tsx
+  - market-server/package.json
+  - market-server/.env.example
+  - src/lib/components/hub/LoginDialog.tsx
+  - src-tauri/src/commands/market_publish.rs
+  - src/lib/components/hub/HubPage.tsx
+  - src/lib/components/hub/MarketSkillPreview.tsx
+  - src/lib/components/hub/AccountDropdown.tsx
+  - market-server/src/auth.js
+  - market-server/migrations/002_auth.sql
+  - market-server/src/app.js
+  - src/lib/components/shared/Modal.tsx
+  - src-tauri/src/lib.rs
+  - src-tauri/src/commands/hub_auth.rs
+tests:
+  - market-server/src/db.test.js
+  - market-server/src/app.test.js
+-->
+
+---
+### Requirement: Server-side content hash validation
+
+The market server SHALL validate the X-Content-Hash header on PUT /api/skills/:name. The header value SHALL be a 64-character lowercase hexadecimal string. If the header is missing, empty, or does not match the 64-hex-char pattern, the server SHALL respond 400 with `"invalid content hash format"`. This validation ensures the client-provided hash is well-formed before storage.
+
+#### Scenario: Content hash with invalid format rejected
+
+- **WHEN** a client PUT /api/skills/my-skill with X-Content-Hash: "not-a-hash"
+- **THEN** the server SHALL respond 400 with body containing `"invalid content hash format"`
+
+
+<!-- @trace
+source: market-server-security-hardening
+updated: 2026-06-08
+code:
+  - market-server/.env.example
   - .knowledge/_catalog.json
+  - .knowledge/knowledge-base/dev-docs.md
+  - market-server/src/app.js
+  - market-server/package.json
+  - market-server/src/server.js
+  - market-server/Dockerfile
 tests:
   - market-server/src/app.test.js
-  - market-server/src/storage.test.js
-  - market-server/src/db.test.js
+-->
+
+---
+### Requirement: CORS origin restriction
+
+The market server SHALL configure CORS with an origin whitelist read from the `CORS_ORIGIN` environment variable. When `CORS_ORIGIN` is set, only origins in the comma-separated list SHALL be allowed. When `CORS_ORIGIN` is not set, all origins SHALL be allowed (development fallback). Preflight and actual requests from non-allowed origins SHALL receive no Access-Control-Allow-Origin header.
+
+#### Scenario: CORS rejects unknown origin
+
+- **WHEN** a request arrives from origin `https://evil.example.com` and CORS_ORIGIN is set to `http://localhost:1420`
+- **THEN** the response SHALL NOT include an Access-Control-Allow-Origin header
+
+
+<!-- @trace
+source: market-server-security-hardening
+updated: 2026-06-08
+code:
+  - market-server/.env.example
+  - .knowledge/_catalog.json
+  - .knowledge/knowledge-base/dev-docs.md
+  - market-server/src/app.js
+  - market-server/package.json
+  - market-server/src/server.js
+  - market-server/Dockerfile
+tests:
+  - market-server/src/app.test.js
+-->
+
+---
+### Requirement: Upload size limit
+
+The market server SHALL limit multipart file uploads to 10 MB by default. The limit SHALL be configurable via `UPLOAD_MAX_SIZE_MB` environment variable. Uploads exceeding the limit SHALL be rejected with 413.
+
+#### Scenario: Upload exceeding size limit
+
+- **WHEN** a client PUT /api/skills/big-skill with a 15 MB tar.gz and UPLOAD_MAX_SIZE_MB is not set
+- **THEN** the server SHALL respond 413
+
+<!-- @trace
+source: market-server-security-hardening
+updated: 2026-06-08
+code:
+  - market-server/.env.example
+  - .knowledge/_catalog.json
+  - .knowledge/knowledge-base/dev-docs.md
+  - market-server/src/app.js
+  - market-server/package.json
+  - market-server/src/server.js
+  - market-server/Dockerfile
+tests:
+  - market-server/src/app.test.js
 -->

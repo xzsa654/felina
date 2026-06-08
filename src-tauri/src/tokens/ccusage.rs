@@ -96,32 +96,29 @@ pub fn fetch_anthropic_rate_limits() -> AnthropicRateLimits {
     };
 
     // 2. Call Anthropic oauth/usage API
-    // curl exits 0 even on HTTP 4xx/5xx; use -w to append the HTTP status code.
-    let output = Command::new("curl")
-        .args([
-            "-s",
-            "--max-time",
-            "8",
-            "-w",
-            "\n%{http_code}", // append status on a new line
-            "-H",
-            &format!("Authorization: Bearer {}", token),
-            "-H",
-            "anthropic-version: 2023-06-01",
-            "https://api.anthropic.com/api/oauth/usage",
-        ])
-        .output();
+    let client = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(8))
+        .build();
+    let client = match client {
+        Ok(c) => c,
+        Err(e) => {
+            return AnthropicRateLimits {
+                error: Some(format!("HTTP client error: {}", e)),
+                ..Default::default()
+            }
+        }
+    };
 
-    match output {
-        Ok(out) if out.status.success() => {
-            let raw = String::from_utf8_lossy(&out.stdout);
-            // Split body and HTTP status code (appended by -w)
-            let (body, http_status) = if let Some(pos) = raw.rfind('\n') {
-                let status: u16 = raw[pos + 1..].trim().parse().unwrap_or(0);
-                (&raw[..pos], status)
-            } else {
-                (raw.as_ref(), 0u16)
-            };
+    let resp = client
+        .get("https://api.anthropic.com/api/oauth/usage")
+        .header("Authorization", format!("Bearer {}", token))
+        .header("anthropic-version", "2023-06-01")
+        .send();
+
+    match resp {
+        Ok(resp) => {
+            let http_status = resp.status().as_u16();
+            let body = resp.text().unwrap_or_default();
 
             if !(200..300).contains(&http_status) {
                 return AnthropicRateLimits {
@@ -134,11 +131,10 @@ pub fn fetch_anthropic_rate_limits() -> AnthropicRateLimits {
                 };
             }
 
-            match serde_json::from_str::<OauthUsageResponse>(body) {
+            match serde_json::from_str::<OauthUsageResponse>(&body) {
                 Ok(resp) => {
                     let five = resp.five_hour.unwrap_or_default();
                     let seven = resp.seven_day.unwrap_or_default();
-                    // If both utilization values are None the response was likely an error body
                     if five.utilization.is_none() && seven.utilization.is_none() {
                         return AnthropicRateLimits {
                             error: Some(format!(
@@ -161,15 +157,8 @@ pub fn fetch_anthropic_rate_limits() -> AnthropicRateLimits {
                 },
             }
         }
-        Ok(out) => AnthropicRateLimits {
-            error: Some(format!(
-                "curl error: {}",
-                String::from_utf8_lossy(&out.stderr).trim()
-            )),
-            ..Default::default()
-        },
         Err(e) => AnthropicRateLimits {
-            error: Some(format!("curl failed: {}", e)),
+            error: Some(format!("HTTP request failed: {}", e)),
             ..Default::default()
         },
     }
@@ -262,39 +251,37 @@ pub fn fetch_codex_rate_limits() -> CodexRateLimits {
     };
     let account_id = tokens.account_id.unwrap_or_default();
 
-    let out = Command::new("curl")
-        .args([
-            "-s",
-            "--max-time",
-            "8",
-            "-w",
-            "\n%{http_code}",
-            "-H",
-            &format!("Authorization: Bearer {}", access_token),
-            "-H",
-            &format!("ChatGPT-Account-Id: {}", account_id),
-            "-H",
-            "Content-Type: application/json",
-            "https://chatgpt.com/backend-api/wham/usage",
-        ])
-        .output();
+    let client = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(8))
+        .build();
+    let client = match client {
+        Ok(c) => c,
+        Err(e) => {
+            return CodexRateLimits {
+                error: Some(format!("HTTP client error: {}", e)),
+                ..Default::default()
+            }
+        }
+    };
+
+    let out = client
+        .get("https://chatgpt.com/backend-api/wham/usage")
+        .header("Authorization", format!("Bearer {}", access_token))
+        .header("ChatGPT-Account-Id", &account_id)
+        .header("Content-Type", "application/json")
+        .send();
 
     match out {
-        Ok(o) if o.status.success() => {
-            let raw = String::from_utf8_lossy(&o.stdout);
-            let (body, http_status) = if let Some(pos) = raw.rfind('\n') {
-                let s: u16 = raw[pos + 1..].trim().parse().unwrap_or(0);
-                (&raw[..pos], s)
-            } else {
-                (raw.as_ref(), 0u16)
-            };
+        Ok(resp) => {
+            let http_status = resp.status().as_u16();
+            let body = resp.text().unwrap_or_default();
             if !(200..300).contains(&http_status) {
                 return CodexRateLimits {
                     error: Some(format!("HTTP {}", http_status)),
                     ..Default::default()
                 };
             }
-            match serde_json::from_str::<WhamUsageResponse>(body) {
+            match serde_json::from_str::<WhamUsageResponse>(&body) {
                 Ok(resp) => {
                     let rl = resp.rate_limit.unwrap_or(WhamRateLimit {
                         primary_window: None,
@@ -335,12 +322,8 @@ pub fn fetch_codex_rate_limits() -> CodexRateLimits {
                 },
             }
         }
-        Ok(o) => CodexRateLimits {
-            error: Some(format!("HTTP {}", o.status)),
-            ..Default::default()
-        },
         Err(e) => CodexRateLimits {
-            error: Some(format!("curl: {}", e)),
+            error: Some(format!("HTTP request failed: {}", e)),
             ..Default::default()
         },
     }
@@ -453,37 +436,36 @@ pub fn fetch_gemini_rate_limits() -> GeminiRateLimits {
         }
     };
 
-    let out = Command::new("curl")
-        .args([
-            "-s",
-            "--max-time",
-            "8",
-            "-w",
-            "\n%{http_code}",
-            "-H",
-            &format!("Authorization: Bearer {}", token),
-            "-H",
-            "Content-Type: application/json",
-            "https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota",
-        ])
-        .output();
+    let client = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(8))
+        .build();
+    let client = match client {
+        Ok(c) => c,
+        Err(e) => {
+            return GeminiRateLimits {
+                error: Some(format!("HTTP client error: {}", e)),
+                ..Default::default()
+            }
+        }
+    };
+
+    let out = client
+        .get("https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota")
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "application/json")
+        .send();
 
     match out {
-        Ok(o) if o.status.success() => {
-            let raw = String::from_utf8_lossy(&o.stdout);
-            let (body, http_status) = if let Some(pos) = raw.rfind('\n') {
-                let s: u16 = raw[pos + 1..].trim().parse().unwrap_or(0);
-                (&raw[..pos], s)
-            } else {
-                (raw.as_ref(), 0u16)
-            };
+        Ok(resp) => {
+            let http_status = resp.status().as_u16();
+            let body = resp.text().unwrap_or_default();
             if !(200..300).contains(&http_status) {
                 return GeminiRateLimits {
                     error: Some(format!("HTTP {}", http_status)),
                     ..Default::default()
                 };
             }
-            match serde_json::from_str::<GeminiQuotaResponse>(body) {
+            match serde_json::from_str::<GeminiQuotaResponse>(&body) {
                 Ok(resp) => {
                     let first_bucket = resp
                         .rate_limit
@@ -502,12 +484,8 @@ pub fn fetch_gemini_rate_limits() -> GeminiRateLimits {
                 },
             }
         }
-        Ok(o) => GeminiRateLimits {
-            error: Some(format!("HTTP {}", o.status)),
-            ..Default::default()
-        },
         Err(e) => GeminiRateLimits {
-            error: Some(format!("curl: {}", e)),
+            error: Some(format!("HTTP request failed: {}", e)),
             ..Default::default()
         },
     }

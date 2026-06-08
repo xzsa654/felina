@@ -1,12 +1,12 @@
 ﻿{
-  "lastUpdated": "2026-05-25",
+  "lastUpdated": "2026-06-05",
   "categories": [
     {
       "id": "architecture",
       "name": "架構",
       "keywords": ["architecture", "structure", "module", "layer", "data flow", "local-only", "desktop", "control plane", "capability", "capability kind", "skill-only", "source of truth", "canonical skills", "fan-out", "active surface", "router", "invoke_handler", "spectra", "knowledge base"],
       "file": "architecture.md",
-      "count": 5
+      "count": 6
     },
     {
       "id": "dev-docs",
@@ -27,7 +27,7 @@
       "name": "Tauri",
       "keywords": ["tauri", "tauri-plugin-shell", "shell open", "open scope", "capability", "shell:allow-open", "open in folder", "tauri.conf.json", "plugins.shell", "permission", "invoke", "command registration"],
       "file": "tauri.md",
-      "count": 1
+      "count": 3
     }
   ]
 }

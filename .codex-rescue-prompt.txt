@@ -1,0 +1,29 @@
+分析 Felina market-server 「Auth + 作者身分」設計結論，挑盲點。
+
+## 前情提要（已定案）
+- Felina = Tauri v2 桌面 app；market-server = 獨立 Node.js Fastify + Postgres + MinIO，內網部署
+- Server 不算語義 hash，存 opaque content_hash + hash_algo + hash_version
+- 版本規則：UNIQUE(name, version, channel)；draft 允許 TTL 內覆蓋、stable 鎖死；強制 semver；admin yank（不刪實體）
+- Migration 用 node-pg-migrate
+
+## 本輪結論
+使用者選 **(b) Anonymous + attribution-only 起步，保留 (d) SSO 升級路徑**（不走 (c) token 中間階段）。
+
+**具體做法：**
+- Client：Felina app 讀 `git config --global user.email`（沒設則跳 dialog 強制填，不 fallback 到 OS username），Settings 可 override，每次 mutation POST 自動帶 `X-Author` header
+- Server：fastify hook 強制 `X-Author` 非空（不驗格式 — 內網可能用 LDAP username 而非 email）；完全信任 header；yank/promote 不檢查 actor == author（授信但記錄）
+- Schema 一開始就放 `author_email`、`author_user_id`（NULL，未來 SSO 用）、`uploaded_by_token_id`（NULL，未來 token 用）三欄
+- 獨立 `skill_events` 審計 table：event_type (publish/promote/yank/unyank)、actor_email、actor_ip、payload JSONB
+
+**未來升 (d) SSO 路徑：**
+- 加 `users` table（綁 SSO subject id）
+- Fastify middleware 解 OAuth/OIDC token → 把 verified email 寫進 request context → 取代 `X-Author` header 信任
+- 已存的 `author_email` 紀錄不變，新紀錄改填 `author_user_id`
+
+## 請挑盲點（200 字內）
+
+1. 「(b) 直接跳 (d)，不走 (c) token 中間階段」會不會留下技術債？例如未來 SSO 接不上 Tauri 桌面 app 的 deep link flow 才發現要回頭做 token？
+2. `X-Author` 完全信任、不限 owner 才能 yank/promote — 內網場景真的能接受嗎？惡作劇 yank 別人 skill 的 worst case 是什麼？
+3. Schema 留 `author_user_id` + `uploaded_by_token_id` 兩個 NULL 欄位給未來，會不會其實是 YAGNI？真的升 SSO 時 schema 加欄位也不貴
+4. `skill_events` 從 day 1 就建，會不會 over-engineered？prototype 階段沒人看的 audit log 是不是浪費
+5. `git config user.email` 沒設就跳 dialog — Tauri app 內怎麼讀 git config？跨 OS 有沒有踩坑點？

@@ -1,8 +1,10 @@
-import { CheckCircle, Download, AlertCircle, RefreshCw, Loader2 } from "lucide-react";
+import { useState } from "react";
+import { CheckCircle, Download, AlertCircle, RefreshCw, Loader2, Trash2 } from "lucide-react";
 import { t } from "$lib/i18n";
 import type { Locale } from "$lib/i18n";
 import MarkdownPreview from "$lib/components/shared/MarkdownPreview";
 import { LoadingLine } from "$lib/components/shared/PageScaffold";
+import ConfirmDialog from "$lib/components/shared/ConfirmDialog";
 
 export interface MarketSkillPreviewData {
   name: string;
@@ -17,6 +19,8 @@ export default function MarketSkillPreview({
   installing,
   status,
   onInstall,
+  isAuthor,
+  onDelete,
   locale,
   markdown,
   markdownLoading,
@@ -27,11 +31,14 @@ export default function MarketSkillPreview({
   installing: boolean;
   status: { ok: boolean; msg: string } | null;
   onInstall: () => void;
+  isAuthor: boolean;
+  onDelete: () => void;
   locale: Locale;
   markdown: string | null;
   markdownLoading: boolean;
   markdownError: string | null;
 }) {
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const actionLabel = installing
     ? t(locale, "hub.installing")
     : upToDate
@@ -79,6 +86,16 @@ export default function MarketSkillPreview({
             {showUpdateVerb ? t(locale, "hub.preview.update") : actionLabel}
           </button>
         )}
+        {isAuthor && (
+          <button
+            type="button"
+            onClick={() => setConfirmDelete(true)}
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-danger/30 text-danger text-sm hover:bg-danger/10 transition-colors"
+          >
+            <Trash2 size={14} />
+            {t(locale, "hub.delete.button")}
+          </button>
+        )}
         {status && (
           <span
             className={`inline-flex items-center gap-1 text-xs ${
@@ -90,6 +107,17 @@ export default function MarketSkillPreview({
           </span>
         )}
       </div>
+      <ConfirmDialog
+        open={confirmDelete}
+        title={t(locale, "hub.delete.button")}
+        message={t(locale, "hub.delete.confirm", { name: skill.name })}
+        confirmLabel={t(locale, "hub.delete.button")}
+        onconfirm={() => {
+          setConfirmDelete(false);
+          onDelete();
+        }}
+        oncancel={() => setConfirmDelete(false)}
+      />
 
       <div className="border-t border-border/40 pt-4">
         {markdownLoading ? (

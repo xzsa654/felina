@@ -7,7 +7,8 @@ fn repo_path() -> PathBuf {
     canonical_skills_dir()
 }
 
-pub fn ensure_repo() -> Result<Repository, String> {
+#[allow(dead_code)]
+pub(crate) fn ensure_repo() -> Result<Repository, String> {
     let path = repo_path();
     if path.join(".git").exists() {
         Repository::open(&path).map_err(|e| format!("failed to open git repo: {e}"))

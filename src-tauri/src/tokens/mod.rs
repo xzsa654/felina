@@ -10,6 +10,19 @@ pub mod tokscale;
 pub mod tokscale_ingestion;
 pub mod types;
 
+#[cfg(target_os = "windows")]
+pub(crate) fn no_window_command(program: &str) -> std::process::Command {
+    use std::os::windows::process::CommandExt;
+    let mut cmd = std::process::Command::new(program);
+    cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    cmd
+}
+
+#[cfg(not(target_os = "windows"))]
+pub(crate) fn no_window_command(program: &str) -> std::process::Command {
+    std::process::Command::new(program)
+}
+
 /// Parse an ISO 8601 timestamp (e.g. "2026-05-20T08:06:21.911Z") to a Unix epoch second.
 /// Returns `None` if the string is malformed or too short.
 pub fn parse_iso8601_to_epoch(s: &str) -> Option<i64> {
