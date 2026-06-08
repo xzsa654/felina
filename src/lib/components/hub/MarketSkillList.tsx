@@ -10,6 +10,7 @@ import {
 export interface MarketSkillListEntry {
   name: string;
   version: string | null;
+  author: string | null;
   upToDate: boolean;
 }
 

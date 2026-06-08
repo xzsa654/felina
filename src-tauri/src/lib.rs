@@ -185,11 +185,17 @@ pub fn run() {
             commands::skill_library::skill_library_reset,
             // Market (prototype)
             commands::market_install::install_market_skill,
+            commands::market_install::uninstall_skill,
             commands::market_install::get_skill_directory_hash,
             commands::market_server::get_market_server_url,
             commands::market_server::set_market_server_url,
             commands::market_publish::publish_canonical_skill,
             commands::market_publish::delete_market_skill,
+            // Hub auth
+            commands::hub_auth::register_hub_account,
+            commands::hub_auth::login_hub_account,
+            commands::hub_auth::get_hub_auth_status,
+            commands::hub_auth::logout_hub_account,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

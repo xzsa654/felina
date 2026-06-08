@@ -812,6 +812,37 @@ const zhTW: TranslationDict = {
       success: "已發布 {name}",
       failure: "發布失敗：{detail}",
     },
+    auth: {
+      login: "登入",
+      register: "註冊",
+      logout: "登出",
+      email: "Email",
+      password: "密碼",
+      loginRequired: "請先登入才能發布",
+      registerSuccess: "帳號已建立",
+      loginSuccess: "已登入",
+      emailExists: "此 Email 已註冊",
+      invalidCredentials: "帳號或密碼錯誤",
+      sessionExpired: "登入已過期，請重新登入",
+      loggedInAs: "已登入 {email}",
+    },
+    confirm: {
+      title: "確認安裝",
+      overwriteWarning: "安裝將覆蓋本地版本",
+      author: "作者",
+      updatedAt: "更新時間",
+      version: "版本",
+    },
+    uninstall: {
+      button: "解除安裝",
+      confirm: "確定要移除 {name}？移除後需重新安裝。",
+      success: "已移除 {name}",
+    },
+    delete: {
+      button: "從 Hub 移除",
+      confirm: "確定要從 Hub 移除 {name}？其他人將無法再安裝此 Skill。",
+      success: "已從 Hub 移除 {name}",
+    },
   },
 };
 

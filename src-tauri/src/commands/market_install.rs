@@ -94,6 +94,17 @@ pub async fn install_market_skill(name: String) -> Result<String, String> {
 }
 
 #[tauri::command]
+pub fn uninstall_skill(name: String) -> Result<(), String> {
+    super::skill_name::validate_skill_name(&name)?;
+    let skill_dir = paths::felina_global_skills_dir().join(&name);
+    if !skill_dir.is_dir() {
+        return Err(format!("skill not found: {}", skill_dir.display()));
+    }
+    std::fs::remove_dir_all(&skill_dir)
+        .map_err(|e| format!("failed to remove skill directory: {e}"))
+}
+
+#[tauri::command]
 pub fn get_skill_directory_hash(name: String) -> Option<String> {
     let skill_dir = paths::felina_global_skills_dir().join(&name);
     super::fan_out::directory_hash(&skill_dir)

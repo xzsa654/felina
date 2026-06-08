@@ -76,6 +76,8 @@ fn package_skill_dir(name: &str, skill_dir: &Path) -> Result<Vec<u8>, String> {
 
 #[tauri::command]
 pub async fn publish_canonical_skill(name: String) -> Result<(), String> {
+    let token = super::hub_auth::read_hub_token()?
+        .ok_or_else(|| "請先登入 Hub 帳號".to_string())?;
     super::skill_name::validate_skill_name(&name)?;
 
     let skill_dir = paths::felina_global_skills_dir().join(&name);
@@ -104,6 +106,7 @@ pub async fn publish_canonical_skill(name: String) -> Result<(), String> {
     let response = reqwest::Client::new()
         .put(url)
         .header("X-Content-Hash", content_hash)
+        .header("Authorization", format!("Bearer {token}"))
         .multipart(form)
         .send()
         .await
@@ -115,11 +118,16 @@ pub async fn publish_canonical_skill(name: String) -> Result<(), String> {
 
     let status = response.status();
     let body = response.text().await.unwrap_or_default();
+    if status.as_u16() == 401 {
+        return Err("登入已過期，請重新登入".to_string());
+    }
     Err(format!("server returned {status}: {body}"))
 }
 
 #[tauri::command]
 pub async fn delete_market_skill(name: String) -> Result<(), String> {
+    let token = super::hub_auth::read_hub_token()?
+        .ok_or_else(|| "請先登入 Hub 帳號".to_string())?;
     super::skill_name::validate_skill_name(&name)?;
     let base = super::market_server::get_market_server_url()?;
     let url = format!(
@@ -129,14 +137,17 @@ pub async fn delete_market_skill(name: String) -> Result<(), String> {
     );
     let response = reqwest::Client::new()
         .delete(url)
+        .header("Authorization", format!("Bearer {token}"))
         .send()
         .await
         .map_err(|e| format!("delete failed: {e}"))?;
 
-    if response.status().is_success() || response.status() == reqwest::StatusCode::NOT_FOUND {
+    let status = response.status();
+    if status.is_success() || status == reqwest::StatusCode::NOT_FOUND {
         Ok(())
+    } else if status.as_u16() == 401 {
+        Err("登入已過期，請重新登入".to_string())
     } else {
-        let status = response.status();
         let body = response.text().await.unwrap_or_default();
         Err(format!("server returned {status}: {body}"))
     }
@@ -151,6 +162,16 @@ mod tests {
     use std::io::{Read, Write};
     use std::net::TcpListener;
     use tar::Archive;
+
+    fn set_test_hub_token(root: &std::path::Path) {
+        let settings_path = root.join(".felina").join("settings.json");
+        std::fs::create_dir_all(settings_path.parent().unwrap()).unwrap();
+        std::fs::write(
+            &settings_path,
+            r#"{"hubToken":"test-token","hubEmail":"test@test.com"}"#,
+        )
+        .unwrap();
+    }
 
     fn create_skill(root: &std::path::Path, name: &str) -> std::path::PathBuf {
         let skill_dir = root.join(".felina").join("skills").join(name);
@@ -206,6 +227,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         create_skill(tmp.path(), "code-review");
         set_felina_home_override_for_test(Some(tmp.path().join(".felina")));
+        set_test_hub_token(tmp.path());
         let (url, handle) = spawn_put_server("200 OK", "{}");
         set_market_server_url(url).unwrap();
 
@@ -225,6 +247,7 @@ mod tests {
     async fn publish_rejects_missing_skill_before_http() {
         let tmp = tempfile::tempdir().unwrap();
         set_felina_home_override_for_test(Some(tmp.path().join(".felina")));
+        set_test_hub_token(tmp.path());
         let (url, _handle) = spawn_put_server("200 OK", "{}");
         set_market_server_url(url).unwrap();
 
@@ -239,6 +262,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         create_skill(tmp.path(), "code-review");
         set_felina_home_override_for_test(Some(tmp.path().join(".felina")));
+        set_test_hub_token(tmp.path());
         let (url, handle) = spawn_put_server("500 Internal Server Error", "upload failed");
         set_market_server_url(url).unwrap();
 
@@ -254,6 +278,7 @@ mod tests {
     async fn delete_treats_404_as_success() {
         let tmp = tempfile::tempdir().unwrap();
         set_felina_home_override_for_test(Some(tmp.path().join(".felina")));
+        set_test_hub_token(tmp.path());
         let (url, handle) = spawn_put_server("404 Not Found", "missing");
         set_market_server_url(url).unwrap();
 
@@ -269,6 +294,7 @@ mod tests {
     async fn delete_returns_status_and_body_on_server_error() {
         let tmp = tempfile::tempdir().unwrap();
         set_felina_home_override_for_test(Some(tmp.path().join(".felina")));
+        set_test_hub_token(tmp.path());
         let (url, handle) = spawn_put_server("500 Internal Server Error", "delete failed");
         set_market_server_url(url).unwrap();
 
