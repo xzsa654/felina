@@ -8,5 +8,6 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY src/ ./src/
 COPY migrations/ ./migrations/
+USER node
 EXPOSE 3100
 CMD ["node", "src/server.js"]

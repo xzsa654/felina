@@ -50,7 +50,7 @@ function multipartPayload(buffer) {
 }
 
 test('GET /api/skills returns persisted skills from db helper', async () => {
-  const app = createApp({
+  const app = await createApp({
     db: {
       async listSkills() {
         return [{ name: 'code-review', version: '1.0.0', description: 'Review', contentHash: 'abc', updatedAt: '2026-06-05T07:00:00.000Z' }]
@@ -64,7 +64,7 @@ test('GET /api/skills returns persisted skills from db helper', async () => {
 })
 
 test('GET /api/skills/:name/download distinguishes missing, deleted, and live skills', async () => {
-  const app = createApp({
+  const app = await createApp({
     db: {
       async getSkill(name) {
         if (name === 'missing') return null
@@ -90,7 +90,7 @@ test('GET /api/skills/:name/download distinguishes missing, deleted, and live sk
 })
 
 test('PUT /api/skills/:name returns 401 without auth token', async () => {
-  const app = createApp({
+  const app = await createApp({
     db: { async upsertSkill() {} },
     storage: { async putObject() {} },
   })
@@ -99,9 +99,67 @@ test('PUT /api/skills/:name returns 401 without auth token', async () => {
   assert.equal(response.statusCode, 401)
 })
 
+test('multipart upload defaults to 10MB limit', async () => {
+  const app = await createApp({
+    db: { async upsertSkill() {} },
+    storage: { async putObject() {} },
+  })
+  const prev = process.env.UPLOAD_MAX_SIZE_MB
+  delete process.env.UPLOAD_MAX_SIZE_MB
+  try {
+    const bigApp = await createApp({
+      db: { async upsertSkill() {} },
+      storage: { async putObject() {} },
+    })
+    const bigPayload = Buffer.alloc(11 * 1024 * 1024)
+    const body = multipartPayload(bigPayload)
+    const res = await bigApp.inject({
+      method: 'PUT', url: '/api/skills/big-skill',
+      headers: { ...body.headers, ...authHeader(), 'x-content-hash': 'a'.repeat(64) },
+      payload: body.payload,
+    })
+    assert.equal(res.statusCode, 413)
+  } finally {
+    if (prev === undefined) delete process.env.UPLOAD_MAX_SIZE_MB
+    else process.env.UPLOAD_MAX_SIZE_MB = prev
+  }
+})
+
+test('PUT /api/skills/:name rejects invalid content hash format', async () => {
+  const app = await createApp({
+    db: { async upsertSkill() {} },
+    storage: { async putObject() {} },
+  })
+  const body = multipartPayload(Buffer.from('not-a-tarball'))
+  const res = await app.inject({
+    method: 'PUT', url: '/api/skills/code-review',
+    headers: { ...body.headers, ...authHeader(), 'x-content-hash': 'not-a-hash' },
+    payload: body.payload,
+  })
+  assert.equal(res.statusCode, 400)
+  assert.match(res.json().error, /invalid content hash format/)
+})
+
+test('PUT /api/skills/:name accepts valid 64-hex content hash', async () => {
+  const tarball = await createTarGz([['code-review/SKILL.md', '---\nversion: 1.0.0\n---\n# test']])
+  const body = multipartPayload(tarball)
+  const validHash = 'a'.repeat(64)
+  const app = await createApp({
+    db: { async upsertSkill(v) { return { ...v, updatedAt: '2026-01-01' } } },
+    storage: { async putObject() {} },
+    randomUuid: () => '00000000-0000-4000-8000-000000000000',
+  })
+  const res = await app.inject({
+    method: 'PUT', url: '/api/skills/code-review',
+    headers: { ...body.headers, ...authHeader(), 'x-content-hash': validHash },
+    payload: body.payload,
+  })
+  assert.equal(res.statusCode, 200)
+})
+
 test('PUT /api/skills/:name validates name and content hash before writes', async () => {
   const writes = []
-  const app = createApp({
+  const app = await createApp({
     db: { async upsertSkill(value) { writes.push(['db', value]) } },
     storage: { async putObject(key, buffer) { writes.push(['storage', key, buffer]) } },
   })
@@ -128,7 +186,7 @@ description: Automated code review skill
   ]])
   const body = multipartPayload(tarball)
   const writes = []
-  const app = createApp({
+  const app = await createApp({
     db: {
       async upsertSkill(value) {
         writes.push(['db', value])
@@ -146,7 +204,7 @@ description: Automated code review skill
   const response = await app.inject({
     method: 'PUT',
     url: '/api/skills/code-review',
-    headers: { ...body.headers, ...authHeader(), 'x-content-hash': 'content-abc' },
+    headers: { ...body.headers, ...authHeader(), 'x-content-hash': 'a'.repeat(64) },
     payload: body.payload,
   })
 
@@ -154,7 +212,7 @@ description: Automated code review skill
   assert.equal(response.statusCode, 200)
   assert.deepEqual(response.json(), {
     name: 'code-review',
-    contentHash: 'content-abc',
+    contentHash: 'a'.repeat(64),
     tarballHash,
     storageKey: 'code-review/00000000-0000-4000-8000-000000000000.tar.gz',
     updatedAt: '2026-06-05T07:00:00.000Z',
@@ -171,7 +229,7 @@ test('PUT /api/skills/:name rejects packages without matching top-level SKILL.md
   const tarball = await createTarGz([['other/SKILL.md', '# other']])
   const body = multipartPayload(tarball)
   const writes = []
-  const app = createApp({
+  const app = await createApp({
     db: { async upsertSkill(value) { writes.push(['db', value]) } },
     storage: { async putObject(key, buffer) { writes.push(['storage', key, buffer]) } },
   })
@@ -179,7 +237,7 @@ test('PUT /api/skills/:name rejects packages without matching top-level SKILL.md
   const response = await app.inject({
     method: 'PUT',
     url: '/api/skills/code-review',
-    headers: { ...body.headers, ...authHeader(), 'x-content-hash': 'content-abc' },
+    headers: { ...body.headers, ...authHeader(), 'x-content-hash': 'a'.repeat(64) },
     payload: body.payload,
   })
 
@@ -188,14 +246,14 @@ test('PUT /api/skills/:name rejects packages without matching top-level SKILL.md
 })
 
 test('DELETE /api/skills/:name returns 401 without auth token', async () => {
-  const app = createApp({
+  const app = await createApp({
     db: { async getSkill() { return { author: null } }, async softDeleteSkill() { return 'updated' } },
   })
   assert.equal((await app.inject({ method: 'DELETE', url: '/api/skills/code-review' })).statusCode, 401)
 })
 
 test('DELETE /api/skills/:name allows author to delete own skill', async () => {
-  const app = createApp({
+  const app = await createApp({
     db: {
       async getSkill() { return { author: 'alice@corp.local', deleted_at: null } },
       async softDeleteSkill() { return 'updated' },
@@ -206,7 +264,7 @@ test('DELETE /api/skills/:name allows author to delete own skill', async () => {
 })
 
 test('DELETE /api/skills/:name returns 403 for non-author', async () => {
-  const app = createApp({
+  const app = await createApp({
     db: {
       async getSkill() { return { author: 'alice@corp.local', deleted_at: null } },
       async softDeleteSkill() { return 'updated' },
@@ -218,7 +276,7 @@ test('DELETE /api/skills/:name returns 403 for non-author', async () => {
 })
 
 test('DELETE /api/skills/:name allows delete of legacy NULL author skill', async () => {
-  const app = createApp({
+  const app = await createApp({
     db: {
       async getSkill() { return { author: null, deleted_at: null } },
       async softDeleteSkill() { return 'updated' },
@@ -229,7 +287,7 @@ test('DELETE /api/skills/:name allows delete of legacy NULL author skill', async
 })
 
 test('DELETE /api/skills/:name returns 404 for missing skill', async () => {
-  const app = createApp({
+  const app = await createApp({
     db: {
       async getSkill() { return null },
       async softDeleteSkill() { return 'not_found' },
@@ -239,9 +297,99 @@ test('DELETE /api/skills/:name returns 404 for missing skill', async () => {
   assert.equal(res.statusCode, 404)
 })
 
+test('CORS rejects unknown origin when CORS_ORIGIN is set', async () => {
+  const prev = process.env.CORS_ORIGIN
+  process.env.CORS_ORIGIN = 'http://localhost:1420'
+  try {
+    const app = await createApp({ db: {} })
+    const res = await app.inject({
+      method: 'OPTIONS',
+      url: '/health',
+      headers: {
+        origin: 'https://evil.example.com',
+        'access-control-request-method': 'GET',
+      },
+    })
+    assert.equal(res.headers['access-control-allow-origin'], undefined)
+  } finally {
+    if (prev === undefined) delete process.env.CORS_ORIGIN
+    else process.env.CORS_ORIGIN = prev
+  }
+})
+
+test('CORS allows listed origin when CORS_ORIGIN is set', async () => {
+  const prev = process.env.CORS_ORIGIN
+  process.env.CORS_ORIGIN = 'http://localhost:1420,http://localhost:3000'
+  try {
+    const app = await createApp({ db: {} })
+    const res = await app.inject({
+      method: 'GET',
+      url: '/health',
+      headers: { origin: 'http://localhost:1420' },
+    })
+    assert.equal(res.headers['access-control-allow-origin'], 'http://localhost:1420')
+  } finally {
+    if (prev === undefined) delete process.env.CORS_ORIGIN
+    else process.env.CORS_ORIGIN = prev
+  }
+})
+
+test('rate limit returns 429 after exceeding global limit', async () => {
+  const prev = process.env.RATE_LIMIT_MAX
+  process.env.RATE_LIMIT_MAX = '2'
+  try {
+    const app = await createApp({ db: { async listSkills() { return [] } } })
+    await app.inject({ method: 'GET', url: '/api/skills' })
+    await app.inject({ method: 'GET', url: '/api/skills' })
+    const res = await app.inject({ method: 'GET', url: '/api/skills' })
+    assert.equal(res.statusCode, 429)
+  } finally {
+    if (prev === undefined) delete process.env.RATE_LIMIT_MAX
+    else process.env.RATE_LIMIT_MAX = prev
+  }
+})
+
+test('auth endpoints have stricter rate limit', async () => {
+  const prevMax = process.env.RATE_LIMIT_AUTH_MAX
+  const prevWindow = process.env.RATE_LIMIT_AUTH_WINDOW
+  process.env.RATE_LIMIT_AUTH_MAX = '2'
+  process.env.RATE_LIMIT_AUTH_WINDOW = '1'
+  try {
+    const app = await createApp({
+      db: { async getUserByEmail() { return null } },
+    })
+    await app.inject({ method: 'POST', url: '/auth/login', headers: { 'content-type': 'application/json' }, payload: JSON.stringify({ email: 'a@b.c', password: 'x' }) })
+    await app.inject({ method: 'POST', url: '/auth/login', headers: { 'content-type': 'application/json' }, payload: JSON.stringify({ email: 'a@b.c', password: 'x' }) })
+    const res = await app.inject({ method: 'POST', url: '/auth/login', headers: { 'content-type': 'application/json' }, payload: JSON.stringify({ email: 'a@b.c', password: 'x' }) })
+    assert.equal(res.statusCode, 429)
+  } finally {
+    if (prevMax === undefined) delete process.env.RATE_LIMIT_AUTH_MAX
+    else process.env.RATE_LIMIT_AUTH_MAX = prevMax
+    if (prevWindow === undefined) delete process.env.RATE_LIMIT_AUTH_WINDOW
+    else process.env.RATE_LIMIT_AUTH_WINDOW = prevWindow
+  }
+})
+
+test('CORS allows all origins when CORS_ORIGIN is not set', async () => {
+  const prev = process.env.CORS_ORIGIN
+  delete process.env.CORS_ORIGIN
+  try {
+    const app = await createApp({ db: {} })
+    const res = await app.inject({
+      method: 'GET',
+      url: '/health',
+      headers: { origin: 'https://any.example.com' },
+    })
+    assert.equal(res.headers['access-control-allow-origin'], 'https://any.example.com')
+  } finally {
+    if (prev === undefined) delete process.env.CORS_ORIGIN
+    else process.env.CORS_ORIGIN = prev
+  }
+})
+
 test('POST /auth/register creates user and returns token', async () => {
   let created = null
-  const app = createApp({
+  const app = await createApp({
     db: {
       async createUser(data) { created = data; return { id: 'test-uuid', email: data.email } },
     },
@@ -260,7 +408,7 @@ test('POST /auth/register creates user and returns token', async () => {
 })
 
 test('POST /auth/register returns 409 for duplicate email', async () => {
-  const app = createApp({
+  const app = await createApp({
     db: {
       async createUser() { const err = new Error('unique'); err.code = '23505'; throw err },
     },
@@ -273,8 +421,31 @@ test('POST /auth/register returns 409 for duplicate email', async () => {
   assert.equal(res.statusCode, 409)
 })
 
+test('POST /auth/register returns 400 for short password', async () => {
+  const app = await createApp({ db: {} })
+  const res = await app.inject({
+    method: 'POST', url: '/auth/register',
+    headers: { 'content-type': 'application/json' },
+    payload: JSON.stringify({ email: 'alice@corp.local', password: 'short' }),
+  })
+  assert.equal(res.statusCode, 400)
+  assert.match(res.json().error, /at least 8 characters/)
+})
+
+test('POST /auth/register accepts password with exactly 8 characters', async () => {
+  const app = await createApp({
+    db: { async createUser(data) { return { id: 'test-uuid', email: data.email } } },
+  })
+  const res = await app.inject({
+    method: 'POST', url: '/auth/register',
+    headers: { 'content-type': 'application/json' },
+    payload: JSON.stringify({ email: 'alice@corp.local', password: '12345678' }),
+  })
+  assert.equal(res.statusCode, 200)
+})
+
 test('POST /auth/register returns 400 for empty fields', async () => {
-  const app = createApp({ db: {} })
+  const app = await createApp({ db: {} })
   const res = await app.inject({
     method: 'POST', url: '/auth/register',
     headers: { 'content-type': 'application/json' },
@@ -285,7 +456,7 @@ test('POST /auth/register returns 400 for empty fields', async () => {
 
 test('POST /auth/login returns token for valid credentials', async () => {
   const hash = await hashPassword('secret123')
-  const app = createApp({
+  const app = await createApp({
     db: {
       async getUserByEmail(email) { return email === 'alice@corp.local' ? { id: 'test-uuid', email, password_hash: hash } : null },
     },
@@ -302,7 +473,7 @@ test('POST /auth/login returns token for valid credentials', async () => {
 
 test('POST /auth/login returns 401 for wrong password', async () => {
   const hash = await hashPassword('secret123')
-  const app = createApp({
+  const app = await createApp({
     db: {
       async getUserByEmail() { return { id: 'test-uuid', email: 'alice@corp.local', password_hash: hash } },
     },
@@ -316,7 +487,7 @@ test('POST /auth/login returns 401 for wrong password', async () => {
 })
 
 test('POST /auth/login returns 401 for non-existent email', async () => {
-  const app = createApp({
+  const app = await createApp({
     db: { async getUserByEmail() { return null } },
   })
   const res = await app.inject({
