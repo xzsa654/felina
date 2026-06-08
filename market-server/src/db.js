@@ -27,6 +27,7 @@ function mapUpsertRow(row) {
     contentHash: row.content_hash,
     tarballHash: row.tarball_hash,
     storageKey: row.storage_key,
+    previousStorageKey: row.previous_storage_key ?? null,
     updatedAt: toIso(row.updated_at),
   }
 }
@@ -73,7 +74,7 @@ export function createDb({ pool = new Pool({
             updated_ip = EXCLUDED.updated_ip,
             updated_at = now(),
             deleted_at = NULL
-        RETURNING name, content_hash, tarball_hash, storage_key, updated_at
+        RETURNING name, content_hash, tarball_hash, storage_key, previous_storage_key, updated_at
       `, [
         name,
         normalizeNullableString(version),

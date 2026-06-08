@@ -682,6 +682,103 @@ test('POST /auth/logout deletes all refresh tokens when no refreshToken but has 
   assert.equal(deletedUserId, 'user-uuid-1')
 })
 
+test('PUT /api/skills/:name deletes previous storage object on upsert', async () => {
+  const tarball = await createTarGz([['code-review/SKILL.md', '---\nversion: 1.0.0\n---\n# test']])
+  const body = multipartPayload(tarball)
+  let deletedKey = null
+  const app = await createApp({
+    db: {
+      async upsertSkill(v) { return { ...v, previousStorageKey: 'code-review/old-uuid.tar.gz', updatedAt: '2026-01-01' } },
+    },
+    storage: {
+      async putObject() {},
+      async deleteObject(key) { deletedKey = key },
+    },
+    randomUuid: () => '00000000-0000-4000-8000-000000000000',
+  })
+  const res = await app.inject({
+    method: 'PUT', url: '/api/skills/code-review',
+    headers: { ...body.headers, ...authHeader(), 'x-content-hash': 'a'.repeat(64) },
+    payload: body.payload,
+  })
+  assert.equal(res.statusCode, 200)
+  assert.equal(deletedKey, 'code-review/old-uuid.tar.gz')
+})
+
+test('PUT /api/skills/:name does not delete when no previous storage key', async () => {
+  const tarball = await createTarGz([['code-review/SKILL.md', '---\nversion: 1.0.0\n---\n# test']])
+  const body = multipartPayload(tarball)
+  let deletedKey = null
+  const app = await createApp({
+    db: {
+      async upsertSkill(v) { return { ...v, previousStorageKey: null, updatedAt: '2026-01-01' } },
+    },
+    storage: {
+      async putObject() {},
+      async deleteObject(key) { deletedKey = key },
+    },
+    randomUuid: () => '00000000-0000-4000-8000-000000000000',
+  })
+  const res = await app.inject({
+    method: 'PUT', url: '/api/skills/code-review',
+    headers: { ...body.headers, ...authHeader(), 'x-content-hash': 'a'.repeat(64) },
+    payload: body.payload,
+  })
+  assert.equal(res.statusCode, 200)
+  assert.equal(deletedKey, null)
+})
+
+test('PUT /api/skills/:name succeeds even if previous object deletion fails', async () => {
+  const tarball = await createTarGz([['code-review/SKILL.md', '---\nversion: 1.0.0\n---\n# test']])
+  const body = multipartPayload(tarball)
+  const app = await createApp({
+    db: {
+      async upsertSkill(v) { return { ...v, previousStorageKey: 'old-key', updatedAt: '2026-01-01' } },
+    },
+    storage: {
+      async putObject() {},
+      async deleteObject() { throw new Error('MinIO down') },
+    },
+    randomUuid: () => '00000000-0000-4000-8000-000000000000',
+  })
+  const res = await app.inject({
+    method: 'PUT', url: '/api/skills/code-review',
+    headers: { ...body.headers, ...authHeader(), 'x-content-hash': 'a'.repeat(64) },
+    payload: body.payload,
+  })
+  assert.equal(res.statusCode, 200)
+})
+
+test('DELETE /api/skills/:name deletes storage object on soft delete', async () => {
+  let deletedKey = null
+  const app = await createApp({
+    db: {
+      async getSkill() { return { author: 'alice@corp.local', deleted_at: null, storage_key: 'code-review/uuid.tar.gz' } },
+      async softDeleteSkill() { return 'updated' },
+    },
+    storage: {
+      async deleteObject(key) { deletedKey = key },
+    },
+  })
+  const res = await app.inject({ method: 'DELETE', url: '/api/skills/code-review', headers: authHeader('alice@corp.local') })
+  assert.equal(res.statusCode, 204)
+  assert.equal(deletedKey, 'code-review/uuid.tar.gz')
+})
+
+test('DELETE /api/skills/:name succeeds even if storage deletion fails', async () => {
+  const app = await createApp({
+    db: {
+      async getSkill() { return { author: 'alice@corp.local', deleted_at: null, storage_key: 'code-review/uuid.tar.gz' } },
+      async softDeleteSkill() { return 'updated' },
+    },
+    storage: {
+      async deleteObject() { throw new Error('MinIO down') },
+    },
+  })
+  const res = await app.inject({ method: 'DELETE', url: '/api/skills/code-review', headers: authHeader('alice@corp.local') })
+  assert.equal(res.statusCode, 204)
+})
+
 test('POST /auth/login returns 401 for non-existent email', async () => {
   const app = await createApp({
     db: { async getUserByEmail() { return null } },

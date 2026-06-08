@@ -320,6 +320,14 @@ export async function createApp({ db = defaultDb, storage = defaultStorage, auth
       updatedIp: request.ip,
     })
 
+    if (saved.previousStorageKey) {
+      try {
+        await storage.deleteObject(saved.previousStorageKey)
+      } catch (err) {
+        request.log.warn({ err, key: saved.previousStorageKey }, 'failed to delete previous storage object')
+      }
+    }
+
     return {
       name: saved.name,
       contentHash: saved.contentHash,
@@ -349,6 +357,15 @@ export async function createApp({ db = defaultDb, storage = defaultStorage, auth
     if (result === 'not_found') {
       return reply.code(404).send({ error: 'skill not found' })
     }
+
+    if (skill.storage_key) {
+      try {
+        await storage.deleteObject(skill.storage_key)
+      } catch (err) {
+        request.log.warn({ err, key: skill.storage_key }, 'failed to delete storage object on soft delete')
+      }
+    }
+
     return reply.code(204).send()
   })
 

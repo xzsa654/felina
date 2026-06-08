@@ -1,5 +1,5 @@
 {
-  "lastUpdated": "2026-06-05",
+  "lastUpdated": "2026-06-08",
   "entries": [
     {
       "id": "kb-architecture-local-only-boundary",
@@ -312,6 +312,54 @@
       "file": "knowledge-base/architecture.md",
       "anchor": "hub-install-identity",
       "updated": "2026-06-05"
+    },
+    {
+      "id": "kb-react-modal-useeffect-inline-callback",
+      "title": "React Modal useEffect 不應依賴 inline callback",
+      "type": "knowledge",
+      "status": "active",
+      "confidence": "confirmed",
+      "keywords": ["react", "modal", "useEffect", "focus", "inline callback", "useRef", "auto-focus"],
+      "appliesWhen": "任何 Modal/Dialog 元件的 useEffect 有 auto-focus 邏輯且依賴 prop callback 時",
+      "file": "knowledge-base/dev-docs.md",
+      "anchor": "react-modal-useeffect-inline-callback",
+      "updated": "2026-06-08"
+    },
+    {
+      "id": "kb-docker-compose-restart-env",
+      "title": "Docker Compose restart 不重讀 .env",
+      "type": "knowledge",
+      "status": "active",
+      "confidence": "confirmed",
+      "keywords": ["docker", "compose", "restart", "env", "force-recreate", "environment variable"],
+      "appliesWhen": "修改 .env 或 docker-compose.yml 環境變數後需要生效時",
+      "file": "knowledge-base/dev-docs.md",
+      "anchor": "docker-compose-restart-env",
+      "updated": "2026-06-08"
+    },
+    {
+      "id": "kb-sql-upsert-coalesce-null-takeover",
+      "title": "SQL upsert COALESCE 處理 null 欄位接管",
+      "type": "knowledge",
+      "status": "active",
+      "confidence": "confirmed",
+      "keywords": ["sql", "upsert", "coalesce", "null", "on conflict", "legacy data", "author", "ownership"],
+      "appliesWhen": "upsert SQL 中有保留原值的欄位且該欄位可能為 null 時",
+      "file": "knowledge-base/dev-docs.md",
+      "anchor": "sql-upsert-coalesce-null-takeover",
+      "updated": "2026-06-08"
+    },
+    {
+      "id": "kb-dev-docs-fastify-v5-await-register",
+      "title": "Fastify v5 register() 需 await",
+      "type": "knowledge",
+      "status": "active",
+      "confidence": "confirmed",
+      "keywords": ["fastify", "v5", "register", "await", "plugin", "rate-limit", "breaking change", "async"],
+      "appliesWhen": "在 Fastify v5 專案中註冊 plugin 且 createApp 為 sync function 時",
+      "file": "knowledge-base/dev-docs.md",
+      "anchor": "fastify-v5-await-register",
+      "updated": "2026-06-08"
     }
   ]
 }
