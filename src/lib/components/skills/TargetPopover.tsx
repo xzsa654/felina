@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { AlertTriangle, FolderOpen, Trash2, X } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
-import type { KnownProject, PullDiffPreview, SkillTarget, TargetRemovalPolicy } from "$lib/types";
+import type { ForkDiffPreview, KnownProject, PullDiffPreview, SkillTarget, TargetRemovalPolicy } from "$lib/types";
 import type { LastSyncEntry } from "$lib/types/skills";
 import { api } from "$lib/tauri/commands";
 import { openPath } from "$lib/tauri/shell";
@@ -10,11 +10,14 @@ import { useLocaleStore } from "$lib/stores/locale";
 import { t } from "$lib/i18n";
 import { isProjectMissing, normalizeProjectPath } from "$lib/utils/path";
 import { classifyTarget, isTargetDisabled, STATUS_CONFIG, targetKey } from "./sync-status-utils";
+import Modal from "$lib/components/shared/Modal";
 import PullConfirmDialog from "./PullConfirmDialog";
+import ForkPreviewDialog from "./ForkPreviewDialog";
 
-type UIState = "auto" | "manual" | "disabled";
+type UIState = "auto" | "manual" | "disabled" | "forked";
 
 function toUIState(tgt: SkillTarget): UIState {
+  if (tgt.mode === "forked") return "forked";
   if (isTargetDisabled(tgt)) return "disabled";
   if (tgt.mode === "auto") return "auto";
   return "manual";
@@ -26,9 +29,9 @@ function applyUIState(tgt: SkillTarget, state: UIState): SkillTarget {
       return { ...tgt, enabled: true, mode: "auto" };
     case "manual":
       return { ...tgt, enabled: true, mode: "manual" };
+    case "forked":
+      return { ...tgt, enabled: true, mode: "forked" };
     case "disabled":
-      // Toggle the enablement axis only; preserve the underlying mode so
-      // re-enabling restores the prior auto/manual choice.
       return { ...tgt, enabled: false };
   }
 }
@@ -37,6 +40,7 @@ const STATE_KEYS = {
   auto: "skills.targets.auto",
   manual: "skills.targets.manual",
   disabled: "skills.targets.disabled",
+  forked: "skills.targets.forked",
 } as const;
 
 function formatLocalTime(iso: string): string {
@@ -80,9 +84,12 @@ export default function TargetPopover({
   const [pullTarget, setPullTarget] = useState<{ key: string; name: string } | null>(null);
   const [pullBusy, setPullBusy] = useState(false);
   const [pullDiff, setPullDiff] = useState<PullDiffPreview | null>(null);
+  const [pendingUnfork, setPendingUnfork] = useState<UIState | null>(null);
+  const [forkPreview, setForkPreview] = useState<ForkDiffPreview | null>(null);
+  const [forkPreviewOpen, setForkPreviewOpen] = useState(false);
   const refreshDriftScan = useSkillsStore((s) => s.refreshDriftScan);
 
-  const hasOpenDialog = pendingRemove || pullTarget !== null;
+  const hasOpenDialog = pendingRemove || pullTarget !== null || pendingUnfork !== null || forkPreviewOpen;
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -136,6 +143,14 @@ export default function TargetPopover({
     : t(locale, "skills.notSynced");
 
   async function handleStateChange(state: UIState) {
+    if (current === "forked" && state !== "forked") {
+      setPendingUnfork(state);
+      return;
+    }
+    await applyStateChange(state);
+  }
+
+  async function applyStateChange(state: UIState) {
     const next = allTargets.map((tgt, i) =>
       i === targetIndex ? applyUIState(tgt, state) : tgt,
     );
@@ -171,6 +186,16 @@ export default function TargetPopover({
     }
   }
 
+
+  async function handleForkPreview() {
+    try {
+      const diff = await api.skillFork.diffPreview(skillName, key);
+      setForkPreview(diff);
+      setForkPreviewOpen(true);
+    } catch (e) {
+      setStatusMessage(String(e));
+    }
+  }
 
   async function handlePullPreview() {
     try {
@@ -237,7 +262,20 @@ export default function TargetPopover({
         {/* Status: disabled OR drift warning OR sync time (in that priority).
             When disabled, sync freshness is meaningless — show the off state. */}
         <div className="px-3 pb-2 flex items-center gap-2 text-xs">
-          {current === "disabled" ? (
+          {current === "forked" ? (
+            <>
+              <span className={`inline-flex items-center gap-1 ${cfg.chipClass.split(" ")[0]}`}>
+                {cfg.icon} {t(locale, "skills.targets.forked")}
+              </span>
+              <button
+                type="button"
+                onClick={() => void handleForkPreview()}
+                className="text-[11px] px-1.5 py-0.5 rounded border border-info/40 text-info hover:bg-info/10"
+              >
+                {t(locale, "skills.fork.previewButton")}
+              </button>
+            </>
+          ) : current === "disabled" ? (
             <span className="text-text-secondary">∅ {t(locale, "skills.targets.disabled")}</span>
           ) : drifted ? (
             <>
@@ -274,6 +312,7 @@ export default function TargetPopover({
           >
             <option value="auto">{t(locale, STATE_KEYS.auto)}</option>
             <option value="manual">{t(locale, STATE_KEYS.manual)}</option>
+            <option value="forked">{t(locale, STATE_KEYS.forked)}</option>
             <option value="disabled">{t(locale, STATE_KEYS.disabled)}</option>
           </select>
         </div>
@@ -375,6 +414,49 @@ export default function TargetPopover({
           </div>
         </div>
       )}
+
+      {/* Unfork confirmation dialog */}
+      <Modal open={pendingUnfork !== null} onClose={() => setPendingUnfork(null)} size="sm">
+        <div className="p-5 space-y-4">
+          <div>
+            <h3 className="text-base font-semibold text-text-primary">
+              {t(locale, "skills.fork.unforkConfirmTitle")}
+            </h3>
+            <p className="text-sm text-text-muted mt-1">
+              {t(locale, "skills.fork.unforkConfirmBody")}
+            </p>
+          </div>
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setPendingUnfork(null)}
+              className="rounded border border-border bg-bg-tertiary px-3 py-1.5 text-xs text-text-primary hover:bg-bg-hover"
+            >
+              {t(locale, "skills.targets.removeCancel")}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                const state = pendingUnfork!;
+                setPendingUnfork(null);
+                void applyStateChange(state);
+              }}
+              className="rounded border border-danger/40 bg-danger/10 px-3 py-1.5 text-xs text-danger hover:bg-danger/20"
+            >
+              {pendingUnfork ? t(locale, STATE_KEYS[pendingUnfork]) : ""}
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Fork preview dialog */}
+      <ForkPreviewDialog
+        open={forkPreviewOpen}
+        skillName={skillName}
+        targetKey={key}
+        diff={forkPreview}
+        onClose={() => { setForkPreviewOpen(false); setForkPreview(null); }}
+      />
 
       {/* Pull confirm dialog */}
       <PullConfirmDialog

@@ -29,7 +29,15 @@ export type AgentId = "anthropic" | "codex" | "gemini";
  */
 export type SkillScope = "global" | "project";
 
-export type DriftStatus = "synced" | "drifted" | "missing" | "noPushHistory";
+export type DriftStatus =
+  | "synced"
+  | "drifted"
+  | "missing"
+  | "noPushHistory"
+  | "forkedClean"
+  | "forkedEdited"
+  | "forkedCanonicalAhead"
+  | "forkedDiverged";
 
 export interface CanonicalSkill {
   /** Stable canonical directory identity used for app actions. */
@@ -304,6 +312,22 @@ export interface SiblingChange {
 }
 
 export type SiblingResolution = "useAgent" | "useCanonical" | "skip";
+
+export type ForkStatus = "clean" | "edited" | "canonicalAhead" | "diverged";
+
+export interface ForkAgentContent {
+  body: string;
+  raw: string;
+}
+
+export interface ForkDiffPreview {
+  canonicalBody: string;
+  forkedBody: string;
+  baseBody: string | null;
+  hasBase: boolean;
+  hunks: DiffHunk[];
+  forkStatus: ForkStatus;
+}
 
 export interface PullDiffPreview {
   hasBase: boolean;

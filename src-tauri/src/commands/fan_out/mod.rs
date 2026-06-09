@@ -66,6 +66,10 @@ pub enum DriftStatus {
     Drifted,
     Missing,
     NoPushHistory,
+    ForkedClean,
+    ForkedEdited,
+    ForkedCanonicalAhead,
+    ForkedDiverged,
 }
 
 /// Compare an agent-side SKILL.md's semantic hash against a stored `pushed_hash`.
@@ -119,6 +123,40 @@ pub fn check_drift(
     }
 
     DriftStatus::Synced
+}
+
+fn classify_fork_status(
+    canonical_path: &Path,
+    agent_side_path: &Path,
+    last_sync_entry: Option<&LastSyncEntry>,
+) -> DriftStatus {
+    let canonical_raw = match fs::read_to_string(canonical_path) {
+        Ok(c) => c,
+        Err(_) => return DriftStatus::ForkedEdited,
+    };
+    let agent_raw = match fs::read_to_string(agent_side_path) {
+        Ok(c) => c,
+        Err(_) => return DriftStatus::ForkedEdited,
+    };
+    let canonical_hash = semantic_hash(&canonical_raw);
+    let forked_hash = semantic_hash(&agent_raw);
+
+    let Some(entry) = last_sync_entry else {
+        return DriftStatus::ForkedEdited;
+    };
+    let Some(base_snapshot) = entry.base_snapshot.as_deref() else {
+        return DriftStatus::ForkedEdited;
+    };
+
+    let canonical_matches_base = canonical_hash == base_snapshot;
+    let forked_matches_pushed = forked_hash == entry.pushed_hash;
+
+    match (canonical_matches_base, forked_matches_pushed) {
+        (true, true) => DriftStatus::ForkedClean,
+        (true, false) => DriftStatus::ForkedEdited,
+        (false, true) => DriftStatus::ForkedCanonicalAhead,
+        (false, false) => DriftStatus::ForkedDiverged,
+    }
 }
 
 /// Compute raw SHA-256 hashes for all sibling files in a skill directory.
@@ -462,7 +500,7 @@ pub fn skill_sync_one(name: String) -> Result<Vec<SyncResult>, String> {
     Ok(results)
 }
 
-fn sha256_hex(data: &str) -> String {
+pub(crate) fn sha256_hex(data: &str) -> String {
     let mut h = Sha256::new();
     h.update(data.as_bytes());
     format!("{:x}", h.finalize())
@@ -473,7 +511,7 @@ fn sha256_hex(data: &str) -> String {
 /// alphabetically and re-serialized; the body is trimmed. The concatenation
 /// is then SHA-256 hashed. Documents without frontmatter delimiters are
 /// hashed as trim-only.
-fn semantic_hash(content: &str) -> String {
+pub(crate) fn semantic_hash(content: &str) -> String {
     let normalized = normalize_skill_content(content);
     sha256_hex(&normalized)
 }
@@ -1112,6 +1150,7 @@ fn build_preview_for_skill(
             (_, DriftStatus::Synced) => SkillSyncPreviewOperation::Overwrite,
             (_, DriftStatus::NoPushHistory) => SkillSyncPreviewOperation::OverwriteUnknown,
             (_, DriftStatus::Missing) => SkillSyncPreviewOperation::Create,
+            (_, DriftStatus::ForkedClean | DriftStatus::ForkedEdited | DriftStatus::ForkedCanonicalAhead | DriftStatus::ForkedDiverged) => SkillSyncPreviewOperation::Skipped,
         };
 
         items.push(SkillSyncPreviewItem {
@@ -1268,11 +1307,35 @@ pub fn skill_drift_scan() -> Result<std::collections::BTreeMap<String, std::coll
         let (meta, _) = read_sync_meta_v2(&canonical_skill_dir, &skill);
 
         for target in &meta.targets {
-            if !target.enabled || matches!(target.mode, TargetMode::Detached | TargetMode::Forked) {
+            if !target.enabled || matches!(target.mode, TargetMode::Detached) {
                 continue;
             }
             let key = target_key(target);
             let last_sync_entry = meta.last_sync.get(&key);
+
+            if matches!(target.mode, TargetMode::Forked) {
+                let canonical_skill_md = canonical_skills_dir().join(&canonical_id).join("SKILL.md");
+                let renderer = renderer_for(target.agent);
+                let pair = pair_for(&cfg, target.agent);
+                let target_dir =
+                    match renderer.resolve_target_dir(target.scope, target.project.as_deref(), pair) {
+                        Ok(d) => d,
+                        Err(_) => continue,
+                    };
+                let agent_side = target_dir.join(&canonical_id).join("SKILL.md");
+
+                let fork_status = classify_fork_status(
+                    &canonical_skill_md,
+                    &agent_side,
+                    last_sync_entry,
+                );
+                result
+                    .entry(canonical_id.clone())
+                    .or_default()
+                    .insert(key, fork_status);
+                continue;
+            }
+
             let pushed_hash = last_sync_entry.map(|e| e.pushed_hash.clone());
             let last_sync_at = last_sync_entry.map(|e| e.at.clone());
 
@@ -1703,7 +1766,7 @@ pub fn skill_pull_from_target(
 
 /// Best-effort ISO-8601 UTC timestamp without pulling chrono. Format:
 /// `YYYY-MM-DDTHH:MM:SSZ` derived from `SystemTime`.
-fn current_iso8601() -> String {
+pub(crate) fn current_iso8601() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
     let secs = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -1877,6 +1940,161 @@ pub(crate) fn expand_user_path(p: &str) -> PathBuf {
 /// Resolve a path pair into a concrete target directory using the same rule
 /// for every agent: `global` scope → expand-user on `pair.global`;
 /// `project` scope → join `pair.project_relative` onto `project_path`.
+// ── Fork preview commands ──────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ForkAgentContent {
+    pub body: String,
+    pub raw: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ForkStatus {
+    Clean,
+    Edited,
+    CanonicalAhead,
+    Diverged,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ForkDiffPreview {
+    pub canonical_body: String,
+    pub forked_body: String,
+    pub base_body: Option<String>,
+    pub has_base: bool,
+    pub hunks: Vec<DiffHunk>,
+    pub fork_status: ForkStatus,
+}
+
+#[tauri::command]
+pub fn skill_fork_read_agent_content(
+    canonical_id: String,
+    target_key: String,
+) -> Result<ForkAgentContent, String> {
+    use crate::commands::canonical_skills::{
+        split_frontmatter, target_key as make_target_key,
+    };
+
+    let canonical_dir = canonical_skills_dir();
+    let skill_dir = canonical_dir.join(&canonical_id);
+    if !skill_dir.is_dir() {
+        return Err(format!("canonical skill directory not found: {}", skill_dir.display()));
+    }
+
+    let meta = read_sync_meta_v2_no_backfill(&skill_dir);
+    let tgt = meta
+        .targets
+        .iter()
+        .find(|t| make_target_key(t) == target_key)
+        .ok_or_else(|| format!("target not found: {target_key}"))?
+        .clone();
+
+    if !matches!(tgt.mode, TargetMode::Forked) {
+        return Err("target is not in forked mode".to_string());
+    }
+
+    let cfg = super::agent_paths::agent_paths_get()?;
+    let pair = pair_for(&cfg, tgt.agent);
+    let target_dir = resolve_pair(tgt.scope, tgt.project.as_deref(), pair)?;
+    let agent_side = target_dir.join(&canonical_id).join("SKILL.md");
+
+    let raw = fs::read_to_string(&agent_side)
+        .map_err(|_| format!("agent-side file not found: {}", agent_side.display()))?;
+    let (_, body) = split_frontmatter(&raw);
+
+    Ok(ForkAgentContent { body, raw })
+}
+
+#[tauri::command]
+pub fn skill_fork_diff_preview(
+    canonical_id: String,
+    target_key: String,
+) -> Result<ForkDiffPreview, String> {
+    use crate::commands::canonical_skills::{
+        split_frontmatter, target_key as make_target_key,
+    };
+
+    let canonical_dir = canonical_skills_dir();
+    let skill_dir = canonical_dir.join(&canonical_id);
+    if !skill_dir.is_dir() {
+        return Err(format!("canonical skill directory not found: {}", skill_dir.display()));
+    }
+
+    let meta = read_sync_meta_v2_no_backfill(&skill_dir);
+    let tgt = meta
+        .targets
+        .iter()
+        .find(|t| make_target_key(t) == target_key)
+        .ok_or_else(|| format!("target not found: {target_key}"))?
+        .clone();
+
+    if !matches!(tgt.mode, TargetMode::Forked) {
+        return Err("target is not in forked mode".to_string());
+    }
+
+    let cfg = super::agent_paths::agent_paths_get()?;
+    let pair = pair_for(&cfg, tgt.agent);
+    let target_dir = resolve_pair(tgt.scope, tgt.project.as_deref(), pair)?;
+    let agent_side = target_dir.join(&canonical_id).join("SKILL.md");
+
+    let forked_raw = fs::read_to_string(&agent_side)
+        .map_err(|_| format!("agent-side file not found: {}", agent_side.display()))?;
+    let (_, forked_body) = split_frontmatter(&forked_raw);
+
+    let canonical_path = skill_dir.join("SKILL.md");
+    let canonical_raw = fs::read_to_string(&canonical_path)
+        .map_err(|e| format!("cannot read canonical SKILL.md: {e}"))?;
+    let (_, canonical_body) = split_frontmatter(&canonical_raw);
+
+    let last_sync_entry = meta.last_sync.get(&target_key);
+    let base_snapshot = last_sync_entry.and_then(|e| e.base_snapshot.as_deref());
+    let pushed_hash = last_sync_entry.map(|e| e.pushed_hash.as_str());
+
+    let canonical_hash = semantic_hash(&canonical_raw);
+    let forked_hash = semantic_hash(&forked_raw);
+
+    let (has_base, base_body, fork_status) = if let Some(base_hash) = base_snapshot {
+        let canonical_matches_base = canonical_hash == base_hash;
+        let forked_matches_pushed = pushed_hash.map_or(false, |ph| forked_hash == ph);
+
+        let status = match (canonical_matches_base, forked_matches_pushed) {
+            (true, true) => ForkStatus::Clean,
+            (true, false) => ForkStatus::Edited,
+            (false, true) => ForkStatus::CanonicalAhead,
+            (false, false) => ForkStatus::Diverged,
+        };
+
+        let base_content = super::snapshot::get_snapshot_content(
+            base_hash,
+            &format!("{}/SKILL.md", canonical_id),
+        )
+        .ok()
+        .flatten()
+        .map(|raw| {
+            let (_, body) = split_frontmatter(&raw);
+            body
+        });
+
+        (true, base_content, status)
+    } else {
+        (false, None, ForkStatus::Edited)
+    };
+
+    let hunks = build_diff_hunks(&canonical_body, &forked_body);
+
+    Ok(ForkDiffPreview {
+        canonical_body,
+        forked_body,
+        base_body,
+        has_base,
+        hunks,
+        fork_status,
+    })
+}
+
 ///
 /// **`scope` here is the push destination** (`SkillTarget.scope`); it no
 /// longer implies anything about where the canonical master file lives.
@@ -4061,5 +4279,306 @@ mod tests {
         assert_ne!(h1, h3);
 
         let _ = fs::remove_dir_all(&tmp);
+    }
+
+    fn setup_forked_skill(tag: &str) -> (std::path::PathBuf, String, String) {
+        let tmp = smoke_tempdir(tag);
+        let _g = override_felina_home(&tmp);
+        make_canonical("fork-test", &["anthropic"]);
+
+        let project = tmp.to_string_lossy().to_string();
+        let canonical_skill_dir = tmp.join(".felina").join("skills").join("fork-test");
+        let canonical_raw = fs::read_to_string(canonical_skill_dir.join("SKILL.md")).unwrap();
+        let canonical_hash = semantic_hash(&canonical_raw);
+
+        let target = SkillTarget {
+            agent: AgentId::Anthropic,
+            scope: SkillScope::Project,
+            project: Some(project.clone()),
+            enabled: true,
+            mode: TargetMode::Forked,
+        };
+        let key = target_key(&target);
+
+        write_sync_meta_v2(
+            &canonical_skill_dir,
+            &SyncMetaV2 {
+                version: 2,
+                targets: vec![target],
+                last_sync: {
+                    let mut m = std::collections::BTreeMap::new();
+                    m.insert(key.clone(), LastSyncEntry {
+                        pushed_hash: canonical_hash.clone(),
+                        base_snapshot: Some(canonical_hash),
+                        at: "2026-01-01T00:00:00Z".into(),
+                        sibling_hashes: None,
+                    });
+                    m
+                },
+                dirty: false,
+                directory_hash: None,
+            },
+        )
+        .unwrap();
+
+        // Copy canonical to agent-side so hashes match for clean state.
+        let agent_dir = tmp.join(".claude").join("skills").join("fork-test");
+        fs::create_dir_all(&agent_dir).unwrap();
+        fs::copy(
+            canonical_skill_dir.join("SKILL.md"),
+            agent_dir.join("SKILL.md"),
+        )
+        .unwrap();
+
+        (tmp, key, project)
+    }
+
+    #[test]
+    fn fork_read_agent_content_success() {
+        let (tmp, key, _project) = setup_forked_skill("fork-read-ok");
+        let _g = override_felina_home(&tmp);
+        let result = skill_fork_read_agent_content("fork-test".into(), key).unwrap();
+        assert!(result.body.contains("Body for fork-test"));
+        assert!(result.raw.contains("name: fork-test"));
+    }
+
+    #[test]
+    fn fork_read_rejects_non_forked() {
+        let tmp = smoke_tempdir("fork-read-reject");
+        let _g = override_felina_home(&tmp);
+        make_canonical("fork-reject", &["anthropic"]);
+
+        let project = tmp.to_string_lossy().to_string();
+        let canonical_skill_dir = tmp.join(".felina").join("skills").join("fork-reject");
+        let target = SkillTarget {
+            agent: AgentId::Anthropic,
+            scope: SkillScope::Project,
+            project: Some(project),
+            enabled: true,
+            mode: TargetMode::Auto,
+        };
+        let key = target_key(&target);
+        write_sync_meta_v2(
+            &canonical_skill_dir,
+            &SyncMetaV2 {
+                version: 2,
+                targets: vec![target],
+                last_sync: Default::default(),
+                dirty: false,
+                directory_hash: None,
+            },
+        )
+        .unwrap();
+
+        let err = skill_fork_read_agent_content("fork-reject".into(), key).unwrap_err();
+        assert!(err.contains("not in forked mode"), "got: {err}");
+    }
+
+    #[test]
+    fn fork_read_missing_file() {
+        let tmp = smoke_tempdir("fork-read-missing");
+        let _g = override_felina_home(&tmp);
+        make_canonical("fork-missing", &["anthropic"]);
+
+        let project = tmp.to_string_lossy().to_string();
+        let canonical_skill_dir = tmp.join(".felina").join("skills").join("fork-missing");
+        let target = SkillTarget {
+            agent: AgentId::Anthropic,
+            scope: SkillScope::Project,
+            project: Some(project),
+            enabled: true,
+            mode: TargetMode::Forked,
+        };
+        let key = target_key(&target);
+        write_sync_meta_v2(
+            &canonical_skill_dir,
+            &SyncMetaV2 {
+                version: 2,
+                targets: vec![target],
+                last_sync: Default::default(),
+                dirty: false,
+                directory_hash: None,
+            },
+        )
+        .unwrap();
+
+        let err = skill_fork_read_agent_content("fork-missing".into(), key).unwrap_err();
+        assert!(err.contains("agent-side file not found"), "got: {err}");
+    }
+
+    #[test]
+    fn fork_diff_preview_clean_status() {
+        let (tmp, key, _project) = setup_forked_skill("fork-diff-clean");
+        let _g = override_felina_home(&tmp);
+        let result = skill_fork_diff_preview("fork-test".into(), key).unwrap();
+        assert!(result.has_base);
+        assert!(matches!(result.fork_status, ForkStatus::Clean));
+    }
+
+    #[test]
+    fn fork_diff_preview_edited_status() {
+        let (tmp, key, _project) = setup_forked_skill("fork-diff-edited");
+        let _g = override_felina_home(&tmp);
+
+        // Modify agent-side to make forked hash differ from pushed_hash.
+        let agent_file = tmp.join(".claude").join("skills").join("fork-test").join("SKILL.md");
+        fs::write(
+            &agent_file,
+            "---\nname: fork-test\ndescription: fork-test description\n---\n# fork-test\n\nEdited body.\n",
+        )
+        .unwrap();
+
+        let result = skill_fork_diff_preview("fork-test".into(), key).unwrap();
+        assert!(result.has_base);
+        assert!(matches!(result.fork_status, ForkStatus::Edited));
+        assert!(!result.hunks.is_empty());
+    }
+
+    #[test]
+    fn fork_diff_preview_canonical_ahead_status() {
+        let (tmp, key, _project) = setup_forked_skill("fork-diff-ahead");
+        let _g = override_felina_home(&tmp);
+
+        // Modify canonical to make canonical hash differ from base_snapshot.
+        let canonical_file = tmp.join(".felina").join("skills").join("fork-test").join("SKILL.md");
+        fs::write(
+            &canonical_file,
+            "---\nname: fork-test\ndescription: fork-test description\n---\n# fork-test\n\nUpdated canonical.\n",
+        )
+        .unwrap();
+
+        let result = skill_fork_diff_preview("fork-test".into(), key).unwrap();
+        assert!(result.has_base);
+        assert!(matches!(result.fork_status, ForkStatus::CanonicalAhead));
+    }
+
+    #[test]
+    fn fork_diff_preview_diverged_status() {
+        let (tmp, key, _project) = setup_forked_skill("fork-diff-diverged");
+        let _g = override_felina_home(&tmp);
+
+        // Modify both canonical and agent-side.
+        let canonical_file = tmp.join(".felina").join("skills").join("fork-test").join("SKILL.md");
+        fs::write(
+            &canonical_file,
+            "---\nname: fork-test\ndescription: fork-test description\n---\n# fork-test\n\nUpdated canonical.\n",
+        )
+        .unwrap();
+        let agent_file = tmp.join(".claude").join("skills").join("fork-test").join("SKILL.md");
+        fs::write(
+            &agent_file,
+            "---\nname: fork-test\ndescription: fork-test description\n---\n# fork-test\n\nEdited agent.\n",
+        )
+        .unwrap();
+
+        let result = skill_fork_diff_preview("fork-test".into(), key).unwrap();
+        assert!(result.has_base);
+        assert!(matches!(result.fork_status, ForkStatus::Diverged));
+    }
+
+    #[test]
+    fn fork_diff_preview_missing_base_snapshot_fallback() {
+        let tmp = smoke_tempdir("fork-diff-nobase");
+        let _g = override_felina_home(&tmp);
+        make_canonical("fork-nobase", &["anthropic"]);
+
+        let project = tmp.to_string_lossy().to_string();
+        let canonical_skill_dir = tmp.join(".felina").join("skills").join("fork-nobase");
+        let target = SkillTarget {
+            agent: AgentId::Anthropic,
+            scope: SkillScope::Project,
+            project: Some(project),
+            enabled: true,
+            mode: TargetMode::Forked,
+        };
+        let key = target_key(&target);
+        write_sync_meta_v2(
+            &canonical_skill_dir,
+            &SyncMetaV2 {
+                version: 2,
+                targets: vec![target],
+                last_sync: {
+                    let mut m = std::collections::BTreeMap::new();
+                    m.insert(key.clone(), LastSyncEntry {
+                        pushed_hash: "some-old-hash".into(),
+                        base_snapshot: None,
+                        at: "2026-01-01T00:00:00Z".into(),
+                        sibling_hashes: None,
+                    });
+                    m
+                },
+                dirty: false,
+                directory_hash: None,
+            },
+        )
+        .unwrap();
+
+        let agent_dir = tmp.join(".claude").join("skills").join("fork-nobase");
+        fs::create_dir_all(&agent_dir).unwrap();
+        fs::write(
+            agent_dir.join("SKILL.md"),
+            "---\nname: fork-nobase\ndescription: fork-nobase description\n---\n# fork-nobase\n\nBody.\n",
+        )
+        .unwrap();
+
+        let result = skill_fork_diff_preview("fork-nobase".into(), key).unwrap();
+        assert!(!result.has_base);
+        assert!(matches!(result.fork_status, ForkStatus::Edited));
+    }
+
+    #[test]
+    fn push_skips_forked_target() {
+        let tmp = smoke_tempdir("push-skip-forked");
+        let _g = override_felina_home(&tmp);
+        make_canonical("skip-forked", &["anthropic"]);
+
+        let project = tmp.to_string_lossy().to_string();
+        let canonical_skill_dir = tmp.join(".felina").join("skills").join("skip-forked");
+        let target = SkillTarget {
+            agent: AgentId::Anthropic,
+            scope: SkillScope::Project,
+            project: Some(project),
+            enabled: true,
+            mode: TargetMode::Forked,
+        };
+        write_sync_meta_v2(
+            &canonical_skill_dir,
+            &SyncMetaV2 {
+                version: 2,
+                targets: vec![target],
+                last_sync: Default::default(),
+                dirty: true,
+                directory_hash: None,
+            },
+        )
+        .unwrap();
+
+        let results = skill_sync_one("skip-forked".into()).unwrap();
+        assert!(results.is_empty(), "forked target should be skipped by push");
+    }
+
+    #[test]
+    fn drift_scan_classifies_forked_target() {
+        let (tmp, key, _project) = setup_forked_skill("drift-fork-classify");
+        let _g = override_felina_home(&tmp);
+
+        // Modify agent-side to produce "edited" status.
+        let agent_file = tmp.join(".claude").join("skills").join("fork-test").join("SKILL.md");
+        fs::write(
+            &agent_file,
+            "---\nname: fork-test\ndescription: fork-test description\n---\n# fork-test\n\nEdited body.\n",
+        )
+        .unwrap();
+
+        let canonical_path = tmp.join(".felina").join("skills").join("fork-test").join("SKILL.md");
+        let canonical_skill_dir = tmp.join(".felina").join("skills").join("fork-test");
+        let meta = read_sync_meta_v2_no_backfill(&canonical_skill_dir);
+        let entry = meta.last_sync.get(&key);
+
+        let status = classify_fork_status(&canonical_path, &agent_file, entry);
+        assert!(
+            matches!(status, DriftStatus::ForkedEdited),
+            "forked target with agent-side edits should be ForkedEdited, got: {status:?}"
+        );
     }
 }

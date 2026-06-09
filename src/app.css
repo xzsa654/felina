@@ -109,6 +109,8 @@ html, body, #app {
 .md-preview {
   color: var(--color-text-primary);
   line-height: 1.7;
+  word-break: break-word;
+  overflow-wrap: break-word;
 }
 .md-preview h1 { font-size: 1.5rem; font-weight: 700; margin: 1.5rem 0 0.75rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.5rem; }
 .md-preview h2 { font-size: 1.25rem; font-weight: 600; margin: 1.25rem 0 0.5rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.4rem; }

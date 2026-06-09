@@ -407,21 +407,18 @@ export default function HubPage() {
         icon={Store}
         actions={
           <div className="flex items-center gap-2">
-            <ActionButton
-              variant="secondary"
+            <button
+              type="button"
               onClick={() => void fetchSkills("reload")}
               disabled={reloading || loading}
               title={t(locale, "hub.refresh")}
+              className="inline-flex items-center justify-center p-1 rounded border border-border text-text-secondary hover:text-text-primary disabled:opacity-60"
             >
-              {reloading ? (
-                <Loader2 size={15} className="animate-spin" />
-              ) : (
-                <RefreshCw size={15} />
-              )}
-            </ActionButton>
-            <div className="w-px h-5 bg-border/40" />
-            <ActionButton
-              variant="primary"
+              <RefreshCw size={12} className={reloading ? "animate-spin" : ""} />
+            </button>
+            <div className="w-px h-4 bg-border/40 mx-0.5" />
+            <button
+              type="button"
               onClick={() => {
                 if (!authEmail) {
                   setLoginOpen(true);
@@ -431,10 +428,11 @@ export default function HubPage() {
                 setPublishError(null);
                 setPublishOpen(true);
               }}
+              className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded bg-accent text-white hover:bg-accent-hover"
             >
-              <UploadCloud size={15} />
+              <UploadCloud size={12} />
               {t(locale, "hub.publish.button")}
-            </ActionButton>
+            </button>
             {authEmail ? (
               <AccountDropdown
                 email={authEmail}
@@ -447,13 +445,14 @@ export default function HubPage() {
                 locale={locale}
               />
             ) : (
-              <ActionButton
-                variant="secondary"
+              <button
+                type="button"
                 onClick={() => setLoginOpen(true)}
+                className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded border border-border text-text-secondary hover:text-text-primary"
               >
-                <LogIn size={15} />
+                <LogIn size={12} />
                 {t(locale, "hub.auth.login")}
-              </ActionButton>
+              </button>
             )}
           </div>
         }

@@ -872,6 +872,35 @@ pub fn skill_targets_set(skill_name: String, targets: Vec<SkillTarget>) -> Resul
         None => SyncMetaV2::default(),
     };
     meta.last_sync.retain(|k, _| valid_keys.contains(k));
+
+    // Detect fork activation: when a target switches to Forked mode, record
+    // base_snapshot (semantic hash of canonical SKILL.md at fork time).
+    let old_modes: std::collections::HashMap<String, TargetMode> = meta
+        .targets
+        .iter()
+        .map(|t| (target_key(t), t.mode))
+        .collect();
+    for t in &targets {
+        if t.mode == TargetMode::Forked {
+            let key = target_key(t);
+            let was_forked = old_modes.get(&key).map_or(false, |m| *m == TargetMode::Forked);
+            if !was_forked {
+                let skill_md = skill_dir.join("SKILL.md");
+                let canonical_raw = fs::read_to_string(&skill_md)
+                    .map_err(|e| format!("cannot read canonical SKILL.md: {e}"))?;
+                let canonical_hash = super::fan_out::semantic_hash(&canonical_raw);
+                let now = super::fan_out::current_iso8601();
+                let entry = meta.last_sync.entry(key).or_insert_with(|| LastSyncEntry {
+                    pushed_hash: canonical_hash.clone(),
+                    base_snapshot: None,
+                    at: now.clone(),
+                    sibling_hashes: None,
+                });
+                entry.base_snapshot = Some(canonical_hash);
+            }
+        }
+    }
+
     meta.targets = targets;
     // Preserve existing dirty state (set by canonical_skills_write /
     // mark_sync_meta_dirty). Only additionally mark dirty if a newly enabled
@@ -3430,5 +3459,85 @@ Hello.\n";
         let _g = override_felina_home(&tmp);
         let err = get_skill_directory_tree("ghost".to_string()).unwrap_err();
         assert!(err.contains("not found"), "got: {err}");
+    }
+
+    #[test]
+    fn fork_activation_records_base_snapshot() {
+        let tmp = tempdir();
+        let _g = override_felina_home(&tmp);
+        let skills_root = tmp.join(".felina").join("skills");
+        let skill_body = "---\nname: my-skill\ndescription: d\nagents:\n  - anthropic\n---\n# Body\n";
+        write_skill(&skills_root, "my-skill", skill_body);
+
+        let target = SkillTarget {
+            agent: AgentId::Anthropic,
+            scope: SkillScope::Global,
+            project: None,
+            enabled: true,
+            mode: TargetMode::Auto,
+        };
+        let key = target_key(&target);
+
+        // First set as Auto with a last_sync entry.
+        let meta_path = skills_root.join("my-skill").join(SYNC_META_FILENAME);
+        let initial_hash = crate::commands::fan_out::semantic_hash(skill_body);
+        let initial_meta = SyncMetaV2 {
+            version: 2,
+            targets: vec![target.clone()],
+            last_sync: {
+                let mut m = BTreeMap::new();
+                m.insert(key.clone(), LastSyncEntry {
+                    pushed_hash: initial_hash.clone(),
+                    base_snapshot: None,
+                    at: "2026-01-01T00:00:00Z".to_string(),
+                    sibling_hashes: None,
+                });
+                m
+            },
+            dirty: false,
+            directory_hash: None,
+        };
+        fs::write(&meta_path, serde_json::to_string(&initial_meta).unwrap()).unwrap();
+
+        // Now switch to Forked.
+        let forked_target = SkillTarget {
+            mode: TargetMode::Forked,
+            ..target.clone()
+        };
+        skill_targets_set("my-skill".to_string(), vec![forked_target]).unwrap();
+
+        let meta: SyncMetaV2 = serde_json::from_str(&fs::read_to_string(&meta_path).unwrap()).unwrap();
+        let entry = meta.last_sync.get(&key).expect("last_sync entry should exist");
+        assert!(entry.base_snapshot.is_some(), "base_snapshot should be set");
+        assert_eq!(entry.base_snapshot.as_ref().unwrap(), &initial_hash);
+        assert_eq!(entry.pushed_hash, initial_hash, "pushed_hash should be preserved");
+    }
+
+    #[test]
+    fn fork_activation_creates_last_sync_entry() {
+        let tmp = tempdir();
+        let _g = override_felina_home(&tmp);
+        let skills_root = tmp.join(".felina").join("skills");
+        let skill_body = "---\nname: my-skill\ndescription: d\nagents:\n  - anthropic\n---\n# Body\n";
+        write_skill(&skills_root, "my-skill", skill_body);
+
+        // Start with no sync-meta at all.
+        let forked_target = SkillTarget {
+            agent: AgentId::Anthropic,
+            scope: SkillScope::Global,
+            project: None,
+            enabled: true,
+            mode: TargetMode::Forked,
+        };
+        let key = target_key(&forked_target);
+        skill_targets_set("my-skill".to_string(), vec![forked_target]).unwrap();
+
+        let meta_path = skills_root.join("my-skill").join(SYNC_META_FILENAME);
+        let meta: SyncMetaV2 = serde_json::from_str(&fs::read_to_string(&meta_path).unwrap()).unwrap();
+        let entry = meta.last_sync.get(&key).expect("last_sync entry should be created");
+        let expected_hash = crate::commands::fan_out::semantic_hash(skill_body);
+        assert_eq!(entry.pushed_hash, expected_hash);
+        assert_eq!(entry.base_snapshot.as_ref().unwrap(), &expected_hash);
+        assert!(!entry.at.is_empty());
     }
 }
