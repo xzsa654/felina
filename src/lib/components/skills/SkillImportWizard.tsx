@@ -144,15 +144,15 @@ export default function SkillImportWizard({ projectPath, onClose }: Props) {
 
   return (
     <Modal open onClose={onClose} size="lg">
-      <div className="flex flex-col max-h-[85vh]">
-        <div className="px-5 py-3 border-b border-border">
+      <div className="flex flex-col min-h-0 h-full">
+        <div className="px-5 py-3 border-b border-border shrink-0">
           <h2 className="text-sm font-semibold text-text-primary">{t(locale, "skills.importWizard.title")}</h2>
           <p className="text-xs text-text-secondary">
             {t(locale, "skills.importWizard.subtitle")}
           </p>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-5 py-3 flex flex-col gap-3">
+        <div className="flex-1 overflow-y-auto min-h-0 px-5 py-3 flex flex-col gap-3">
           {loading && <div className="text-sm text-text-secondary">{t(locale, "skills.importWizard.scanning")}</div>}
           {error && (
             <div className="text-xs text-danger bg-danger-dim border border-danger/30 rounded px-3 py-2">
@@ -426,7 +426,7 @@ export default function SkillImportWizard({ projectPath, onClose }: Props) {
           })}
         </div>
 
-        <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-border">
+        <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-border shrink-0">
           <button
             type="button"
             onClick={onClose}

@@ -48,7 +48,7 @@ export default function ForkPreviewDialog({ open, skillName, targetKey, diff, on
 
   return (
     <Modal open={open} onClose={onClose} size="lg">
-      <div className="flex flex-col max-h-[80vh]">
+      <div className="flex flex-col min-h-0 h-full">
         {/* Header */}
         <div className="flex items-center gap-2 px-5 py-3 border-b border-border shrink-0">
           <span className={`text-sm ${cfg.chipClass.split(" ")[0]}`}>{cfg.icon}</span>
@@ -79,7 +79,7 @@ export default function ForkPreviewDialog({ open, skillName, targetKey, diff, on
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto px-5 py-4">
+        <div className="flex-1 overflow-y-auto min-h-0 px-5 py-4">
           {tab === "preview" && (
             <MarkdownPreview markdown={diff.forkedBody} />
           )}

@@ -1,4 +1,4 @@
-import { AlertTriangle, Plus, Check, Circle, AlertCircle, GitFork, Ban, RefreshCw, Pencil } from "lucide-react";
+import { AlertTriangle, Plus, Check, Circle, AlertCircle, GitFork, Ban, RefreshCw } from "lucide-react";
 import type { ForkStatus, KnownProject, SkillTarget } from "$lib/types";
 import type { LastSyncEntry } from "$lib/types/skills";
 import type { DriftStatus } from "$lib/types";

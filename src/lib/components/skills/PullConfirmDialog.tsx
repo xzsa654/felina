@@ -52,14 +52,14 @@ export default function PullConfirmDialog({
 
   return (
     <Modal open={open} onClose={onCancel} size="lg">
-      <div className="flex flex-col">
-        <div className="flex items-center gap-2 px-5 py-3 border-b border-border">
+      <div className="flex flex-col min-h-0 h-full">
+        <div className="flex items-center gap-2 px-5 py-3 border-b border-border shrink-0">
           <AlertTriangle size={16} className="text-warning shrink-0" />
           <h2 className="text-sm font-semibold text-text-primary">
             {t(locale, "skills.pull.diffTitle")}
           </h2>
         </div>
-        <div className="px-5 py-4 flex flex-col gap-3">
+        <div className="px-5 py-4 flex flex-col gap-3 overflow-y-auto min-h-0">
           <div className="text-xs text-text-secondary font-mono bg-bg-secondary rounded px-2 py-1">
             <div>{skillName}</div>
             <div className="text-text-secondary/60">{targetKey}</div>
@@ -152,7 +152,7 @@ export default function PullConfirmDialog({
             </div>
           )}
         </div>
-        <div className="flex justify-end gap-2 px-5 py-3 border-t border-border">
+        <div className="flex justify-end gap-2 px-5 py-3 border-t border-border shrink-0">
           <button
             type="button"
             disabled={busy}

@@ -5,13 +5,12 @@ import {
   PageBody,
   ErrorBanner,
   LoadingLine,
-  ActionButton,
   glassListRowClass,
   glassListSelectedRowClass,
   glassListSurfaceClass,
 } from "$lib/components/shared/PageScaffold";
 import Modal from "$lib/components/shared/Modal";
-import { Store, UploadCloud, RefreshCw, Loader2, CheckCircle, Download, ArrowLeft } from "lucide-react";
+import { Store, UploadCloud, RefreshCw, CheckCircle, Download, ArrowLeft } from "lucide-react";
 import { t } from "$lib/i18n";
 import { useLocaleStore } from "$lib/stores/locale";
 import type { SkillListEntry } from "$lib/types";
@@ -341,7 +340,7 @@ export default function HubPage() {
       title={t(locale, "hub.publish.title")}
       size="md"
     >
-      <div className="px-5 py-4 max-h-[55vh] overflow-y-auto">
+      <div className="px-5 py-4 overflow-y-auto min-h-0 flex-1">
         {publishError && (
           <div className="mb-4 px-3 py-2 rounded-lg border border-danger/30 bg-danger/10 text-danger text-xs">
             {publishError}
@@ -376,7 +375,7 @@ export default function HubPage() {
           </div>
         )}
       </div>
-      <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-border">
+      <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-border shrink-0">
         <button
           type="button"
           className="px-3 py-2 rounded-lg border border-border bg-bg-secondary text-sm text-text-secondary hover:text-text-primary hover:bg-bg-hover transition-colors"

@@ -561,8 +561,8 @@ export default function SkillsPage() {
         title={t(locale, "skills.browseProject")}
         size="md"
       >
-        <div className="flex flex-col max-h-[60vh]">
-          <div className="flex-1 overflow-y-auto px-5 py-3 flex flex-col gap-1">
+        <div className="flex flex-col min-h-0 h-full">
+          <div className="flex-1 overflow-y-auto min-h-0 px-5 py-3 flex flex-col gap-1">
               {knownProjects.filter((p) => p.exists).length === 0 ? (
                 <div className="text-sm text-text-secondary py-4 text-center">
                   {t(locale, "skills.browseProjectEmpty")}
@@ -604,8 +604,8 @@ export default function SkillsPage() {
         onClose={() => setBrowseProject(null)}
         size="lg"
       >
-        <div className="flex flex-col max-h-[85vh]">
-          <div className="flex items-center justify-between px-5 py-3 border-b border-border">
+        <div className="flex flex-col min-h-0 h-full">
+          <div className="flex items-center justify-between px-5 py-3 border-b border-border shrink-0">
             <div>
               <h2 className="text-sm font-semibold text-text-primary">{t(locale, "skills.browseProject")}</h2>
               <p className="text-xs text-text-secondary font-mono truncate">{browseProject?.path}</p>
@@ -614,7 +614,7 @@ export default function SkillsPage() {
               <X size={16} />
             </button>
           </div>
-          <div className="flex-1 overflow-y-auto">
+          <div className="flex-1 overflow-y-auto min-h-0">
             {browseProject && (
               <ManagedInventory
                 project={browseProject}
