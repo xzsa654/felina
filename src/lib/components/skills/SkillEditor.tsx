@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { FileText, Folder, FolderOpen, Pencil, Plus, Save, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronRight, FileText, Folder, FolderOpen, Pencil, Plus, Save, Trash2 } from "lucide-react";
 import type { CanonicalSkill, KnownProject, SkillFileNode, SkillTarget } from "$lib/types";
 import type { LastSyncEntry } from "$lib/types/skills";
 import RenameSkillDialog from "./RenameSkillDialog";
@@ -102,7 +102,15 @@ export default function SkillEditor({ skill, brokenRaw, onSaved, onCancel, onDel
   const splitEditorRef = useRef<HTMLTextAreaElement>(null);
   const splitPreviewRef = useRef<HTMLDivElement>(null);
   const syncingScroll = useRef(false);
-  const metadataCollapsed = bodyMode !== "edit";
+  const [propertiesExpanded, setPropertiesExpanded] = useState(isNew);
+
+  useEffect(() => {
+    if (bodyMode !== "edit") {
+      setPropertiesExpanded(false);
+    }
+  }, [bodyMode]);
+
+  const metadataCollapsed = !propertiesExpanded;
   const [containerWidth, setContainerWidth] = useState(0);
   const [renameOpen, setRenameOpen] = useState(false);
   const [popoverTargetIndex, setPopoverTargetIndex] = useState<number | null>(null);
@@ -133,6 +141,7 @@ export default function SkillEditor({ skill, brokenRaw, onSaved, onCancel, onDel
     setDirectoryTree(null);
     setDirectoryError(null);
     setError(null);
+    setPropertiesExpanded(isNew);
   }, [skill?.canonicalId, skill?.body, isNew]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // When the parent swaps the broken skill being repaired, reload its raw text.
@@ -468,6 +477,16 @@ export default function SkillEditor({ skill, brokenRaw, onSaved, onCancel, onDel
       </div>
 
       {/* ------- Document Metadata (collapsible in preview/split modes) ------- */}
+      {!isNew && (
+        <button
+          type="button"
+          onClick={() => setPropertiesExpanded(!propertiesExpanded)}
+          className="flex items-center gap-1.5 mt-2 mb-1 text-xs font-medium text-text-muted hover:text-text-secondary transition-colors w-fit rounded px-1 -ml-1"
+        >
+          {propertiesExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+          {t(locale, "skills.editor.description")}
+        </button>
+      )}
       <div className={`overflow-hidden transition-all duration-200 ${metadataCollapsed ? "max-h-0 opacity-0" : "max-h-[500px] opacity-100"}`}>
       <textarea
         ref={(el) => {
@@ -487,6 +506,7 @@ export default function SkillEditor({ skill, brokenRaw, onSaved, onCancel, onDel
         className="w-full mt-1 text-sm text-text-secondary bg-transparent border-b border-transparent focus:border-accent focus:outline-none resize-none placeholder:text-text-muted"
         placeholder={t(locale, "skills.editor.descriptionPlaceholder")}
       />
+      </div>
 
       {error && (
         <div className="text-xs text-danger bg-danger-dim border border-danger/30 rounded px-3 py-2 mt-2">
@@ -552,7 +572,6 @@ export default function SkillEditor({ skill, brokenRaw, onSaved, onCancel, onDel
         </>
       )}
 
-      </div>
       {/* ------- Tab Bar ------- */}
       <div className="flex gap-4 border-b border-border mt-3">
         <button
@@ -652,7 +671,7 @@ export default function SkillEditor({ skill, brokenRaw, onSaved, onCancel, onDel
               <div
                 ref={splitPreviewRef}
                 onScroll={() => handleSplitScroll("preview")}
-                className="w-1/2 border border-l-0 border-border bg-bg-primary px-3 py-2 text-sm overflow-y-auto"
+                className="w-1/2 border border-l-0 border-border bg-bg-primary px-3 py-2 text-sm overflow-y-auto overflow-x-auto"
               >
                 <MarkdownPreview markdown={body} />
               </div>
@@ -660,7 +679,7 @@ export default function SkillEditor({ skill, brokenRaw, onSaved, onCancel, onDel
           ) : bodyMode === "preview" ? (
             <MarkdownPreview
               markdown={body}
-              className="min-h-[22rem] w-full rounded border border-border bg-bg-primary px-3 py-2 text-sm"
+              className="min-h-[22rem] w-full rounded border border-border bg-bg-primary px-3 py-2 text-sm overflow-x-auto"
             />
           ) : (
             <textarea

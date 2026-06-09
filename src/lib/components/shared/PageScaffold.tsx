@@ -26,7 +26,7 @@ export function PageHeader({
   bottomSlot,
 }: PageHeaderProps) {
   return (
-    <header className="px-8 pt-8 pb-6 border-b border-border">
+    <header className="px-8 pt-5 pb-4 border-b border-border">
       <div className="flex items-center justify-between gap-4">
         <div className="flex items-center gap-3 min-w-0">
           {Icon && (
