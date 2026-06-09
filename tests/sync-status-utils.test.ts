@@ -72,8 +72,11 @@ test("classifyTarget: pending — project target not in knownProjects at all", (
   assert.equal(classifyTarget(unknownProjectTarget, undefined, knownProjects), "pending");
 });
 
-test("STATUS_ORDER has all three statuses", () => {
-  assert.deepEqual(STATUS_ORDER, ["synced", "pending", "missing"]);
+test("STATUS_ORDER has all statuses", () => {
+  assert.deepEqual(STATUS_ORDER, [
+    "synced", "pending", "missing",
+    "forked-clean", "forked-edited", "forked-ahead", "forked-diverged",
+  ]);
 });
 
 test("STATUS_CONFIG has entries for all statuses", () => {
@@ -105,4 +108,31 @@ test("isCascadeEligible: enabled detached → false", () => {
 
 test("isCascadeEligible: enabled forked → false", () => {
   assert.equal(isCascadeEligible({ agent: "claude", scope: "global", enabled: true, mode: "forked" }), false);
+});
+
+const forkedTarget: SkillTarget = {
+  agent: "claude",
+  scope: "global",
+  enabled: true,
+  mode: "forked",
+};
+
+test("classifyTarget: forked-clean — forked target with no forkStatus", () => {
+  assert.equal(classifyTarget(forkedTarget, syncEntry, knownProjects), "forked-clean");
+});
+
+test("classifyTarget: forked-clean — explicit forkStatus clean", () => {
+  assert.equal(classifyTarget(forkedTarget, syncEntry, knownProjects, "clean"), "forked-clean");
+});
+
+test("classifyTarget: forked-edited — explicit forkStatus edited", () => {
+  assert.equal(classifyTarget(forkedTarget, syncEntry, knownProjects, "edited"), "forked-edited");
+});
+
+test("classifyTarget: forked-ahead — explicit forkStatus canonicalAhead", () => {
+  assert.equal(classifyTarget(forkedTarget, syncEntry, knownProjects, "canonicalAhead"), "forked-ahead");
+});
+
+test("classifyTarget: forked-diverged — explicit forkStatus diverged", () => {
+  assert.equal(classifyTarget(forkedTarget, syncEntry, knownProjects, "diverged"), "forked-diverged");
 });
