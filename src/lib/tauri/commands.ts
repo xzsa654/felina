@@ -36,6 +36,8 @@ import type {
   DriftStatus,
   PullDiffPreview,
   SiblingResolution,
+  ForkAgentContent,
+  ForkDiffPreview,
 } from "$lib/types";
 import type {
   AgentId as TokenAgentId,
@@ -156,6 +158,13 @@ export const api = {
       invoke<void>("skill_pull_from_target", { canonicalId, targetKey, siblingResolutions: siblingResolutions ?? null }),
     preview: (canonicalId: string, targetKey: string) =>
       invoke<PullDiffPreview>("skill_pull_preview", { canonicalId, targetKey }),
+  },
+
+  skillFork: {
+    readAgentContent: (canonicalId: string, targetKey: string) =>
+      invoke<ForkAgentContent>("skill_fork_read_agent_content", { canonicalId, targetKey }),
+    diffPreview: (canonicalId: string, targetKey: string) =>
+      invoke<ForkDiffPreview>("skill_fork_diff_preview", { canonicalId, targetKey }),
   },
 
   // Skill field catalog.

@@ -141,6 +141,8 @@ pub fn run() {
             commands::fan_out::skill_drift_scan,
             commands::fan_out::skill_pull_from_target,
             commands::fan_out::skill_pull_preview,
+            commands::fan_out::skill_fork_read_agent_content,
+            commands::fan_out::skill_fork_diff_preview,
             // Skill field catalog.
             commands::skill_fields::list_skill_field_catalog,
             // Initial skill import.

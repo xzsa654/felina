@@ -1,8 +1,19 @@
 import { AlertTriangle, Plus } from "lucide-react";
-import type { KnownProject, SkillTarget } from "$lib/types";
+import type { ForkStatus, KnownProject, SkillTarget } from "$lib/types";
 import type { LastSyncEntry } from "$lib/types/skills";
 import type { DriftStatus } from "$lib/types";
 import { classifyTarget, isTargetDisabled, STATUS_CONFIG, targetKey } from "./sync-status-utils";
+
+const DRIFT_TO_FORK: Partial<Record<DriftStatus, ForkStatus>> = {
+  forkedClean: "clean",
+  forkedEdited: "edited",
+  forkedCanonicalAhead: "canonicalAhead",
+  forkedDiverged: "diverged",
+};
+
+function driftStatusToForkStatus(drift: DriftStatus | undefined): ForkStatus | undefined {
+  return drift ? DRIFT_TO_FORK[drift] : undefined;
+}
 
 const DRIFT_CHIP_CLASS = "text-warning border-warning/30 bg-warning/5";
 const DISABLED_CHIP_CLASS = "text-text-secondary border-border bg-bg-secondary opacity-60";
@@ -46,7 +57,8 @@ export default function TargetChips({
       {targets.map((tgt, i) => {
         const key = targetKey(tgt);
         const entry = lastSync[key];
-        const status = classifyTarget(tgt, entry, knownProjects);
+        const driftForkStatus = driftStatusToForkStatus(driftMap?.[key]);
+        const status = classifyTarget(tgt, entry, knownProjects, driftForkStatus);
         const cfg = STATUS_CONFIG[status];
         // Disabled is an orthogonal axis: when off, it overrides drift/sync
         // styling because freshness is moot until the target is re-enabled.

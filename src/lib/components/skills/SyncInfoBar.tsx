@@ -48,7 +48,7 @@ export default function SyncInfoBar({
   }, [targets, lastSync, knownProjects]);
 
   const [expanded, setExpanded] = useState<Record<SyncStatus, boolean>>(() => {
-    const init: Record<SyncStatus, boolean> = { synced: false, pending: false, missing: false };
+    const init = Object.fromEntries(STATUS_ORDER.map((s) => [s, false])) as Record<SyncStatus, boolean>;
     for (const g of groups) {
       if (g.status === "pending" || g.status === "missing") init[g.status] = true;
     }
