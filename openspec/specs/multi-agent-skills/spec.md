@@ -927,7 +927,6 @@ code:
   - src/app.css
   - src/lib/i18n/locales/zh-TW.ts
   - src/lib/types/skills.ts
-  - src-tauri/src/commands/budget.rs
   - src-tauri/src/commands/fan_out/codex.rs
   - src-tauri/src/tokens/aggregator.rs
   - .gitattributes
@@ -1035,7 +1034,6 @@ code:
   - src/app.css
   - src/lib/i18n/locales/zh-TW.ts
   - src/lib/types/skills.ts
-  - src-tauri/src/commands/budget.rs
   - src-tauri/src/commands/fan_out/codex.rs
   - src-tauri/src/tokens/aggregator.rs
   - .gitattributes
@@ -1145,7 +1143,6 @@ code:
   - src/app.css
   - src/lib/i18n/locales/zh-TW.ts
   - src/lib/types/skills.ts
-  - src-tauri/src/commands/budget.rs
   - src-tauri/src/commands/fan_out/codex.rs
   - src-tauri/src/tokens/aggregator.rs
   - .gitattributes
@@ -1253,7 +1250,6 @@ code:
   - src/app.css
   - src/lib/i18n/locales/zh-TW.ts
   - src/lib/types/skills.ts
-  - src-tauri/src/commands/budget.rs
   - src-tauri/src/commands/fan_out/codex.rs
   - src-tauri/src/tokens/aggregator.rs
   - .gitattributes

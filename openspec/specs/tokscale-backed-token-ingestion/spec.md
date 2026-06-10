@@ -30,7 +30,6 @@ source: tokscale-backed-token-ingestion
 updated: 2026-05-22
 code:
   - src-tauri/src/tokens/types.rs
-  - src-tauri/src/commands/budget.rs
   - docs/tokscale-backed-token-ingestion.md
   - src-tauri/src/commands/skills.rs
   - src-tauri/src/commands/instructions.rs
@@ -106,7 +105,6 @@ source: tokscale-backed-token-ingestion
 updated: 2026-05-22
 code:
   - src-tauri/src/tokens/types.rs
-  - src-tauri/src/commands/budget.rs
   - docs/tokscale-backed-token-ingestion.md
   - src-tauri/src/commands/skills.rs
   - src-tauri/src/commands/instructions.rs
@@ -160,7 +158,6 @@ source: tokscale-backed-token-ingestion
 updated: 2026-05-22
 code:
   - src-tauri/src/tokens/types.rs
-  - src-tauri/src/commands/budget.rs
   - docs/tokscale-backed-token-ingestion.md
   - src-tauri/src/commands/skills.rs
   - src-tauri/src/commands/instructions.rs
@@ -222,7 +219,6 @@ source: tokscale-backed-token-ingestion
 updated: 2026-05-22
 code:
   - src-tauri/src/tokens/types.rs
-  - src-tauri/src/commands/budget.rs
   - docs/tokscale-backed-token-ingestion.md
   - src-tauri/src/commands/skills.rs
   - src-tauri/src/commands/instructions.rs
@@ -300,7 +296,6 @@ source: tokscale-backed-token-ingestion
 updated: 2026-05-22
 code:
   - src-tauri/src/tokens/types.rs
-  - src-tauri/src/commands/budget.rs
   - docs/tokscale-backed-token-ingestion.md
   - src-tauri/src/commands/skills.rs
   - src-tauri/src/commands/instructions.rs
@@ -376,7 +371,6 @@ source: tokscale-backed-token-ingestion
 updated: 2026-05-22
 code:
   - src-tauri/src/tokens/types.rs
-  - src-tauri/src/commands/budget.rs
   - docs/tokscale-backed-token-ingestion.md
   - src-tauri/src/commands/skills.rs
   - src-tauri/src/commands/instructions.rs
