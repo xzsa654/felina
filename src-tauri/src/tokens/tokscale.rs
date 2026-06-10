@@ -11,33 +11,65 @@ pub trait TokscaleAdapter {
     fn collect(&self, options: &ReconcileOptions) -> SourceCollection;
 }
 
-pub struct TokscaleCommandAdapter {
+struct Candidate {
     bin: PathBuf,
     base_args: Vec<String>,
-    fallback: Option<(PathBuf, Vec<String>)>,
     allow_cmd_variant: bool,
+}
+
+pub struct TokscaleCommandAdapter {
+    candidates: Vec<Candidate>,
+}
+
+fn sidecar_tokscale_path() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    let dir = exe.parent()?;
+    let sidecar = dir.join(format!("tokscale{}", std::env::consts::EXE_SUFFIX));
+    if sidecar.is_file() {
+        Some(sidecar)
+    } else {
+        None
+    }
 }
 
 impl TokscaleCommandAdapter {
     pub fn new(bin: Option<PathBuf>) -> Self {
         if let Some(bin) = bin {
             return Self {
-                bin,
-                base_args: Vec::new(),
-                fallback: None,
-                allow_cmd_variant: false,
+                candidates: vec![Candidate {
+                    bin,
+                    base_args: Vec::new(),
+                    allow_cmd_variant: false,
+                }],
             };
         }
 
-        Self {
+        let mut candidates = vec![Candidate {
             bin: PathBuf::from("tokscale"),
             base_args: Vec::new(),
-            fallback: Some((
-                PathBuf::from("npx"),
-                vec!["--yes".to_string(), "tokscale@latest".to_string()],
-            )),
             allow_cmd_variant: true,
+        }];
+
+        if let Some(sidecar) = sidecar_tokscale_path() {
+            candidates.push(Candidate {
+                bin: sidecar,
+                base_args: Vec::new(),
+                allow_cmd_variant: false,
+            });
         }
+
+        candidates.push(Candidate {
+            bin: PathBuf::from("npx"),
+            base_args: vec!["--yes".to_string(), "tokscale@latest".to_string()],
+            allow_cmd_variant: true,
+        });
+
+        Self { candidates }
+    }
+
+    #[cfg(test)]
+    pub fn candidate_bins(&self) -> Vec<&PathBuf> {
+        self.candidates.iter().map(|c| &c.bin).collect()
     }
 }
 
@@ -59,72 +91,55 @@ fn cmd_variant(bin: &PathBuf) -> Option<PathBuf> {
 impl TokscaleAdapter for TokscaleCommandAdapter {
     fn collect(&self, options: &ReconcileOptions) -> SourceCollection {
         let report_args = tokscale_report_args(options);
-        eprintln!("tokscale: running {} {:?}", self.bin.display(), report_args);
-        let output = match run_tokscale_command(
-            &self.bin,
-            &self.base_args,
-            &report_args,
-            self.allow_cmd_variant,
-        ) {
-            Ok(output) => output,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => match &self.fallback {
-                Some((bin, args)) => {
+        let mut last_error: Option<std::io::Error> = None;
+
+        let output = 'candidates: {
+            for (i, candidate) in self.candidates.iter().enumerate() {
+                if i > 0 {
                     eprintln!(
-                        "tokscale: primary binary {} not found, trying fallback {} {:?}",
-                        self.bin.display(),
-                        bin.display(),
-                        args
+                        "tokscale: trying candidate {} {:?}",
+                        candidate.bin.display(),
+                        candidate.base_args
                     );
-                    match run_tokscale_command(bin, args, &report_args, true) {
-                        Ok(output) => output,
-                        Err(fallback_error)
-                            if fallback_error.kind() == std::io::ErrorKind::NotFound =>
-                        {
-                            eprintln!("tokscale: fallback binary {} not found", bin.display());
-                            return SourceCollection {
-                                source: TokenSource::TokscaleExport,
-                                status: SourceStatus::MissingBinary,
-                                message: Some(format!(
-                                    "{} not found and npx fallback is unavailable",
-                                    self.bin.display()
-                                )),
-                                version: None,
-                                records: Vec::new(),
-                            };
-                        }
-                        Err(fallback_error) => {
-                            eprintln!("tokscale: fallback command failed: {}", fallback_error);
-                            return SourceCollection {
-                                source: TokenSource::TokscaleExport,
-                                status: SourceStatus::CommandFailed,
-                                message: Some(fallback_error.to_string()),
-                                version: None,
-                                records: Vec::new(),
-                            };
-                        }
+                } else {
+                    eprintln!(
+                        "tokscale: running {} {:?}",
+                        candidate.bin.display(),
+                        report_args
+                    );
+                }
+
+                match run_tokscale_command(
+                    &candidate.bin,
+                    &candidate.base_args,
+                    &report_args,
+                    candidate.allow_cmd_variant,
+                ) {
+                    Ok(output) => break 'candidates output,
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                        eprintln!("tokscale: {} not found", candidate.bin.display());
+                        last_error = Some(e);
+                    }
+                    Err(e) => {
+                        eprintln!("tokscale: {} failed: {}", candidate.bin.display(), e);
+                        last_error = Some(e);
                     }
                 }
-                None => {
-                    eprintln!("tokscale: primary binary {} not found", self.bin.display());
-                    return SourceCollection {
-                        source: TokenSource::TokscaleExport,
-                        status: SourceStatus::MissingBinary,
-                        message: Some(format!("{} not found", self.bin.display())),
-                        version: None,
-                        records: Vec::new(),
-                    };
-                }
-            },
-            Err(e) => {
-                eprintln!("tokscale: primary command failed: {}", e);
-                return SourceCollection {
-                    source: TokenSource::TokscaleExport,
-                    status: SourceStatus::CommandFailed,
-                    message: Some(e.to_string()),
-                    version: None,
-                    records: Vec::new(),
-                };
             }
+
+            let err = last_error.unwrap();
+            let status = if err.kind() == std::io::ErrorKind::NotFound {
+                SourceStatus::MissingBinary
+            } else {
+                SourceStatus::CommandFailed
+            };
+            return SourceCollection {
+                source: TokenSource::TokscaleExport,
+                status,
+                message: Some(format!("all candidates exhausted: {}", err)),
+                version: None,
+                records: Vec::new(),
+            };
         };
 
         if !output.status.success() {
@@ -912,16 +927,10 @@ mod tests {
     #[test]
     fn default_tokscale_command_prefers_local_binary_with_npx_latest_fallback() {
         let adapter = TokscaleCommandAdapter::new(None);
+        let bins = adapter.candidate_bins();
 
-        assert_eq!(adapter.bin, PathBuf::from("tokscale"));
-        assert!(adapter.base_args.is_empty());
-        assert_eq!(
-            adapter.fallback,
-            Some((
-                PathBuf::from("npx"),
-                vec!["--yes".to_string(), "tokscale@latest".to_string()]
-            ))
-        );
+        assert_eq!(bins[0], &PathBuf::from("tokscale"));
+        assert_eq!(bins.last().unwrap(), &&PathBuf::from("npx"));
     }
 
     #[test]
@@ -944,19 +953,19 @@ mod tests {
     #[test]
     fn explicit_override_disables_cmd_variant_retry() {
         let explicit = TokscaleCommandAdapter::new(Some(PathBuf::from("/opt/bin/tokscale")));
-        assert!(!explicit.allow_cmd_variant);
+        assert!(!explicit.candidates[0].allow_cmd_variant);
 
         let default = TokscaleCommandAdapter::new(None);
-        assert!(default.allow_cmd_variant);
+        assert!(default.candidates[0].allow_cmd_variant);
     }
 
     #[test]
     fn explicit_tokscale_binary_override_uses_no_npx_fallback() {
         let adapter = TokscaleCommandAdapter::new(Some(PathBuf::from("/opt/bin/tokscale")));
 
-        assert_eq!(adapter.bin, PathBuf::from("/opt/bin/tokscale"));
-        assert!(adapter.base_args.is_empty());
-        assert!(adapter.fallback.is_none());
+        assert_eq!(adapter.candidates.len(), 1);
+        assert_eq!(adapter.candidates[0].bin, PathBuf::from("/opt/bin/tokscale"));
+        assert!(adapter.candidates[0].base_args.is_empty());
     }
 
     #[test]
@@ -969,5 +978,52 @@ mod tests {
             },
         );
         assert_eq!(collection.status, SourceStatus::ParseFailed);
+    }
+
+    #[test]
+    fn candidate_order_without_sidecar_is_path_then_npx() {
+        let adapter = TokscaleCommandAdapter::new(None);
+        let bins = adapter.candidate_bins();
+        // sidecar_tokscale_path() returns None in test env (no sidecar next to test binary)
+        assert_eq!(bins[0], &PathBuf::from("tokscale"));
+        assert_eq!(bins.last().unwrap(), &&PathBuf::from("npx"));
+        assert!(bins.iter().all(|b| {
+            let s = b.to_str().unwrap();
+            s == "tokscale" || s == "npx" || s.contains("tokscale")
+        }));
+    }
+
+    #[test]
+    fn candidate_order_with_sidecar_inserts_between_path_and_npx() {
+        // Simulate by placing a dummy file next to current_exe
+        let exe = std::env::current_exe().unwrap();
+        let dir = exe.parent().unwrap();
+        let sidecar = dir.join(format!("tokscale{}", std::env::consts::EXE_SUFFIX));
+        let created = if !sidecar.exists() {
+            std::fs::write(&sidecar, b"dummy").unwrap();
+            true
+        } else {
+            false
+        };
+
+        let adapter = TokscaleCommandAdapter::new(None);
+        let bins = adapter.candidate_bins();
+
+        assert_eq!(bins[0], &PathBuf::from("tokscale"));
+        assert_eq!(*bins[1], sidecar);
+        assert_eq!(bins[2], &PathBuf::from("npx"));
+        assert_eq!(bins.len(), 3);
+
+        if created {
+            let _ = std::fs::remove_file(&sidecar);
+        }
+    }
+
+    #[test]
+    fn explicit_override_has_no_sidecar_candidate() {
+        let adapter = TokscaleCommandAdapter::new(Some(PathBuf::from("/opt/bin/tokscale")));
+        let bins = adapter.candidate_bins();
+        assert_eq!(bins.len(), 1);
+        assert_eq!(bins[0], &PathBuf::from("/opt/bin/tokscale"));
     }
 }

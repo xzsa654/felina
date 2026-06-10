@@ -28,6 +28,7 @@
   "scripts": {
     "dev": "vite",
     "check": "tsc --noEmit",
+    "fetch-tokscale": "node scripts/fetch-tokscale.mjs",
     "build": "vite build",
     "preview": "vite preview",
     "tauri": "tauri"
