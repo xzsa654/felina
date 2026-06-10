@@ -15,6 +15,7 @@ pub struct TokscaleCommandAdapter {
     bin: PathBuf,
     base_args: Vec<String>,
     fallback: Option<(PathBuf, Vec<String>)>,
+    allow_cmd_variant: bool,
 }
 
 impl TokscaleCommandAdapter {
@@ -24,6 +25,7 @@ impl TokscaleCommandAdapter {
                 bin,
                 base_args: Vec::new(),
                 fallback: None,
+                allow_cmd_variant: false,
             };
         }
 
@@ -34,15 +36,36 @@ impl TokscaleCommandAdapter {
                 PathBuf::from("npx"),
                 vec!["--yes".to_string(), "tokscale@latest".to_string()],
             )),
+            allow_cmd_variant: true,
         }
     }
+}
+
+/// npm-installed CLIs expose only `.cmd` shims on Windows, which
+/// `std::process::Command::new` cannot spawn by bare name. Returns the `.cmd`
+/// variant to retry with, but only for bare names — explicit paths and names
+/// that already carry an extension must not be second-guessed.
+fn cmd_variant(bin: &PathBuf) -> Option<PathBuf> {
+    let name = bin.to_str()?;
+    if name.contains('/') || name.contains('\\') {
+        return None;
+    }
+    if std::path::Path::new(name).extension().is_some() {
+        return None;
+    }
+    Some(PathBuf::from(format!("{name}.cmd")))
 }
 
 impl TokscaleAdapter for TokscaleCommandAdapter {
     fn collect(&self, options: &ReconcileOptions) -> SourceCollection {
         let report_args = tokscale_report_args(options);
         eprintln!("tokscale: running {} {:?}", self.bin.display(), report_args);
-        let output = match run_tokscale_command(&self.bin, &self.base_args, &report_args) {
+        let output = match run_tokscale_command(
+            &self.bin,
+            &self.base_args,
+            &report_args,
+            self.allow_cmd_variant,
+        ) {
             Ok(output) => output,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => match &self.fallback {
                 Some((bin, args)) => {
@@ -52,7 +75,7 @@ impl TokscaleAdapter for TokscaleCommandAdapter {
                         bin.display(),
                         args
                     );
-                    match run_tokscale_command(bin, args, &report_args) {
+                    match run_tokscale_command(bin, args, &report_args, true) {
                         Ok(output) => output,
                         Err(fallback_error)
                             if fallback_error.kind() == std::io::ErrorKind::NotFound =>
@@ -124,6 +147,30 @@ impl TokscaleAdapter for TokscaleCommandAdapter {
 }
 
 fn run_tokscale_command(
+    bin: &PathBuf,
+    base_args: &[String],
+    report_args: &[String],
+    allow_cmd_variant: bool,
+) -> std::io::Result<std::process::Output> {
+    let result = spawn_tokscale_once(bin, base_args, report_args);
+    if cfg!(target_os = "windows") && allow_cmd_variant {
+        if let Err(e) = &result {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                if let Some(variant) = cmd_variant(bin) {
+                    eprintln!(
+                        "tokscale: {} not found, retrying with {}",
+                        bin.display(),
+                        variant.display()
+                    );
+                    return spawn_tokscale_once(&variant, base_args, report_args);
+                }
+            }
+        }
+    }
+    result
+}
+
+fn spawn_tokscale_once(
     bin: &PathBuf,
     base_args: &[String],
     report_args: &[String],
@@ -875,6 +922,32 @@ mod tests {
                 vec!["--yes".to_string(), "tokscale@latest".to_string()]
             ))
         );
+    }
+
+    #[test]
+    fn cmd_variant_generated_for_bare_names_only() {
+        assert_eq!(
+            cmd_variant(&PathBuf::from("tokscale")),
+            Some(PathBuf::from("tokscale.cmd"))
+        );
+        assert_eq!(cmd_variant(&PathBuf::from("npx")), Some(PathBuf::from("npx.cmd")));
+    }
+
+    #[test]
+    fn cmd_variant_not_generated_for_paths_or_extensions() {
+        assert_eq!(cmd_variant(&PathBuf::from("/opt/bin/tokscale")), None);
+        assert_eq!(cmd_variant(&PathBuf::from(r"C:\tools\tokscale.exe")), None);
+        assert_eq!(cmd_variant(&PathBuf::from("tokscale.exe")), None);
+        assert_eq!(cmd_variant(&PathBuf::from("tokscale.cmd")), None);
+    }
+
+    #[test]
+    fn explicit_override_disables_cmd_variant_retry() {
+        let explicit = TokscaleCommandAdapter::new(Some(PathBuf::from("/opt/bin/tokscale")));
+        assert!(!explicit.allow_cmd_variant);
+
+        let default = TokscaleCommandAdapter::new(None);
+        assert!(default.allow_cmd_variant);
     }
 
     #[test]
