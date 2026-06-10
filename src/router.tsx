@@ -2,7 +2,6 @@ import { lazy, Suspense } from "react";
 import { createMemoryRouter, Navigate, Outlet } from "react-router";
 import PageLoader from "$lib/components/shared/PageLoader";
 import Sidebar from "$lib/components/layout/Sidebar";
-import UpdateBanner from "$lib/components/layout/UpdateBanner";
 import CommandPalette from "$lib/components/shared/CommandPalette";
 import OnboardingWelcome from "$lib/components/shared/OnboardingWelcome";
 import ShapeGrid from "$lib/components/shared/ShapeGrid/ShapeGrid";
@@ -48,7 +47,6 @@ function AppLayout() {
               hoverTrailAmount={4}
             />
           </div>
-          <UpdateBanner />
           <div className="relative z-10 flex-1 overflow-hidden flex flex-col min-h-0">
             <Outlet />
           </div>
