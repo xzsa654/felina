@@ -61,7 +61,6 @@ code:
   - src-tauri/src/commands/rules.rs
   - src-tauri/src/commands/settings.rs
   - src-tauri/src/commands/projects.rs
-  - src-tauri/src/commands/budget.rs
   - src-tauri/src/tokens/parsers/mod.rs
   - src-tauri/src/commands/stats.rs
   - src-tauri/src/lib.rs
@@ -119,7 +118,6 @@ code:
   - src-tauri/src/commands/rules.rs
   - src-tauri/src/commands/settings.rs
   - src-tauri/src/commands/projects.rs
-  - src-tauri/src/commands/budget.rs
   - src-tauri/src/tokens/parsers/mod.rs
   - src-tauri/src/commands/stats.rs
   - src-tauri/src/lib.rs
@@ -183,7 +181,6 @@ code:
   - src-tauri/src/commands/rules.rs
   - src-tauri/src/commands/settings.rs
   - src-tauri/src/commands/projects.rs
-  - src-tauri/src/commands/budget.rs
   - src-tauri/src/tokens/parsers/mod.rs
   - src-tauri/src/commands/stats.rs
   - src-tauri/src/lib.rs
@@ -240,7 +237,6 @@ code:
   - src-tauri/src/commands/rules.rs
   - src-tauri/src/commands/settings.rs
   - src-tauri/src/commands/projects.rs
-  - src-tauri/src/commands/budget.rs
   - src-tauri/src/tokens/parsers/mod.rs
   - src-tauri/src/commands/stats.rs
   - src-tauri/src/lib.rs
@@ -297,7 +293,6 @@ code:
   - src-tauri/src/commands/rules.rs
   - src-tauri/src/commands/settings.rs
   - src-tauri/src/commands/projects.rs
-  - src-tauri/src/commands/budget.rs
   - src-tauri/src/tokens/parsers/mod.rs
   - src-tauri/src/commands/stats.rs
   - src-tauri/src/lib.rs
@@ -355,7 +350,6 @@ code:
   - src-tauri/src/commands/rules.rs
   - src-tauri/src/commands/settings.rs
   - src-tauri/src/commands/projects.rs
-  - src-tauri/src/commands/budget.rs
   - src-tauri/src/tokens/parsers/mod.rs
   - src-tauri/src/commands/stats.rs
   - src-tauri/src/lib.rs

@@ -46,7 +46,7 @@ import type {
   HistorySessionsPage,
 } from "$lib/types/token-analytics";
 
-// Retained-for-reference wrappers (instructions / rules / budget / stats):
+// Retained-for-reference wrappers (instructions / rules / stats):
 // backend modules + frontend pages are kept on disk but unregistered from invoke_handler.
 // Calling these at runtime will fail until the corresponding command is re-registered.
 export const api = {
@@ -286,16 +286,9 @@ export const api = {
     cleanup: (name: string) => invoke<number>("cleanup_directory", { name }),
   },
 
-  budget: {
-    get: () => invoke<BudgetSettings>("get_budget"),
-    set: (
-      dailyLimit: number | null,
-      monthlyLimit: number | null,
-      planType?: string,
-      quotaTtlSeconds?: number,
-    ) =>
-      invoke<void>("set_budget", { dailyLimit, monthlyLimit, planType, quotaTtlSeconds }),
-    getCostSummary: () => invoke<CostSummary>("get_cost_summary"),
+  felinaSettings: {
+    getQuotaTtl: () => invoke<number>("get_felina_quota_ttl"),
+    setQuotaTtl: (seconds: number) => invoke<void>("set_felina_quota_ttl", { seconds }),
   },
 
   tokenAnalytics: {
@@ -448,28 +441,3 @@ export interface DiskUsageEntry {
   safe_to_delete: boolean;
 }
 
-export interface BudgetSettings {
-  daily_limit: number | null;
-  monthly_limit: number | null;
-  plan_type: string;
-  quota_ttl_seconds: number;
-}
-
-export interface CostSummary {
-  today: number;
-  this_month: number;
-  last_7_days: number[];
-  daily_limit: number | null;
-  monthly_limit: number | null;
-  daily_exceeded: boolean;
-  monthly_exceeded: boolean;
-  monthly_projection: number;
-  per_project_month: ProjectCost[];
-  plan_type: string;
-}
-
-export interface ProjectCost {
-  project: string;
-  cost: number;
-  messages: number;
-}

@@ -33,7 +33,6 @@ code:
   - src/lib/components/tokens/TokensPage.tsx
   - src/lib/types/token-analytics.ts
   - src-tauri/src/lib.rs
-  - src-tauri/src/commands/budget.rs
   - src-tauri/src/tokens/mod.rs
   - src-tauri/src/commands/maintenance.rs
   - docs/token-usage-source-of-truth.md
@@ -90,7 +89,6 @@ code:
   - src/lib/components/tokens/TokensPage.tsx
   - src/lib/types/token-analytics.ts
   - src-tauri/src/lib.rs
-  - src-tauri/src/commands/budget.rs
   - src-tauri/src/tokens/mod.rs
   - src-tauri/src/commands/maintenance.rs
   - docs/token-usage-source-of-truth.md
@@ -168,7 +166,6 @@ code:
   - src/lib/components/tokens/TokensPage.tsx
   - src/lib/types/token-analytics.ts
   - src-tauri/src/lib.rs
-  - src-tauri/src/commands/budget.rs
   - src-tauri/src/tokens/mod.rs
   - src-tauri/src/commands/maintenance.rs
   - docs/token-usage-source-of-truth.md
@@ -226,7 +223,6 @@ code:
   - src/lib/components/tokens/TokensPage.tsx
   - src/lib/types/token-analytics.ts
   - src-tauri/src/lib.rs
-  - src-tauri/src/commands/budget.rs
   - src-tauri/src/tokens/mod.rs
   - src-tauri/src/commands/maintenance.rs
   - docs/token-usage-source-of-truth.md
@@ -276,7 +272,6 @@ code:
   - src/lib/components/tokens/TokensPage.tsx
   - src/lib/types/token-analytics.ts
   - src-tauri/src/lib.rs
-  - src-tauri/src/commands/budget.rs
   - src-tauri/src/tokens/mod.rs
   - src-tauri/src/commands/maintenance.rs
   - docs/token-usage-source-of-truth.md

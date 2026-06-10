@@ -99,7 +99,6 @@ code:
   - src/lib/components/hooks/HookCard.svelte
   - src-tauri/src/bin/glyphic_ctx.rs
   - src/lib/components/pipelines/nodes/GitNode.svelte
-  - src-tauri/src/commands/budget.rs
   - src-tauri/src/commands/settings.rs
   - src/lib/components/pipelines/PipelinesPage.tsx
   - src-tauri/src/commands/skills.rs
@@ -378,7 +377,6 @@ code:
   - src/lib/components/hooks/HookCard.svelte
   - src-tauri/src/bin/glyphic_ctx.rs
   - src/lib/components/pipelines/nodes/GitNode.svelte
-  - src-tauri/src/commands/budget.rs
   - src-tauri/src/commands/settings.rs
   - src/lib/components/pipelines/PipelinesPage.tsx
   - src-tauri/src/commands/skills.rs
@@ -588,7 +586,6 @@ code:
   - src/lib/components/hooks/HookCard.svelte
   - src-tauri/src/bin/glyphic_ctx.rs
   - src/lib/components/pipelines/nodes/GitNode.svelte
-  - src-tauri/src/commands/budget.rs
   - src-tauri/src/commands/settings.rs
   - src/lib/components/pipelines/PipelinesPage.tsx
   - src-tauri/src/commands/skills.rs
@@ -781,7 +778,6 @@ code:
   - src-tauri/src/filter/tracker.rs
   - src-tauri/Cargo.toml
   - src-tauri/src/tokens/parsers/mod.rs
-  - src-tauri/src/commands/budget.rs
   - src/lib/stores/project-context.svelte.ts
   - src-tauri/src/commands/mcp.rs
   - src-tauri/src/ctx/retrieve.rs

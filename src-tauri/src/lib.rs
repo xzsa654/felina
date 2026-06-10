@@ -155,6 +155,9 @@ pub fn run() {
             // Settings → Agent Paths.
             commands::agent_paths::agent_paths_get,
             commands::agent_paths::agent_paths_set,
+            // Settings → Felina internal (quota TTL).
+            commands::felina_settings::get_felina_quota_ttl,
+            commands::felina_settings::set_felina_quota_ttl,
             // Known Projects.
             commands::known_projects::known_projects_list,
             commands::known_projects::known_projects_saved_list,
