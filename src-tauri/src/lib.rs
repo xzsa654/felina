@@ -148,6 +148,7 @@ pub fn run() {
             commands::skill_import::skill_import_scan_quick,
             commands::skill_import::skill_import_scan,
             commands::skill_import::skill_import_scan_zip,
+            commands::skill_import::skill_import_scan_dir,
             commands::skill_import::skill_import_apply,
             commands::skill_import::project_local_skill_rename,
             commands::skill_import::project_local_skill_delete,
