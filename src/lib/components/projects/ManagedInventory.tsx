@@ -1017,11 +1017,11 @@ function LinkConflictDialog({
 
   return (
     <Modal open onClose={onCancel} size="lg">
-      <div className="flex max-h-[85vh] flex-col p-6">
-        <h3 className="text-base font-semibold text-text-primary">
+      <div className="flex min-h-0 h-full flex-col p-6">
+        <h3 className="shrink-0 text-base font-semibold text-text-primary">
           {t(locale, "projects.inventory.link.title")}
         </h3>
-        <div className="mt-4 flex flex-1 flex-col overflow-hidden text-sm text-text-secondary">
+        <div className="mt-4 flex flex-1 flex-col overflow-hidden min-h-0 text-sm text-text-secondary">
           <p className="mb-3 whitespace-pre-wrap">
             {t(locale, "projects.inventory.link.message", { name: pending.skillName })}
           </p>
@@ -1078,11 +1078,11 @@ function OverwriteConflictDialog({
 
   return (
     <Modal open onClose={onCancel} size="lg">
-      <div className="flex max-h-[85vh] flex-col p-6">
-        <h3 className="text-base font-semibold text-text-primary">
+      <div className="flex min-h-0 h-full flex-col p-6">
+        <h3 className="shrink-0 text-base font-semibold text-text-primary">
           {t(locale, "projects.importConflictDialog.title")}
         </h3>
-        <div className="mt-4 flex flex-1 flex-col overflow-hidden text-sm text-text-secondary">
+        <div className="mt-4 flex flex-1 flex-col overflow-hidden min-h-0 text-sm text-text-secondary">
           <p className="mb-3 whitespace-pre-wrap">
             {t(locale, "projects.importConflictDialog.message")}
           </p>
@@ -1146,12 +1146,12 @@ function MultiSourceDrawer({
     <Modal open onClose={onCancel} size="md">
       <div
         ref={drawerRef}
-        className="flex max-h-[80vh] flex-col p-6"
+        className="flex min-h-0 h-full flex-col p-6"
       >
         <h3 className="text-base font-semibold text-text-primary">
           {t(locale, "projects.inventory.drawer.selectSource")}
         </h3>
-        <div className="mt-4 flex-1 overflow-y-auto">
+        <div className="mt-4 flex-1 overflow-y-auto min-h-0">
           <div className="flex flex-col gap-3">
             {row.detectedSources.map((source) => (
               <div key={source.sourcePath} className="rounded-lg border border-border bg-bg-tertiary p-3">

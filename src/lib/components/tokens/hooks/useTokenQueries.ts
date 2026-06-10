@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRef } from "react";
-import { api, type BudgetSettings } from "$lib/tauri/commands";
+import { api } from "$lib/tauri/commands";
 import type { QuotaSnapshot } from "$lib/types";
 
 // ── Query key factory ──────────────────────────────────────────────────────────
@@ -22,7 +22,7 @@ export const tokenKeys = {
       params.sourceOverride,
     ] as const,
   quota: ["tokenAnalytics", "quota"] as const,
-  budget: ["tokenAnalytics", "budget"] as const,
+  quotaTtl: ["felinaSettings", "quotaTtl"] as const,
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -96,52 +96,34 @@ export function useRefreshTokenData() {
   });
 }
 
-// ── useBudgetSettings / useSetBudgetSettings ─────────────────────────────────
+// ── useFelinaQuotaTtl / useSetFelinaQuotaTtl ─────────────────────────────────
 
-export function useBudgetSettings() {
+export function useFelinaQuotaTtl() {
   return useQuery({
-    queryKey: tokenKeys.budget,
-    queryFn: () => api.budget.get(),
+    queryKey: tokenKeys.quotaTtl,
+    queryFn: () => api.felinaSettings.getQuotaTtl(),
     staleTime: 5 * 60 * 1000,
   });
 }
 
-export function useSetBudgetSettings() {
+export function useSetFelinaQuotaTtl() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (params: {
-      dailyLimit?: number | null;
-      monthlyLimit?: number | null;
-      planType?: string;
-      quotaTtlSeconds?: number;
-    }) => {
-      const current = await api.budget.get();
-      await api.budget.set(
-        params.dailyLimit ?? current.daily_limit,
-        params.monthlyLimit ?? current.monthly_limit,
-        params.planType ?? current.plan_type,
-        params.quotaTtlSeconds ?? current.quota_ttl_seconds,
-      );
-    },
-    onMutate: async (params) => {
-      await queryClient.cancelQueries({ queryKey: tokenKeys.budget });
-      const previous = queryClient.getQueryData<BudgetSettings>(tokenKeys.budget);
-      if (previous) {
-        queryClient.setQueryData<BudgetSettings>(tokenKeys.budget, {
-          ...previous,
-          quota_ttl_seconds: params.quotaTtlSeconds ?? previous.quota_ttl_seconds,
-        });
-      }
+    mutationFn: (seconds: number) => api.felinaSettings.setQuotaTtl(seconds),
+    onMutate: async (seconds) => {
+      await queryClient.cancelQueries({ queryKey: tokenKeys.quotaTtl });
+      const previous = queryClient.getQueryData<number>(tokenKeys.quotaTtl);
+      queryClient.setQueryData<number>(tokenKeys.quotaTtl, seconds);
       return { previous };
     },
-    onError: (_err, _params, context) => {
-      if (context?.previous) {
-        queryClient.setQueryData(tokenKeys.budget, context.previous);
+    onError: (_err, _seconds, context) => {
+      if (context?.previous !== undefined) {
+        queryClient.setQueryData(tokenKeys.quotaTtl, context.previous);
       }
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: tokenKeys.budget });
+      queryClient.invalidateQueries({ queryKey: tokenKeys.quotaTtl });
     },
   });
 }

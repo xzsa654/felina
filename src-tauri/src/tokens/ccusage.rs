@@ -561,9 +561,7 @@ fn quota_backoff_duration(failure_count: u32) -> Duration {
 }
 
 fn quota_cache_ttl() -> Duration {
-    let seconds = crate::commands::budget::get_budget()
-        .map(|settings| settings.quota_ttl_seconds)
-        .unwrap_or_else(|_| crate::commands::budget::default_quota_ttl_seconds())
+    let seconds = crate::commands::felina_settings::read_quota_ttl_seconds()
         .clamp(QUOTA_TTL_MIN_SECONDS, QUOTA_TTL_MAX_SECONDS);
     Duration::from_secs(seconds)
 }

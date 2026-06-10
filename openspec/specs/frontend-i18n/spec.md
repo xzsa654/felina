@@ -62,7 +62,6 @@ code:
   - src/router.tsx
   - src/lib/components/terminal/TerminalPage.svelte
   - src/lib/stores/pipeline-execution.svelte.ts
-  - src-tauri/src/commands/budget.rs
   - CONTRIBUTING.md
   - src-tauri/src/filter/tracker.rs
   - src-tauri/src/tokens/scanner.rs
@@ -270,7 +269,6 @@ code:
   - src/router.tsx
   - src/lib/components/terminal/TerminalPage.svelte
   - src/lib/stores/pipeline-execution.svelte.ts
-  - src-tauri/src/commands/budget.rs
   - CONTRIBUTING.md
   - src-tauri/src/filter/tracker.rs
   - src-tauri/src/tokens/scanner.rs
@@ -478,7 +476,6 @@ code:
   - src/router.tsx
   - src/lib/components/terminal/TerminalPage.svelte
   - src/lib/stores/pipeline-execution.svelte.ts
-  - src-tauri/src/commands/budget.rs
   - CONTRIBUTING.md
   - src-tauri/src/filter/tracker.rs
   - src-tauri/src/tokens/scanner.rs
@@ -685,7 +682,6 @@ code:
   - src/router.tsx
   - src/lib/components/terminal/TerminalPage.svelte
   - src/lib/stores/pipeline-execution.svelte.ts
-  - src-tauri/src/commands/budget.rs
   - CONTRIBUTING.md
   - src-tauri/src/filter/tracker.rs
   - src-tauri/src/tokens/scanner.rs

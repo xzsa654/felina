@@ -76,7 +76,6 @@ code:
   - src-tauri/src/filter/tracker.rs
   - src-tauri/Cargo.toml
   - src-tauri/src/tokens/parsers/mod.rs
-  - src-tauri/src/commands/budget.rs
   - src/lib/stores/project-context.svelte.ts
   - src-tauri/src/commands/mcp.rs
   - src-tauri/src/ctx/retrieve.rs
@@ -276,7 +275,6 @@ code:
   - src-tauri/src/filter/tracker.rs
   - src-tauri/Cargo.toml
   - src-tauri/src/tokens/parsers/mod.rs
-  - src-tauri/src/commands/budget.rs
   - src/lib/stores/project-context.svelte.ts
   - src-tauri/src/commands/mcp.rs
   - src-tauri/src/ctx/retrieve.rs
@@ -475,7 +473,6 @@ code:
   - src-tauri/src/filter/tracker.rs
   - src-tauri/Cargo.toml
   - src-tauri/src/tokens/parsers/mod.rs
-  - src-tauri/src/commands/budget.rs
   - src/lib/stores/project-context.svelte.ts
   - src-tauri/src/commands/mcp.rs
   - src-tauri/src/ctx/retrieve.rs
@@ -674,7 +671,6 @@ code:
   - src-tauri/src/filter/tracker.rs
   - src-tauri/Cargo.toml
   - src-tauri/src/tokens/parsers/mod.rs
-  - src-tauri/src/commands/budget.rs
   - src/lib/stores/project-context.svelte.ts
   - src-tauri/src/commands/mcp.rs
   - src-tauri/src/ctx/retrieve.rs

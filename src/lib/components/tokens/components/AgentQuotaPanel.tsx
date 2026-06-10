@@ -5,8 +5,8 @@ import type { Locale } from "$lib/i18n";
 import { TokenUsageSkeleton } from "./TokensPageSkeleton";
 import {
   useAgentQuotaSnapshot,
-  useBudgetSettings,
-  useSetBudgetSettings,
+  useFelinaQuotaTtl,
+  useSetFelinaQuotaTtl,
 } from "../hooks/useTokenQueries";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -185,16 +185,16 @@ export default function AgentQuotaPanel({ locale: _locale }: { locale: Locale })
     return () => clearInterval(t);
   }, []);
 
-  const budgetQuery = useBudgetSettings();
-  const budgetTtl = budgetQuery.data?.quota_ttl_seconds;
+  const ttlQuery = useFelinaQuotaTtl();
+  const persistedTtl = ttlQuery.data;
 
-  // If the budget query has caught up, release the optimistic override.
-  if (_optimisticTtl != null && budgetTtl != null && _optimisticTtl === budgetTtl) {
+  // If the TTL query has caught up, release the optimistic override.
+  if (_optimisticTtl != null && persistedTtl != null && _optimisticTtl === persistedTtl) {
     _optimisticTtl = null;
   }
 
-  const ttlSeconds = _optimisticTtl ?? budgetTtl ?? 60;
-  const saveQuotaTtlMutation = useSetBudgetSettings();
+  const ttlSeconds = _optimisticTtl ?? persistedTtl ?? 60;
+  const saveQuotaTtlMutation = useSetFelinaQuotaTtl();
 
   return (
     <QuotaContent key={ttlSeconds} ttlSeconds={ttlSeconds}>
@@ -211,7 +211,7 @@ export default function AgentQuotaPanel({ locale: _locale }: { locale: Locale })
                   onChange={(e) => {
                     const seconds = Math.min(60 * 60, Math.max(30, Number(e.target.value)));
                     _optimisticTtl = seconds;
-                    saveQuotaTtlMutation.mutate({ quotaTtlSeconds: seconds });
+                    saveQuotaTtlMutation.mutate(seconds);
                   }}
                   title="Quota refresh TTL. Lower values may hit provider rate limits."
                 >

@@ -1097,46 +1097,35 @@ impl TokenAggregator {
 
     /// Pick the default source for analytics when no explicit override is provided.
     ///
-    /// Aggregate views prefer `tokscale_export` when it exists because that is the
-    /// source refreshed by `refresh_token_data`. Daily views keep using the active
-    /// ingestion source so rollback and parser-only setups still behave as before.
+    /// Three-state rule keyed on the active ingestion source:
+    /// - `felina_parser` (explicit rollback, or tokscale never succeeded): always
+    ///   honored — aggregate views return it without consulting tokscale rows.
+    /// - `tokscale_export` / `parser_fallback`: Daily/Weekly/Monthly prefer
+    ///   `tokscale_export` when tokscale rows exist (that is the source refreshed
+    ///   by `refresh_token_data`; after an automatic parser fallback the stale
+    ///   tokscale aggregates are still preferred), otherwise the active source.
+    /// - Hourly always uses the active source.
     fn default_analytics_source(&self, granularity: &TimeGranularity) -> Result<String, String> {
+        let active = self
+            .storage
+            .active_source()
+            .map_err(|e| format!("active_source error: {}", e))?;
         match granularity {
-            TimeGranularity::Weekly | TimeGranularity::Monthly => {
-                let tokscale_count = self
-                    .storage
-                    .count_events_for_source(SOURCE_TOKSCALE_EXPORT)
-                    .unwrap_or(0);
-                if tokscale_count > 0 {
-                    eprintln!(
-                        "tokens: default analytics source {:?} -> {} ({} events)",
-                        granularity, SOURCE_TOKSCALE_EXPORT, tokscale_count
-                    );
-                    Ok(SOURCE_TOKSCALE_EXPORT.to_string())
-                } else {
-                    let source = self
-                        .storage
-                        .active_source()
-                        .map_err(|e| format!("active_source error: {}", e))?;
-                    eprintln!(
-                        "tokens: default analytics source {:?} -> active_source {} (tokscale_export missing)",
-                        granularity, source
-                    );
-                    Ok(source)
-                }
-            }
             TimeGranularity::Hourly => {
-                let source = self
-                    .storage
-                    .active_source()
-                    .map_err(|e| format!("active_source error: {}", e))?;
                 eprintln!(
                     "tokens: default analytics source {:?} -> active_source {}",
-                    granularity, source
+                    granularity, active
                 );
-                Ok(source)
+                Ok(active)
             }
-            TimeGranularity::Daily => {
+            TimeGranularity::Daily | TimeGranularity::Weekly | TimeGranularity::Monthly => {
+                if active == SOURCE_FELINA_PARSER {
+                    eprintln!(
+                        "tokens: default analytics source {:?} -> active_source {} (explicit rollback honored)",
+                        granularity, active
+                    );
+                    return Ok(active);
+                }
                 let tokscale_count = self
                     .storage
                     .count_events_for_source(SOURCE_TOKSCALE_EXPORT)
@@ -1148,15 +1137,11 @@ impl TokenAggregator {
                     );
                     Ok(SOURCE_TOKSCALE_EXPORT.to_string())
                 } else {
-                    let source = self
-                        .storage
-                        .active_source()
-                        .map_err(|e| format!("active_source error: {}", e))?;
                     eprintln!(
                         "tokens: default analytics source {:?} -> active_source {} (tokscale_export missing)",
-                        granularity, source
+                        granularity, active
                     );
-                    Ok(source)
+                    Ok(active)
                 }
             }
         }
@@ -1745,6 +1730,49 @@ mod tests {
         assert_eq!(analytics.event_count, 1);
         assert_eq!(analytics.model_breakdown[0].model, "legacy-model");
         cleanup_db(&db);
+    }
+
+    fn assert_rollback_honored_for(granularity: TimeGranularity, db_name: &str) {
+        let (aggregator, db) = aggregator(db_name);
+        aggregator
+            .storage
+            .upsert_events(&[event(
+                AgentId::ClaudeCode,
+                "legacy-model",
+                321,
+                123,
+                "legacy",
+            )])
+            .expect("legacy insert");
+        let tokscale_event = event(AgentId::CodexCli, "gpt-5.1-codex", 999, 111, "tokscale");
+        aggregator
+            .storage
+            .replace_tokscale_records(&[(&tokscale_event, 3)], "tokscale-test")
+            .expect("tokscale replace");
+
+        aggregator
+            .storage
+            .set_active_source(SOURCE_FELINA_PARSER)
+            .expect("rollback active source");
+        let analytics = aggregator
+            .build_analytics(granularity, None, None, None, None, None)
+            .expect("analytics");
+
+        assert_eq!(analytics.total_input_tokens, 321);
+        assert_eq!(analytics.total_output_tokens, 123);
+        assert_eq!(analytics.event_count, 1);
+        assert_eq!(analytics.model_breakdown[0].model, "legacy-model");
+        cleanup_db(&db);
+    }
+
+    #[test]
+    fn weekly_analytics_honors_explicit_rollback_to_felina_parser() {
+        assert_rollback_honored_for(TimeGranularity::Weekly, "rollback_weekly");
+    }
+
+    #[test]
+    fn monthly_analytics_honors_explicit_rollback_to_felina_parser() {
+        assert_rollback_honored_for(TimeGranularity::Monthly, "rollback_monthly");
     }
 
     #[test]

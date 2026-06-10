@@ -76,8 +76,8 @@ export default function SyncPreviewDialog({
 
   return (
     <Modal open={open} onClose={oncancel} size="lg">
-      <div className="flex flex-col max-h-[85vh] overflow-hidden">
-        <div className="px-5 py-4 border-b border-border flex items-start gap-3">
+      <div className="flex flex-col min-h-0 h-full">
+        <div className="px-5 py-4 border-b border-border flex items-start gap-3 shrink-0">
           <div className="w-10 h-10 rounded-xl bg-accent/10 flex items-center justify-center shrink-0">
             <Send size={20} className="text-accent" />
           </div>
@@ -102,7 +102,7 @@ export default function SyncPreviewDialog({
           </div>
         </div>
 
-        <div className="p-5 overflow-y-auto max-h-[24rem] space-y-3">
+        <div className="p-5 overflow-y-auto min-h-0 flex-1 space-y-3">
           {needsDecision.length > 0 && (
             <div className="rounded-lg border border-warning/30 bg-warning-dim px-3 py-2 text-sm text-warning flex gap-2">
               <AlertTriangle size={16} className="shrink-0 mt-0.5" />
@@ -169,7 +169,7 @@ export default function SyncPreviewDialog({
           )}
         </div>
 
-        <div className="px-5 py-4 border-t border-border flex justify-end gap-2">
+        <div className="px-5 py-4 border-t border-border flex justify-end gap-2 shrink-0">
           <button
             type="button"
             className="px-4 py-2 text-sm text-text-secondary bg-bg-tertiary hover:bg-bg-hover rounded-lg transition-colors"

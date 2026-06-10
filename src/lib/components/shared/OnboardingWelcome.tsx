@@ -60,9 +60,9 @@ export default function OnboardingWelcome() {
 
   return (
     <Modal open={visible} onClose={dismiss} size="lg">
-      <div className="flex flex-col max-h-[85vh] overflow-hidden">
+      <div className="flex flex-col min-h-0 h-full">
         {/* Header */}
-        <div className="relative px-8 pt-8 pb-6 text-center border-b border-border">
+        <div className="relative px-8 pt-8 pb-6 text-center border-b border-border shrink-0">
           <button
             className="absolute top-4 right-4 p-1.5 rounded-lg hover:bg-bg-hover text-text-muted hover:text-text-primary transition-colors"
             onClick={dismiss}
@@ -86,7 +86,7 @@ export default function OnboardingWelcome() {
         </div>
 
         {/* Steps */}
-        <div className="flex-1 overflow-y-auto px-8 py-6">
+        <div className="flex-1 overflow-y-auto min-h-0 px-8 py-6">
           <p className="text-xs font-medium text-text-muted uppercase tracking-wider mb-4">
             Get started
           </p>
@@ -144,7 +144,7 @@ export default function OnboardingWelcome() {
         </div>
 
         {/* Footer */}
-        <div className="px-8 py-4 border-t border-border flex items-center justify-between">
+        <div className="px-8 py-4 border-t border-border flex items-center justify-between shrink-0">
           <p className="text-xs text-text-muted">
             You can revisit this anytime from the About dialog
           </p>

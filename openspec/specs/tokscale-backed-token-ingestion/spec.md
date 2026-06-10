@@ -30,7 +30,6 @@ source: tokscale-backed-token-ingestion
 updated: 2026-05-22
 code:
   - src-tauri/src/tokens/types.rs
-  - src-tauri/src/commands/budget.rs
   - docs/tokscale-backed-token-ingestion.md
   - src-tauri/src/commands/skills.rs
   - src-tauri/src/commands/instructions.rs
@@ -106,7 +105,6 @@ source: tokscale-backed-token-ingestion
 updated: 2026-05-22
 code:
   - src-tauri/src/tokens/types.rs
-  - src-tauri/src/commands/budget.rs
   - docs/tokscale-backed-token-ingestion.md
   - src-tauri/src/commands/skills.rs
   - src-tauri/src/commands/instructions.rs
@@ -160,7 +158,6 @@ source: tokscale-backed-token-ingestion
 updated: 2026-05-22
 code:
   - src-tauri/src/tokens/types.rs
-  - src-tauri/src/commands/budget.rs
   - docs/tokscale-backed-token-ingestion.md
   - src-tauri/src/commands/skills.rs
   - src-tauri/src/commands/instructions.rs
@@ -222,7 +219,6 @@ source: tokscale-backed-token-ingestion
 updated: 2026-05-22
 code:
   - src-tauri/src/tokens/types.rs
-  - src-tauri/src/commands/budget.rs
   - docs/tokscale-backed-token-ingestion.md
   - src-tauri/src/commands/skills.rs
   - src-tauri/src/commands/instructions.rs
@@ -300,7 +296,6 @@ source: tokscale-backed-token-ingestion
 updated: 2026-05-22
 code:
   - src-tauri/src/tokens/types.rs
-  - src-tauri/src/commands/budget.rs
   - docs/tokscale-backed-token-ingestion.md
   - src-tauri/src/commands/skills.rs
   - src-tauri/src/commands/instructions.rs
@@ -376,7 +371,6 @@ source: tokscale-backed-token-ingestion
 updated: 2026-05-22
 code:
   - src-tauri/src/tokens/types.rs
-  - src-tauri/src/commands/budget.rs
   - docs/tokscale-backed-token-ingestion.md
   - src-tauri/src/commands/skills.rs
   - src-tauri/src/commands/instructions.rs
@@ -410,4 +404,168 @@ code:
   - src/lib/components/tokens/components/AgentStatusPanel.tsx
   - docs/token-usage-source-of-truth.md
   - src/lib/i18n/locales/zh-TW.ts
+-->
+
+---
+### Requirement: Resolve Windows command shims for tokscale invocation
+
+On Windows, when spawning a bare command name (not an explicit user-provided path) for the tokscale source or its npx fallback, and the initial spawn fails with a not-found error, the system SHALL retry the spawn using the `.cmd` variant of the command name. Explicit binary paths provided via the tokscale binary override MUST NOT be retried with name variants. On non-Windows platforms the spawn behavior MUST remain unchanged. The retry MUST NOT route execution through a shell interpreter.
+
+#### Scenario: npm-installed tokscale shim is found on Windows
+
+- **WHEN** the refresh runs on Windows and `tokscale` is installed globally via npm (exposing only a `tokscale.cmd` shim on PATH)
+- **THEN** the system SHALL retry with `tokscale.cmd` after the bare `tokscale` spawn fails with not-found
+- **THEN** the refresh SHALL collect tokscale data instead of reporting `missing_binary`
+
+#### Scenario: npx fallback shim is found on Windows
+
+- **WHEN** the refresh runs on Windows, `tokscale` is absent, and Node.js is installed (exposing `npx.cmd` on PATH)
+- **THEN** the system SHALL retry the fallback with `npx.cmd` after the bare `npx` spawn fails with not-found
+- **THEN** the npx fallback SHALL execute instead of reporting `missing_binary`
+
+#### Scenario: explicit binary override is not variant-retried
+
+- **WHEN** the refresh runs with an explicit tokscale binary path override and that path does not exist
+- **THEN** the system SHALL NOT attempt `.cmd` or other name variants
+- **THEN** the refresh SHALL report `missing_binary` for the tokscale source
+
+#### Scenario: neither tokscale nor Node.js is installed on Windows
+
+- **WHEN** the refresh runs on Windows and the bare names and `.cmd` variants of both `tokscale` and `npx` fail with not-found
+- **THEN** the refresh SHALL report `missing_binary` with a message indicating both the binary and the npx fallback are unavailable
+
+##### Example: resolution order on Windows
+
+| Attempt | Command | Result | Next step |
+| ------- | ------- | ------ | --------- |
+| 1 | `tokscale` | not-found | retry variant |
+| 2 | `tokscale.cmd` | not-found | npx fallback |
+| 3 | `npx --yes tokscale@latest` | not-found | retry variant |
+| 4 | `npx.cmd --yes tokscale@latest` | not-found | report `missing_binary` |
+
+<!-- @trace
+source: tokscale-windows-cmd-resolution-fix
+updated: 2026-06-10
+code:
+  - README.md
+  - .knowledge/knowledge-base/architecture.md
+  - docs/tokscale-backed-token-ingestion.md
+  - .session/product-backlog.md
+  - .session/felina_hackathon_ppt_spec_report.md
+  - .knowledge/ideas-backlog.md
+  - .session/ui-design-guidelines.md
+  - .session/release-notes-v1.0.0.md
+  - .session/agent-skill-market-complete.md
+  - src-tauri/src/tokens/tokscale.rs
+  - .session/felina_development_report.md
+-->
+
+---
+### Requirement: Resolve bundled sidecar tokscale binary
+
+When no explicit binary override is set and the PATH lookup (including Windows `.cmd` variants) fails with not-found, the system SHALL attempt the bundled sidecar tokscale binary located in the same directory as the main executable, before falling back to npx. A sidecar candidate SHALL only be used when the file exists. The explicit override, PATH, and npx behaviors MUST remain unchanged.
+
+#### Scenario: clean machine uses the sidecar
+
+- **WHEN** the refresh runs on a machine with no tokscale on PATH and no Node.js, and the sidecar binary exists next to the main executable
+- **THEN** the system SHALL execute the sidecar binary
+- **THEN** the refresh SHALL collect tokscale data instead of reporting `missing_binary`
+
+#### Scenario: PATH installation takes precedence over the sidecar
+
+- **WHEN** the refresh runs and a tokscale binary is resolvable via PATH
+- **THEN** the system SHALL use the PATH binary and SHALL NOT execute the sidecar
+
+#### Scenario: missing sidecar preserves current behavior
+
+- **WHEN** the refresh runs in a development environment where the sidecar file does not exist
+- **THEN** the resolution chain SHALL behave exactly as before this change (PATH → npx → `missing_binary`)
+
+#### Scenario: failing sidecar falls back to npx
+
+- **WHEN** the sidecar binary exists but its execution fails
+- **THEN** the system SHALL continue with the npx fallback without aborting the refresh
+
+##### Example: full resolution order
+
+| Step | Candidate | Condition |
+| ---- | --------- | --------- |
+| 1 | explicit override (env) | set → used exclusively, no fallback |
+| 2 | PATH `tokscale` (+ `.cmd` on Windows) | found → use |
+| 3 | sidecar next to main executable | file exists → use |
+| 4 | `npx --yes tokscale@latest` (+ `.cmd` on Windows) | found → use |
+| 5 | — | report `missing_binary` |
+
+<!-- @trace
+source: bundle-tokscale-distribution
+updated: 2026-06-10
+code:
+  - src-tauri/tauri.conf.json
+  - .knowledge/knowledge-base/architecture.md
+  - .session/agent-skill-market-complete.md
+  - .session/ui-design-guidelines.md
+  - scripts/fetch-tokscale.mjs
+  - .knowledge/ideas-backlog.md
+  - .knowledge/knowledge-base/platform.md
+  - .knowledge/milestones.md
+  - package.json
+  - .session/product-backlog.md
+  - .session/felina_development_report.md
+  - docs/tokscale-backed-token-ingestion.md
+  - .session/release-notes-v1.0.0.md
+  - .knowledge/_catalog.json
+  - README.md
+  - src-tauri/src/tokens/tokscale.rs
+  - .session/felina_hackathon_ppt_spec_report.md
+-->
+
+---
+### Requirement: Honor explicit rollback in default analytics source resolution
+
+When no explicit source override is provided, the analytics aggregator SHALL resolve the default source for Daily, Weekly, and Monthly aggregate views by first reading the active ingestion source. If the active source is `felina_parser` (explicit rollback, or tokscale never succeeded), the aggregator SHALL use the active source and SHALL NOT substitute `tokscale_export`. If the active source is `tokscale_export` or `parser_fallback`, the aggregator SHALL prefer `tokscale_export` when tokscale-backed rows exist, and SHALL fall back to the active source when they do not. The Hourly view SHALL always use the active source. The same resolution rule MUST apply uniformly to the Daily, Weekly, and Monthly branches.
+
+#### Scenario: Explicit rollback to felina_parser is honored
+
+- **WHEN** the active source is set to `felina_parser` and tokscale-backed rows exist in storage
+- **THEN** Daily, Weekly, and Monthly analytics SHALL aggregate only `felina_parser` rows
+
+##### Example: daily rollback returns legacy totals
+
+- **GIVEN** legacy `felina_parser` rows totaling input=321 / output=123 / events=1, and `tokscale_export` rows totaling input=999 / output=111 / events=3
+- **WHEN** the active source is `felina_parser` and Daily analytics are requested without a source override
+- **THEN** the response reports input=321, output=123, event_count=1
+
+#### Scenario: Automatic parser fallback keeps tokscale preference for aggregate views
+
+- **WHEN** the active source is `parser_fallback` and tokscale-backed rows exist in storage
+- **THEN** Daily, Weekly, and Monthly analytics SHALL aggregate `tokscale_export` rows
+
+##### Example: monthly fallback prefers tokscale totals
+
+- **GIVEN** `parser_fallback` is the active source after a failed tokscale refresh, legacy rows totaling input=321, and `tokscale_export` rows totaling input=1000 / output=200 / events=7
+- **WHEN** Monthly analytics are requested without a source override
+- **THEN** the response reports input=1000, output=200, event_count=7
+
+#### Scenario: No tokscale rows falls back to active source
+
+- **WHEN** the active source is `tokscale_export` or `parser_fallback` and no tokscale-backed rows exist in storage
+- **THEN** Daily, Weekly, and Monthly analytics SHALL aggregate the active source rows
+
+<!-- @trace
+source: fix-daily-source-rollback-regression
+updated: 2026-06-10
+code:
+  - .knowledge/ideas-backlog.md
+  - .knowledge/milestones.md
+  - .session/product-backlog.md
+  - README.md
+  - .session/felina_hackathon_ppt_spec_report.md
+  - .session/agent-skill-market-complete.md
+  - .session/release-notes-v1.0.0.md
+  - .session/ui-design-guidelines.md
+  - .session/felina_development_report.md
+  - .knowledge/knowledge-base/architecture.md
+  - .knowledge/knowledge-base/platform.md
+  - .knowledge/_catalog.json
+  - src-tauri/src/tokens/aggregator.rs
 -->
