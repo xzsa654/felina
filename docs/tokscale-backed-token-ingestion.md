@@ -61,6 +61,15 @@ Felina resolves the tokscale binary in this order:
 2. `tokscale` found in system `PATH`
 3. `npx --yes tokscale@latest` as last-resort fallback
 
+**Windows `.cmd` shim retry**: `std::process::Command::new` does not resolve `.cmd` shims, but npm-installed CLIs expose only `tokscale.cmd` / `npx.cmd` on Windows. When spawning a bare command name (no path separator, no extension) fails with not-found on Windows, Felina retries once with the `.cmd` variant. Explicit binary paths (e.g. `FELINA_TOKSCALE_BIN`) are never variant-retried. Resolution order on Windows:
+
+| Attempt | Command | On not-found |
+| ------- | ------- | ------------ |
+| 1 | `tokscale` | retry variant |
+| 2 | `tokscale.cmd` | npx fallback |
+| 3 | `npx --yes tokscale@latest` | retry variant |
+| 4 | `npx.cmd --yes tokscale@latest` | report `missing_binary` |
+
 tokscale is listed as a devDependency in `package.json` (`npm install` puts it at `node_modules/.bin/tokscale`).
 
 **Setup (macOS / Linux)**:
