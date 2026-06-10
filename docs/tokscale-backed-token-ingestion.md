@@ -55,20 +55,19 @@ User clicks Refresh
 
 ## Binary Resolution
 
-Felina resolves the tokscale binary in this order:
+Felina resolves the tokscale binary through a candidate chain. Each step is attempted in order; the first successful execution wins.
 
-1. `FELINA_TOKSCALE_BIN` env var (absolute path)
-2. `tokscale` found in system `PATH`
-3. `npx --yes tokscale@latest` as last-resort fallback
+| Step | Candidate | Condition |
+| ---- | --------- | --------- |
+| 1 | `FELINA_TOKSCALE_BIN` env override | set → used exclusively, no fallback |
+| 2 | `tokscale` on PATH (+ `.cmd` retry on Windows) | found → use |
+| 3 | Sidecar binary next to main executable | file exists → use |
+| 4 | `npx --yes tokscale@latest` (+ `.cmd` retry on Windows) | found → use |
+| 5 | — | report `missing_binary` |
 
-**Windows `.cmd` shim retry**: `std::process::Command::new` does not resolve `.cmd` shims, but npm-installed CLIs expose only `tokscale.cmd` / `npx.cmd` on Windows. When spawning a bare command name (no path separator, no extension) fails with not-found on Windows, Felina retries once with the `.cmd` variant. Explicit binary paths (e.g. `FELINA_TOKSCALE_BIN`) are never variant-retried. Resolution order on Windows:
+**Sidecar**: The Tauri build pipeline bundles a platform-native tokscale binary via `bundle.externalBin`. At install time, it is placed in the same directory as the main executable. The bundled version is pinned to `TOKSCALE_VERSION` in `scripts/fetch-tokscale.mjs` (currently `3.1.2`). In dev mode the sidecar file does not exist, so step 3 is skipped and the chain behaves as before.
 
-| Attempt | Command | On not-found |
-| ------- | ------- | ------------ |
-| 1 | `tokscale` | retry variant |
-| 2 | `tokscale.cmd` | npx fallback |
-| 3 | `npx --yes tokscale@latest` | retry variant |
-| 4 | `npx.cmd --yes tokscale@latest` | report `missing_binary` |
+**Windows `.cmd` shim retry**: `std::process::Command::new` does not resolve `.cmd` shims, but npm-installed CLIs expose only `tokscale.cmd` / `npx.cmd` on Windows. When spawning a bare command name (no path separator, no extension) fails with not-found on Windows, Felina retries once with the `.cmd` variant. Explicit binary paths (env override, sidecar) are never variant-retried.
 
 tokscale is listed as a devDependency in `package.json` (`npm install` puts it at `node_modules/.bin/tokscale`).
 
