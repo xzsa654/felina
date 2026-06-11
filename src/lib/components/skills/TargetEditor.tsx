@@ -296,7 +296,7 @@ export default function TargetEditor({ skillName, projectPath, targets, onTarget
                           setPullDiff(diff);
                           setPullTarget({ key, name: skillName });
                         } catch (e) {
-                          window.alert(t(locale, "skills.pull.failed", { error: String(e) }));
+                          setStatusMessage(t(locale, "skills.pull.failed", { error: String(e) }));
                         }
                       }}
                       className="text-[11px] px-1.5 py-0.5 rounded border border-warning/40 text-warning hover:bg-warning/10"
@@ -365,7 +365,7 @@ export default function TargetEditor({ skillName, projectPath, targets, onTarget
                       onClick={() => {
                         if (dest?.exists) {
                           openPath(dest.path).catch((e) => {
-                            setStatusMessage(String(e));
+                            setStatusMessage(t(locale, "skills.targets.openFolderFailed", { error: String(e) }));
                             setTimeout(() => setStatusMessage(null), 5000);
                           });
                         }
@@ -458,7 +458,7 @@ export default function TargetEditor({ skillName, projectPath, targets, onTarget
             setPullTarget(null);
             setPullDiff(null);
           } catch (e) {
-            window.alert(t(locale, "skills.pull.failed", { error: String(e) }));
+            setStatusMessage(t(locale, "skills.pull.failed", { error: String(e) }));
           } finally {
             setPullBusy(false);
           }

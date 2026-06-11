@@ -1,5 +1,6 @@
 import { useCallback, useState } from "react";
 import Modal from "$lib/components/shared/Modal";
+import ErrorNotice from "$lib/components/shared/ErrorNotice";
 import { api } from "$lib/tauri/commands";
 import { t } from "$lib/i18n";
 import type { Locale } from "$lib/i18n";
@@ -85,9 +86,12 @@ export default function LoginDialog({
         </div>
 
         {error && (
-          <div className="mb-3 px-3 py-2 rounded-lg border border-danger/30 bg-danger/10 text-danger text-xs">
-            {error}
-          </div>
+          <ErrorNotice
+            title={t(locale, "hub.auth.loginFailed")}
+            detail={error}
+            onDismiss={() => setError(null)}
+            className="mb-3"
+          />
         )}
 
         <form onSubmit={handleSubmit} className="flex flex-col gap-3">

@@ -193,7 +193,7 @@ export default function TargetPopover({
       setForkPreview(diff);
       setForkPreviewOpen(true);
     } catch (e) {
-      setStatusMessage(String(e));
+      setStatusMessage(t(locale, "skills.fork.previewFailed", { error: String(e) }));
     }
   }
 
@@ -203,7 +203,7 @@ export default function TargetPopover({
       setPullDiff(diff);
       setPullTarget({ key, name: skillName });
     } catch (e) {
-      window.alert(t(locale, "skills.pull.failed", { error: String(e) }));
+      setStatusMessage(t(locale, "skills.pull.failed", { error: String(e) }));
     }
   }
 
@@ -339,7 +339,7 @@ export default function TargetPopover({
             onClick={() => {
               if (dirInfo?.exists) {
                 openPath(dirInfo.path).catch((e) => {
-                  setStatusMessage(String(e));
+                  setStatusMessage(t(locale, "skills.targets.openFolderFailed", { error: String(e) }));
                 });
               }
             }}
@@ -480,7 +480,7 @@ export default function TargetPopover({
             setPullDiff(null);
             onTargetsChange?.();
           } catch (e) {
-            window.alert(t(locale, "skills.pull.failed", { error: String(e) }));
+            setStatusMessage(t(locale, "skills.pull.failed", { error: String(e) }));
           } finally {
             setPullBusy(false);
           }
