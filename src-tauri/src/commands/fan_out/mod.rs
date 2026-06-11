@@ -2488,11 +2488,17 @@ mod tests {
             assert!(r.success, "agent {:?} failed: {:?}", r.agent, r.error);
         }
 
+        // gemini-to-antigravity-cli-default: gemini project target is
+        // `.agents/skills` — codex and gemini share that dir by convention,
+        // so three agents land in two physical roots and `.gemini/` is gone.
         let target_roots = [
             tmp.join(".claude").join("skills").join("smoke-fanout"),
             tmp.join(".agents").join("skills").join("smoke-fanout"),
-            tmp.join(".gemini").join("skills").join("smoke-fanout"),
         ];
+        assert!(
+            !tmp.join(".gemini").exists(),
+            "legacy .gemini project dir must no longer be written"
+        );
         for target in &target_roots {
             assert!(
                 target.join("SKILL.md").is_file(),
@@ -2527,8 +2533,11 @@ mod tests {
     fn disabled_and_detached_targets_are_skipped() {
         // Construct a canonical (agents = [anthropic]) so backfill gives one
         // tracked target. Then manually overwrite the sidecar with three
-        // targets: one disabled (anthropic), one detached (codex), one
-        // tracked enabled (gemini). Only gemini should be written.
+        // targets: one tracked enabled (anthropic), one detached (codex),
+        // one disabled (gemini). Only anthropic should be written. Codex and
+        // gemini both map to the shared `.agents/skills` project dir, so the
+        // detached/disabled assertion below is collision-free: nothing may
+        // create that dir.
         let tmp = smoke_tempdir("skip");
         let _g = override_felina_home(&tmp);
         make_canonical("skip-targets", &["anthropic"]);
@@ -2539,9 +2548,9 @@ mod tests {
         let sidecar = serde_json::json!({
             "version": 2,
             "targets": [
-                { "agent": "anthropic", "scope": "project", "project": project, "enabled": false, "mode": "tracked" },
+                { "agent": "anthropic", "scope": "project", "project": project, "enabled": true,  "mode": "tracked" },
                 { "agent": "codex",     "scope": "project", "project": project, "enabled": true,  "mode": "detached" },
-                { "agent": "gemini",    "scope": "project", "project": project, "enabled": true,  "mode": "tracked" }
+                { "agent": "gemini",    "scope": "project", "project": project, "enabled": false, "mode": "tracked" }
             ],
             "lastSync": {},
             "dirty": true
@@ -2554,40 +2563,34 @@ mod tests {
 
         let results = skill_sync_one("skip-targets".into()).expect("sync");
 
-        // Only gemini should produce a SyncResult.
+        // Only anthropic should produce a SyncResult.
         assert_eq!(results.len(), 1, "expected one result, got {results:#?}");
-        assert_eq!(results[0].agent, AgentId::Gemini);
+        assert_eq!(results[0].agent, AgentId::Anthropic);
         assert!(
             results[0].success,
-            "gemini push failed: {:?}",
+            "anthropic push failed: {:?}",
             results[0].error
         );
 
-        // Target dirs: anthropic + codex must NOT exist on disk.
-        assert!(
-            !tmp.join(".claude")
-                .join("skills")
-                .join("skip-targets")
-                .exists(),
-            "anthropic (disabled) target was written",
-        );
+        // Shared `.agents/skills` dir: codex (detached) and gemini (disabled)
+        // both map here — neither may write, so the dir must not exist at all.
         assert!(
             !tmp.join(".agents")
                 .join("skills")
                 .join("skip-targets")
                 .exists(),
-            "codex (detached) target was written",
+            "detached/disabled target was written into shared .agents dir",
         );
         assert!(
-            tmp.join(".gemini")
+            tmp.join(".claude")
                 .join("skills")
                 .join("skip-targets")
                 .join("SKILL.md")
                 .is_file(),
-            "gemini (tracked enabled) target NOT written",
+            "anthropic (tracked enabled) target NOT written",
         );
 
-        // last_sync should ONLY have the gemini entry.
+        // last_sync should ONLY have the anthropic entry.
         let after_meta: serde_json::Value = serde_json::from_str(
             &fs::read_to_string(canonical_skill_dir.join(".felina-sync-meta.json")).unwrap(),
         )
@@ -2598,10 +2601,10 @@ mod tests {
             1,
             "expected 1 last_sync entry, got {last_sync:?}"
         );
-        let gemini_key = format!("gemini:project:{}", project);
+        let anthropic_key = format!("anthropic:project:{}", project);
         assert!(
-            last_sync.contains_key(&gemini_key),
-            "missing key {gemini_key} in {last_sync:?}"
+            last_sync.contains_key(&anthropic_key),
+            "missing key {anthropic_key} in {last_sync:?}"
         );
     }
 
@@ -2925,10 +2928,16 @@ mod tests {
             enabled: true,
             mode: TargetMode::Manual,
         };
+        // gemini-to-antigravity-cli-default: gemini's project dir is the
+        // same `.agents/skills` codex uses. To exercise an independent
+        // drifted gemini target, point it at a second project root.
+        let project2_root = tmp.join("proj2");
+        fs::create_dir_all(&project2_root).unwrap();
+        let project2 = project2_root.to_string_lossy().to_string();
         let gemini = SkillTarget {
             agent: AgentId::Gemini,
             scope: SkillScope::Project,
-            project: Some(project.clone()),
+            project: Some(project2.clone()),
             enabled: true,
             mode: TargetMode::Manual,
         };
@@ -2941,7 +2950,10 @@ mod tests {
         )
         .unwrap();
 
-        let gemini_dir = tmp.join(".gemini").join("skills").join("preview-skill");
+        let gemini_dir = project2_root
+            .join(".agents")
+            .join("skills")
+            .join("preview-skill");
         fs::create_dir_all(&gemini_dir).unwrap();
         fs::write(gemini_dir.join("SKILL.md"), "external edit\n").unwrap();
 
@@ -3018,7 +3030,9 @@ mod tests {
         };
 
         let anthropic_dir = tmp.join(".claude").join("skills").join("commit-skill");
-        let gemini_dir = tmp.join(".gemini").join("skills").join("commit-skill");
+        // gemini project target resolves to `.agents/skills` since
+        // gemini-to-antigravity-cli-default (no codex target here, no sharing).
+        let gemini_dir = tmp.join(".agents").join("skills").join("commit-skill");
         fs::create_dir_all(&anthropic_dir).unwrap();
         fs::create_dir_all(&gemini_dir).unwrap();
         fs::write(anthropic_dir.join("SKILL.md"), "anthropic drift\n").unwrap();
@@ -3536,9 +3550,10 @@ mod tests {
         let results_b = skill_sync_one("scan-b".into()).expect("push scan-b");
         assert!(results_b[0].success);
 
-        // Externally modify scan-b's gemini target
+        // Externally modify scan-b's gemini target (project dir is
+        // `.agents/skills` since gemini-to-antigravity-cli-default)
         let gemini_skill_md = tmp
-            .join(".gemini")
+            .join(".agents")
             .join("skills")
             .join("scan-b")
             .join("SKILL.md");

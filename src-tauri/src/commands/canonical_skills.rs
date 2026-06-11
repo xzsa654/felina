@@ -3131,10 +3131,16 @@ Hello.\n";
             enabled: true,
             mode: TargetMode::Manual,
         };
+        // codex and gemini both resolve `.agents/skills` within one project
+        // (gemini-to-antigravity-cli-default shared-dir convention). The codex
+        // failure case needs a path that is a bogus file, which would collide
+        // with gemini's real dir — give codex its own project root.
+        let codex_project_root = tmp.join("codex-project");
+        fs::create_dir_all(&codex_project_root).unwrap();
         let codex = SkillTarget {
             agent: AgentId::Codex,
             scope: SkillScope::Project,
-            project: Some(project.clone()),
+            project: Some(codex_project_root.to_string_lossy().to_string()),
             enabled: true,
             mode: TargetMode::Manual,
         };
@@ -3178,8 +3184,11 @@ Hello.\n";
         write_sync_meta_v2(&skill_dir, &meta).unwrap();
 
         let anthropic_dir = tmp.join(".claude").join("skills").join("target-remove");
-        let gemini_dir = tmp.join(".gemini").join("skills").join("target-remove");
-        let codex_path = tmp.join(".agents").join("skills").join("target-remove");
+        let gemini_dir = tmp.join(".agents").join("skills").join("target-remove");
+        let codex_path = codex_project_root
+            .join(".agents")
+            .join("skills")
+            .join("target-remove");
         fs::create_dir_all(&anthropic_dir).unwrap();
         fs::create_dir_all(&gemini_dir).unwrap();
         fs::create_dir_all(codex_path.parent().unwrap()).unwrap();

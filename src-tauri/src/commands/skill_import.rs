@@ -937,9 +937,15 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<(), String> {
 /// Extra frontmatter is preserved verbatim.
 fn ensure_required_fields(raw: &str, name: &str, source_agent: AgentId) -> Result<String, String> {
     // Try to parse as-is first; if it succeeds, we already have everything
-    // we need and just re-serialize.
+    // we need and just re-serialize. `agents` is optional at the parse layer
+    // (agents=[] is a valid content-only state), but importing FROM an agent
+    // directory means the source agent is known — tag it so the canonical
+    // skill fans back out to where it came from.
     if let Ok(mut parsed) = parse_skill_md(raw) {
         parsed.name = name.to_string();
+        if parsed.agents.is_empty() {
+            parsed.agents = vec![source_agent];
+        }
         return Ok(reserialize(parsed));
     }
 
