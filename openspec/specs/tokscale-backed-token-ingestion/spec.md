@@ -569,3 +569,77 @@ code:
   - .knowledge/_catalog.json
   - src-tauri/src/tokens/aggregator.rs
 -->
+
+---
+### Requirement: Non-blocking token refresh
+
+The system SHALL run the token refresh scan without holding the aggregator lock for the duration of the scan. The refresh path SHALL acquire the aggregator lock only briefly to obtain shareable references to storage and cached state, release it, and then perform the scan against those references. Synchronous read commands that run on the main thread MUST remain responsive while a refresh is in progress.
+
+#### Scenario: Reads stay responsive during refresh
+
+- **WHEN** a token refresh is running and processing a large volume of historical data
+- **THEN** the analytics read commands SHALL NOT block on the aggregator lock for the duration of the scan
+- **THEN** the UI SHALL remain responsive, allowing tab navigation while the refresh runs
+
+#### Scenario: Refresh result and read behavior unchanged
+
+- **WHEN** a refresh completes after the non-blocking change
+- **THEN** the refresh result shape SHALL remain compatible with the prior behavior
+- **THEN** read commands SHALL return analytics computed from the same stored data as before
+
+
+<!-- @trace
+source: fix-token-first-launch-freeze
+updated: 2026-06-11
+code:
+  - src-tauri/src/tokens/parsers/claude_code.rs
+  - src/lib/components/tokens/hooks/useTokenQueries.ts
+  - src/lib/components/tokens/TokensPage.tsx
+  - src/lib/types/index.ts
+  - src-tauri/src/commands/tokens.rs
+  - src/lib/types/token-analytics.ts
+  - src/lib/components/tokens/token-insights.ts
+  - src-tauri/src/tokens/scanner.rs
+  - src/lib/tauri/commands.ts
+  - src/lib/components/tokens/components/TokenImportProgress.tsx
+  - src-tauri/src/tokens/pricing.rs
+  - src-tauri/src/lib.rs
+  - src-tauri/src/tokens/aggregator.rs
+  - src-tauri/src/tokens/storage.rs
+  - src-tauri/src/tokens/types.rs
+  - src-tauri/gen/schemas/macOS-schema.json
+-->
+
+---
+### Requirement: Transactional batch writes for parser ingestion
+
+The system SHALL write parser-sourced token events using a database transaction with batched commits rather than committing each row individually. The implementation SHALL preserve INSERT-OR-IGNORE semantics and SHALL return an inserted count identical to the pre-change per-row behavior.
+
+#### Scenario: Large import uses batched transactions
+
+- **WHEN** the parser path ingests a large set of token events
+- **THEN** the system SHALL execute the inserts inside transactions committed in batches
+- **THEN** the total inserted count SHALL equal the count produced by per-row insertion for the same input
+- **THEN** duplicate rows SHALL be ignored exactly as under INSERT-OR-IGNORE semantics
+
+<!-- @trace
+source: fix-token-first-launch-freeze
+updated: 2026-06-11
+code:
+  - src-tauri/src/tokens/parsers/claude_code.rs
+  - src/lib/components/tokens/hooks/useTokenQueries.ts
+  - src/lib/components/tokens/TokensPage.tsx
+  - src/lib/types/index.ts
+  - src-tauri/src/commands/tokens.rs
+  - src/lib/types/token-analytics.ts
+  - src/lib/components/tokens/token-insights.ts
+  - src-tauri/src/tokens/scanner.rs
+  - src/lib/tauri/commands.ts
+  - src/lib/components/tokens/components/TokenImportProgress.tsx
+  - src-tauri/src/tokens/pricing.rs
+  - src-tauri/src/lib.rs
+  - src-tauri/src/tokens/aggregator.rs
+  - src-tauri/src/tokens/storage.rs
+  - src-tauri/src/tokens/types.rs
+  - src-tauri/gen/schemas/macOS-schema.json
+-->

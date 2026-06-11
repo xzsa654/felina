@@ -10,33 +10,27 @@ export const tokenKeys = {
   all: ["tokenAnalytics"] as const,
   analytics: (params: {
     granularity: string;
-    dateStart?: number;
-    dateEnd?: number;
+    days: number | null;
     sourceOverride?: string;
   }) =>
     [
       "tokenAnalytics",
       "analytics",
       params.granularity,
-      params.dateStart,
-      params.dateEnd,
+      params.days,
       params.sourceOverride,
     ] as const,
   analyticsPair: (params: {
-    monthlyDateStart?: number;
-    monthlyDateEnd?: number;
-    dailyDateStart?: number;
-    dailyDateEnd?: number;
+    monthlyDays: number | null;
+    dailyDays: number | null;
     monthlySource?: string;
     dailySource?: string;
   }) =>
     [
       "tokenAnalytics",
       "analyticsPair",
-      params.monthlyDateStart,
-      params.monthlyDateEnd,
-      params.dailyDateStart,
-      params.dailyDateEnd,
+      params.monthlyDays,
+      params.dailyDays,
       params.monthlySource,
       params.dailySource,
     ] as const,
@@ -85,18 +79,16 @@ export interface TokenAnalyticsParams {
 }
 
 export function useTokenAnalytics(params: TokenAnalyticsParams) {
-  const bounds = getDateBounds(params.days);
-
   return useQuery({
     queryKey: tokenKeys.analytics({
       granularity: params.granularity,
-      ...bounds,
+      days: params.days,
       sourceOverride: params.sourceOverride,
     }),
     queryFn: () =>
       api.tokenAnalytics.get({
         granularity: params.granularity,
-        ...bounds,
+        ...getDateBounds(params.days),
         sourceOverride: params.sourceOverride,
       }),
     staleTime: params.isToday ? 0 : undefined,
@@ -118,21 +110,27 @@ export interface AnalyticsPairParams {
 }
 
 export function useAnalyticsPair(params: AnalyticsPairParams) {
-  const monthlyBounds = getDateBounds(params.monthlyDays);
-  const dailyBounds = getDateBounds(params.dailyDays);
   const isToday = params.overviewIsToday === true || params.dailyIsToday === true;
-  const queryParams = {
-    monthlyDateStart: monthlyBounds.dateStart,
-    monthlyDateEnd: monthlyBounds.dateEnd,
-    dailyDateStart: dailyBounds.dateStart,
-    dailyDateEnd: dailyBounds.dateEnd,
-    monthlySource: params.monthlySource,
-    dailySource: params.dailySource,
-  };
 
   return useQuery({
-    queryKey: tokenKeys.analyticsPair(queryParams),
-    queryFn: () => api.tokenAnalytics.getAnalyticsPair(queryParams),
+    queryKey: tokenKeys.analyticsPair({
+      monthlyDays: params.monthlyDays,
+      dailyDays: params.dailyDays,
+      monthlySource: params.monthlySource,
+      dailySource: params.dailySource,
+    }),
+    queryFn: () => {
+      const monthlyBounds = getDateBounds(params.monthlyDays);
+      const dailyBounds = getDateBounds(params.dailyDays);
+      return api.tokenAnalytics.getAnalyticsPair({
+        monthlyDateStart: monthlyBounds.dateStart,
+        monthlyDateEnd: monthlyBounds.dateEnd,
+        dailyDateStart: dailyBounds.dateStart,
+        dailyDateEnd: dailyBounds.dateEnd,
+        monthlySource: params.monthlySource,
+        dailySource: params.dailySource,
+      });
+    },
     staleTime: isToday ? 0 : undefined,
     refetchInterval: isToday ? 60_000 : undefined,
     enabled: params.enabled ?? true,
