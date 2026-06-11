@@ -13,8 +13,9 @@ import ErrorNotice from "$lib/components/shared/ErrorNotice";
 import { api } from "$lib/tauri/commands";
 import { t, type Locale } from "$lib/i18n";
 import { useLocaleStore } from "$lib/stores/locale";
-import type { AgentId, HistorySession, SessionTranscript, TranscriptEntry } from "$lib/types/token-analytics";
+import type { AgentId, HistorySession, TranscriptEntry } from "$lib/types/token-analytics";
 import { formatNumber } from "$lib/utils/format";
+import { useHistorySessions, useSessionTranscript } from "./hooks/useHistoryQueries";
 
 // Agent product names (Claude/Codex/Gemini) stay verbatim; only "All" is translated.
 const AGENTS: { id: "all" | AgentId; label: string | null }[] = [
@@ -23,8 +24,6 @@ const AGENTS: { id: "all" | AgentId; label: string | null }[] = [
   { id: "codex-cli", label: "Codex" },
   { id: "gemini-cli", label: "Gemini" },
 ];
-
-const PAGE_SIZE = 50;
 
 const TRANSCRIPT_FILTERS = ["all", "conversation", "usage"] as const;
 
@@ -132,60 +131,26 @@ export default function HistoryPage() {
   const deepLinkAgent = searchParams.get("agent") as AgentId | null;
   const deepLinkSession = searchParams.get("session");
 
-  const [sessions, setSessions] = useState<HistorySession[]>([]);
-  const [historyOffset, setHistoryOffset] = useState(0);
-  const [historyTotal, setHistoryTotal] = useState(0);
-  const [loading, setLoading] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [listError, setListError] = useState<string | null>(null);
   const [agentFilter, setAgentFilter] = useState<"all" | AgentId>("all");
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<HistorySession | null>(null);
-  const [transcript, setTranscript] = useState<SessionTranscript | null>(null);
   const [transcriptFilter, setTranscriptFilter] = useState<TranscriptFilter>("conversation");
   const [transcriptQuery, setTranscriptQuery] = useState("");
-  const [transcriptLoading, setTranscriptLoading] = useState(false);
-  const [transcriptError, setTranscriptError] = useState<string | null>(null);
   const [revealing, setRevealing] = useState(false);
+  const [revealError, setRevealError] = useState<string | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    setListError(null);
-    setHistoryOffset(0);
-    setHistoryTotal(0);
-    setSessions([]);
-    setSelected(null);
-    api.tokenAnalytics
-      .refresh()
-      .catch(() => {})
-      .then(() => {
-        if (cancelled) return;
-        return api.tokenAnalytics.listHistorySessions({
-          limit: PAGE_SIZE,
-          offset: 0,
-          agentFilter,
-          query,
-        });
-      })
-      .then((page) => {
-        if (cancelled || !page) return;
-        setSessions(page.sessions);
-        setHistoryTotal(page.total);
-        setHistoryOffset(page.sessions.length);
-      })
-      .catch((error) => {
-        if (!cancelled) setListError(String(error));
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [agentFilter, query]);
+  const sessionsQuery = useHistorySessions({ agentFilter, query });
+  const sessions = sessionsQuery.data?.pages.flatMap((page) => page.sessions) ?? [];
+  const historyTotal = sessionsQuery.data?.pages.at(-1)?.total ?? 0;
+  const loading = sessionsQuery.isPending;
+  const listError = sessionsQuery.error ? String(sessionsQuery.error) : null;
 
-  const hasMoreSessions = historyOffset < historyTotal;
+  const transcriptQueryResult = useSessionTranscript(selected);
+  const transcript = transcriptQueryResult.data ?? null;
+  const transcriptLoading = transcriptQueryResult.isLoading;
+  const transcriptError = transcriptQueryResult.error
+    ? String(transcriptQueryResult.error)
+    : revealError;
 
   const filteredTranscriptEntries = useMemo(
     () =>
@@ -207,69 +172,22 @@ export default function HistoryPage() {
     setSelected(fromLink ?? sessions[0] ?? null);
   }, [deepLinkAgent, deepLinkSession, selected, sessions]);
 
-  useEffect(() => {
-    if (!selected) {
-      setTranscript(null);
-      setTranscriptError(null);
-      return;
-    }
-
-    let cancelled = false;
-    setTranscript(null);
-    setTranscriptError(null);
-    setTranscriptLoading(true);
-    api.tokenAnalytics
-      .readSessionTranscript(selected.agent, selected.session_id)
-      .then((result) => {
-        if (!cancelled) setTranscript(result);
-      })
-      .catch((error) => {
-        if (!cancelled) setTranscriptError(String(error));
-      })
-      .finally(() => {
-        if (!cancelled) setTranscriptLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [selected]);
-
   function selectSession(session: HistorySession) {
     setSelected(session);
+    setRevealError(null);
     navigate(`/history?agent=${session.agent}&session=${encodeURIComponent(session.session_id)}`);
   }
 
   async function revealSelected() {
     if (!selected) return;
     setRevealing(true);
-    setTranscriptError(null);
+    setRevealError(null);
     try {
       await api.tokenAnalytics.revealSessionTranscript(selected.agent, selected.session_id);
     } catch (error) {
-      setTranscriptError(String(error));
+      setRevealError(String(error));
     } finally {
       setRevealing(false);
-    }
-  }
-
-  async function loadMoreSessions() {
-    if (loadingMore || !hasMoreSessions) return;
-    setLoadingMore(true);
-    setListError(null);
-    try {
-      const page = await api.tokenAnalytics.listHistorySessions({
-        limit: PAGE_SIZE,
-        offset: historyOffset,
-        agentFilter,
-        query,
-      });
-      setSessions((current) => [...current, ...page.sessions]);
-      setHistoryTotal(page.total);
-      setHistoryOffset((current) => current + page.sessions.length);
-    } catch (error) {
-      setListError(String(error));
-    } finally {
-      setLoadingMore(false);
     }
   }
 
@@ -284,7 +202,10 @@ export default function HistoryPage() {
             <Search size={14} className="absolute left-2.5 top-2 text-text-muted" />
             <input
               value={query}
-              onChange={(event) => setQuery(event.target.value)}
+              onChange={(event) => {
+                setQuery(event.target.value);
+                setSelected(null);
+              }}
               className="w-full pl-8 pr-3 py-1.5 text-xs bg-bg-tertiary border border-border rounded-md text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent"
               placeholder={t(locale, "history.searchSessions")}
             />
@@ -294,7 +215,10 @@ export default function HistoryPage() {
               <button
                 key={agent.id}
                 type="button"
-                onClick={() => setAgentFilter(agent.id)}
+                onClick={() => {
+                  setAgentFilter(agent.id);
+                  setSelected(null);
+                }}
                 className={`px-2.5 py-1 text-xs rounded border transition-colors ${
                   agentFilter === agent.id
                     ? "border-accent bg-accent/10 text-accent"
@@ -370,15 +294,15 @@ export default function HistoryPage() {
                   </button>
                 );
               })}
-              {hasMoreSessions && (
+              {sessionsQuery.hasNextPage && (
                 <div className="p-3">
                   <button
                     type="button"
-                    onClick={() => void loadMoreSessions()}
-                    disabled={loadingMore}
+                    onClick={() => void sessionsQuery.fetchNextPage()}
+                    disabled={sessionsQuery.isFetchingNextPage}
                     className="w-full h-8 inline-flex items-center justify-center gap-2 rounded border border-border text-xs text-text-secondary hover:text-text-primary hover:bg-bg-hover disabled:opacity-60"
                   >
-                    {loadingMore && <Loader2 size={14} className="animate-spin" />}
+                    {sessionsQuery.isFetchingNextPage && <Loader2 size={14} className="animate-spin" />}
                     {t(locale, "history.loadMore", {
                       loaded: String(sessions.length),
                       total: String(historyTotal),
