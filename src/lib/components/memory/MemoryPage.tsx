@@ -1,4 +1,5 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
+import { useSearchParams } from "react-router";
 import { api } from "$lib/tauri/commands";
 import type { ProjectInfo, MemoryFile } from "$lib/types";
 import ConfirmDialog from "$lib/components/shared/ConfirmDialog";
@@ -37,6 +38,8 @@ function projectDisplayName(path: string): string {
 
 export default function MemoryPage() {
   const locale = useLocaleStore((s) => s.locale);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const deepLinkRestored = useRef(false);
   const [projects, setProjects] = useState<ProjectInfo[]>([]);
   const [selectedProject, setSelectedProject] = useState<ProjectInfo | null>(null);
   const [memoryFiles, setMemoryFiles] = useState<MemoryFile[]>([]);
@@ -72,18 +75,33 @@ export default function MemoryPage() {
     }
   }
 
-  async function selectProject(project: ProjectInfo) {
+  function updateMemorySearchParams(next: { project?: string; file?: string | null }) {
+    setSearchParams((current) => {
+      const params = new URLSearchParams(current);
+      if (next.project) params.set("project", next.project);
+      if (next.file === null) params.delete("file");
+      else if (next.file) params.set("file", next.file);
+      return params;
+    });
+  }
+
+  async function selectProject(project: ProjectInfo): Promise<MemoryFile[]> {
     setSelectedProject(project);
     setEditingFile(null);
+    updateMemorySearchParams({ project: project.hash, file: null });
     try {
-      setMemoryFiles(await api.memory.listFiles(project.hash));
+      const files = await api.memory.listFiles(project.hash);
+      setMemoryFiles(files);
+      return files;
     } catch (e) {
       setPageError({ title: t(locale, "memory.loadFilesFailed"), detail: String(e) });
       setMemoryFiles([]);
+      return [];
     }
   }
 
   function openEditor(file: MemoryFile) {
+    updateMemorySearchParams({ file: file.filename });
     setEditingFile(file);
     setEditContent(file.content);
     setEditName(file.name ?? "");
@@ -96,6 +114,7 @@ export default function MemoryPage() {
   function startCreate() {
     setShowCreate(true);
     setEditingFile(null);
+    updateMemorySearchParams({ file: null });
     setEditContent("");
     setEditName("");
     setEditDescription("");
@@ -139,6 +158,7 @@ export default function MemoryPage() {
       await api.memory.deleteFile(selectedProject.hash, editingFile.filename);
       setMemoryFiles((prev) => prev.filter((f) => f.filename !== editingFile!.filename));
       setEditingFile(null);
+      updateMemorySearchParams({ file: null });
     } catch (e) {
       setPageError({ title: t(locale, "memory.deleteFailed"), detail: String(e) });
     } finally {
@@ -147,6 +167,22 @@ export default function MemoryPage() {
   }
 
   useEffect(() => { loadProjects(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // One-shot deep-link restore once the project list is ready; unmatched params are silently ignored.
+  useEffect(() => {
+    if (deepLinkRestored.current || projects.length === 0) return;
+    deepLinkRestored.current = true;
+    const projectParam = searchParams.get("project");
+    if (!projectParam) return;
+    const project = projects.find((p) => p.has_memory && p.hash === projectParam);
+    if (!project) return;
+    const fileParam = searchParams.get("file");
+    void selectProject(project).then((files) => {
+      if (!fileParam) return;
+      const file = files.find((f) => f.filename === fileParam);
+      if (file) openEditor(file);
+    });
+  }, [projects, searchParams]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const showEditor = editingFile || showCreate;
 
@@ -317,7 +353,7 @@ export default function MemoryPage() {
                 </button>
                 <button
                   className="p-1 text-text-muted hover:text-text-primary"
-                  onClick={() => { setEditingFile(null); setShowCreate(false); }}
+                  onClick={() => { setEditingFile(null); setShowCreate(false); updateMemorySearchParams({ file: null }); }}
                   aria-label={t(locale, "common.close")}
                 >
                   <X size={16} />
