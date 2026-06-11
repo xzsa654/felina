@@ -98,3 +98,20 @@ Windows / git / toolchain platform-specific gotchas for Felina.
 - `gen/schemas/*.json` 是 build 時平台別重生成的產物：Windows build 只更新 windows/desktop schema，`macOS-schema.json` 殘留舊 permission 字樣屬正常，等 mac build 自動更新，不要手改。
 **Keywords:** tauri, plugin, updater, PluginInitialization, panic, ExitCode 101, windows_subsystem, silent exit, 點exe沒反應, capabilities, plugins config
 **Related:** kb-git-windows-crlf-stat-false-modified
+
+## Claude Code transcript harness tag 分類學（background vs 使用者輸入）
+**ID:** kb-platform-claude-transcript-tags
+**Date:** 2026-06-11
+**Updated:** 2026-06-11
+**Status:** active
+**Confidence:** confirmed
+**Source:** session 2026-06-11 — history-transcript-conversation-channel change（archive 內 notes.md、src-tauri/src/commands/tokens.rs 單元測試）
+**Context:** History 頁 transcript 要區分「使用者視角對話」與「harness/agent 後台內容」，Claude Code JSONL 的訊號分兩類且容易搞反。
+**Applies when:** 解析或顯示 Claude Code / Codex session transcript、需要分類或還原 entry 時。
+**Lesson:**
+- 後台訊號（應隱藏/標 background）：結構欄位 `isSidechain: true`（subagent）、`isMeta: true`、line `type: "system"`、user role 但 content 僅 tool_result block；內文 prefix `<system-reminder>`、`<local-command-*>`、`<bash-stdout>`/`<bash-stderr>`（無 bash-input 時）、`Caveat:`。Codex 端：payload type `reasoning` / `function_call` / `function_call_output`。
+- **使用者輸入被 tag 包裝，要還原不要藏**：`<command-message>/<command-name>/<command-args>` 是 slash command（還原成 `/指令 參數`）；`<bash-input>` 是 `!` shell escape（還原成 `! 指令`，捨棄隨附 stdout/stderr）。初版誤把整族 `<command-*>` 當後台，被使用者指正。
+- 判定策略：結構欄位優先、內文 prefix 為輔、無法判定 fail-open 歸 conversation（漏判多顯示可接受，誤吞真對話不可接受）。
+- 內文 role 不可信：marked content block type "text" 會讓 inferred role 變 assistant，prefix 判斷要用來源宣告的 `item.role`。
+**Keywords:** claude code, transcript, jsonl, sidechain, isMeta, system-reminder, command-name, bash-input, slash command, channel, conversation, background, codex, reasoning
+**Related:** openspec/specs/history-page/spec.md（channel 分類 requirement）

@@ -1,5 +1,5 @@
 {
-  "lastUpdated": "2026-06-10",
+  "lastUpdated": "2026-06-11",
   "entries": [
     {
       "id": "kb-architecture-local-only-boundary",
@@ -660,6 +660,28 @@
       "file": "knowledge-base/platform.md",
       "anchor": "tauri-v2-plugin-config-與-plugin-註冊必須同進退缺-config--視窗建立前無聲-panic",
       "updated": "2026-06-10"
+    },
+    {
+      "id": "kb-platform-claude-transcript-tags",
+      "title": "Claude Code transcript harness tag 分類學（background vs 使用者輸入）",
+      "type": "knowledge",
+      "status": "active",
+      "confidence": "confirmed",
+      "keywords": [
+        "claude code",
+        "transcript",
+        "jsonl",
+        "sidechain",
+        "system-reminder",
+        "command-name",
+        "bash-input",
+        "channel",
+        "background"
+      ],
+      "appliesWhen": "解析或顯示 Claude Code / Codex session transcript、需要分類或還原 entry 時",
+      "file": "knowledge-base/platform.md",
+      "anchor": "claude-code-transcript-harness-tag-分類學background-vs-使用者輸入",
+      "updated": "2026-06-11"
     }
   ]
 }
