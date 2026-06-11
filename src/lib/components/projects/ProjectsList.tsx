@@ -3,6 +3,7 @@ import { AlertTriangle, Trash2 } from "lucide-react";
 import type { KnownProject } from "$lib/types";
 import { api } from "$lib/tauri/commands";
 import ConfirmDialog from "$lib/components/shared/ConfirmDialog";
+import ErrorNotice from "$lib/components/shared/ErrorNotice";
 import { useLocaleStore } from "$lib/stores/locale";
 import { t } from "$lib/i18n";
 import {
@@ -28,16 +29,18 @@ interface Props {
 export default function ProjectsList({ projects, loaded, selectedPath, onSelect, onRemoved }: Props) {
   const locale = useLocaleStore((s) => s.locale);
   const [pendingRemove, setPendingRemove] = useState<string | null>(null);
+  const [removeError, setRemoveError] = useState<string | null>(null);
 
   async function confirmRemove() {
     const path = pendingRemove;
     setPendingRemove(null);
     if (!path) return;
+    setRemoveError(null);
     try {
       await api.knownProjects.remove(path);
       onRemoved();
     } catch (e) {
-      window.alert(t(locale, "projects.list.removeFailed", { error: String(e) }));
+      setRemoveError(String(e));
     }
   }
 
@@ -55,6 +58,14 @@ export default function ProjectsList({ projects, loaded, selectedPath, onSelect,
 
   return (
     <>
+    {removeError && (
+      <ErrorNotice
+        title={t(locale, "projects.list.removeFailedTitle")}
+        detail={removeError}
+        onDismiss={() => setRemoveError(null)}
+        className="mx-2 mt-2"
+      />
+    )}
     <ul className="flex flex-col py-2">
       {projects.map((p) => {
         const name = p.path.split("/").pop() || p.path;

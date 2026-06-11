@@ -289,7 +289,9 @@ export default function HubPage() {
         ...prev,
         [name]: {
           ok: false,
-          msg: e instanceof Error ? e.message : String(e),
+          msg: t(locale, "hub.delete.failure", {
+            detail: e instanceof Error ? e.message : String(e),
+          }),
         },
       }));
     }

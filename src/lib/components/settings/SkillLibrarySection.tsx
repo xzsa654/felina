@@ -45,7 +45,7 @@ export default function SkillLibrarySection() {
       if (msg.includes("empty")) {
         setStatus(t(locale, "felinaSettings.skillLibrary.exportEmpty"));
       } else {
-        setStatus(msg);
+        setStatus(t(locale, "felinaSettings.skillLibrary.exportFailed", { error: msg }));
       }
     } finally {
       setBusy(false);
@@ -63,7 +63,7 @@ export default function SkillLibrarySection() {
       );
       await refreshCount();
     } catch (e) {
-      setStatus(String(e));
+      setStatus(t(locale, "felinaSettings.skillLibrary.resetFailed", { error: String(e) }));
     } finally {
       setBusy(false);
     }

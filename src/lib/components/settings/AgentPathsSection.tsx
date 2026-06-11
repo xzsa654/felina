@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { AlertTriangle, ChevronDown, ChevronRight, FolderTree, RefreshCw, RotateCcw, Save } from "lucide-react";
 import { api } from "$lib/tauri/commands";
+import { t } from "$lib/i18n";
+import { useLocaleStore } from "$lib/stores/locale";
 import { useProjectContextStore } from "$lib/stores/project-context";
 import type { AgentId, AgentPathsConfig, SkillScope } from "$lib/types";
 import Modal from "$lib/components/shared/Modal";
@@ -34,6 +36,7 @@ const DEFAULTS_FALLBACK: AgentPathsConfig = {
  * canonical `agents` storage allows expansion but Settings does not.
  */
 export default function AgentPathsSection() {
+  const locale = useLocaleStore((s) => s.locale);
   const projectPath = useProjectContextStore((s) => s.selectedProjectPath);
   const [open, setOpen] = useState(false);
   const [config, setConfig] = useState<AgentPathsConfig | null>(null);
@@ -46,7 +49,7 @@ export default function AgentPathsSection() {
     project: { anthropic: 0, codex: 0, gemini: 0 },
   });
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<{ title: string; detail: string } | null>(null);
   const [info, setInfo] = useState<string | null>(null);
 
   async function reload() {
@@ -55,7 +58,7 @@ export default function AgentPathsSection() {
       setConfig(cfg);
       setOriginal(cfg);
     } catch (e) {
-      setError(String(e));
+      setError({ title: t(locale, "felinaSettings.agentPaths.loadFailed"), detail: String(e) });
       setConfig(DEFAULTS_FALLBACK);
       setOriginal(DEFAULTS_FALLBACK);
     }
@@ -116,7 +119,7 @@ export default function AgentPathsSection() {
       setInfo("Saved. New paths take effect immediately.");
       await reloadCounts();
     } catch (e) {
-      setError(String(e));
+      setError({ title: t(locale, "felinaSettings.agentPaths.validationFailed"), detail: String(e) });
     } finally {
       setSaving(false);
     }
@@ -207,10 +210,10 @@ export default function AgentPathsSection() {
                   id="agent-paths-error-title"
                   className="text-base font-semibold text-text-primary"
                 >
-                  Agent paths validation failed
+                  {error?.title}
                 </h3>
-                <p className="text-xs text-text-secondary mt-2 whitespace-pre-wrap break-words font-mono">
-                  {error}
+                <p className="text-xs text-text-secondary mt-2 whitespace-pre-wrap break-words font-mono select-text">
+                  {error?.detail}
                 </p>
               </div>
             </div>

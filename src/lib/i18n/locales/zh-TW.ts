@@ -18,10 +18,15 @@ const zhTW: TranslationDict = {
     monthsAgo: "{n} 個月前",
     cancel: "取消",
     close: "關閉",
+    errorNotice: {
+      expand: "顯示完整錯誤",
+      collapse: "收合錯誤",
+    },
   },
   tokens: {
     title: "Tokens",
     loading: "正在載入 token 分析...",
+    queryFailed: "無法載入 token 分析",
     refresh: "重新整理",
     granularity: {
       hourly: "時",
@@ -392,6 +397,7 @@ const zhTW: TranslationDict = {
       repoint: "重新指向",
       repointTitle: "為此同步目標選擇新的 project 資料夾",
       repointFailed: "重新指向失敗：{error}",
+      openFolderFailed: "無法開啟資料夾：{error}",
       projectNotFoundTooltip: "此同步目標的 project 資料夾不存在（已被刪除/改名/卸載）。請還原資料夾，或刪除此目標後重新指向新路徑。",
       openTargetFolder: "開啟同步目標資料夾",
       openTargetFolderMissing: "同步目標資料夾尚未建立，請先推送此 Skill。",
@@ -424,6 +430,12 @@ const zhTW: TranslationDict = {
       statusDiverged: "雙方皆有變更",
       unforkConfirmTitle: "離開 Forked 模式？",
       unforkConfirmBody: "下次推送時將以主檔內容覆寫 agent 端的客製修改。",
+      previewFailed: "Fork 預覽失敗：{error}",
+    },
+    errors: {
+      pushPreviewFailed: "推送預覽失敗",
+      pushFailed: "推送失敗",
+      deleteFailed: "刪除失敗",
     },
     targetChips: {
       expand: "展開同步目標",
@@ -479,7 +491,6 @@ const zhTW: TranslationDict = {
       detach: "只刪主檔",
       cancel: "取消",
       confirm: "刪除",
-      failed: "刪除失敗：{error}",
     },
     importBanner: {
       detected: "偵測到 {n} 個現有 skill",
@@ -619,7 +630,7 @@ const zhTW: TranslationDict = {
       notFound: "不存在",
       notFoundTooltip: "此 project 資料夾不存在（已被刪除/改名/卸載）",
       removeTooltip: "從 Known Projects 清單移除此已儲存項目（不會刪除任何實際資料夾）",
-      removeFailed: "移除失敗：{error}",
+      removeFailedTitle: "移除失敗",
       source: {
         cwd: "cwd",
         detected: "detected",
@@ -789,6 +800,12 @@ const zhTW: TranslationDict = {
       resetConfirmBody: "這將永久刪除所有 canonical 技能，此操作無法復原。\n\n建議先匯出備份。",
       resetSuccess: "已刪除 {deleted} 個技能。",
       resetCancel: "已取消重置。",
+      exportFailed: "匯出失敗：{error}",
+      resetFailed: "重置失敗：{error}",
+    },
+    agentPaths: {
+      loadFailed: "無法載入 agent 路徑設定",
+      validationFailed: "Agent 路徑驗證失敗",
     },
   },
 
@@ -836,6 +853,7 @@ const zhTW: TranslationDict = {
       loginRequired: "請先登入才能發布",
       registerSuccess: "帳號已建立",
       loginSuccess: "已登入",
+      loginFailed: "登入失敗",
       emailExists: "此 Email 已註冊",
       invalidCredentials: "帳號或密碼錯誤",
       sessionExpired: "登入已過期，請重新登入",
@@ -858,6 +876,7 @@ const zhTW: TranslationDict = {
       button: "從 Hub 移除",
       confirm: "確定要從 Hub 移除 {name}？其他人將無法再安裝此 Skill。",
       success: "已從 Hub 移除 {name}",
+      failure: "移除失敗：{detail}",
     },
   },
 };
