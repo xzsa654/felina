@@ -190,6 +190,8 @@ export const api = {
       invoke<ImportCandidate[]>("skill_import_scan", { projectPath }),
     scanZip: (zipPath: string) =>
       invoke<ImportCandidate[]>("skill_import_scan_zip", { zipPath }),
+    scanDir: (dirPath: string) =>
+      invoke<ImportCandidate[]>("skill_import_scan_dir", { dirPath }),
     apply: (selections: ImportSelection[], projectPath?: string) =>
       invoke<void>("skill_import_apply", { projectPath, selections }),
   },

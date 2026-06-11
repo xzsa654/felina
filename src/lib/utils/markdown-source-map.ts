@@ -10,10 +10,38 @@ function injectAttr(html: string, line: number): string {
   return `${html.slice(0, idx)} data-source-line="${line}"${html.slice(idx)}`;
 }
 
-export function renderWithSourceMap(markdown: string): string {
+function escapeHtmlText(text: string): string {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+export interface RenderOptions {
+  /**
+   * Render raw HTML embedded in the markdown as escaped literal text
+   * instead of passing it through. Required for untrusted content
+   * (e.g. session transcripts) — passthrough HTML executes in the
+   * webview with invoke access.
+   */
+  escapeHtml?: boolean;
+}
+
+export function renderWithSourceMap(markdown: string, options?: RenderOptions): string {
   if (!markdown) return "";
 
   const instance = new Marked();
+
+  if (options?.escapeHtml) {
+    instance.use({
+      renderer: {
+        html({ text }: Tokens.HTML | Tokens.Tag) {
+          return escapeHtmlText(text);
+        },
+      },
+    });
+  }
 
   instance.use({
     walkTokens(token: Token & { _srcLine?: number }) {

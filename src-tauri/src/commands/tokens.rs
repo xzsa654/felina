@@ -439,6 +439,112 @@ fn infer_transcript_role(item: &serde_json::Value, line_type: Option<&str>) -> S
     normalized_role(raw_role, "assistant")
 }
 
+const CHANNEL_CONVERSATION: &str = "conversation";
+const CHANNEL_BACKGROUND: &str = "background";
+
+/// Text prefixes injected by agent harnesses into user-role messages.
+/// `<local-command-` is a tag family (stdout/caveat). Slash-command tags
+/// (`<command-name>` etc.) are NOT here — they wrap real user input and are
+/// restored to typed form instead (see restore_slash_command).
+const HARNESS_INJECTION_PREFIXES: [&str; 4] = [
+    "<system-reminder>",
+    "<local-command-",
+    "<bash-std",
+    "Caveat:",
+];
+
+/// Extract the inner text of the first `<tag>...</tag>` occurrence.
+fn tag_value<'a>(content: &'a str, tag: &str) -> Option<&'a str> {
+    let open = format!("<{tag}>");
+    let close = format!("</{tag}>");
+    let start = content.find(&open)? + open.len();
+    let end = content[start..].find(&close)? + start;
+    Some(&content[start..end])
+}
+
+/// Slash-command user lines are wrapped as
+/// `<command-message>..</command-message> <command-name>/foo</command-name>
+/// <command-args>..</command-args>`; `!` shell escapes as
+/// `<bash-input>cmd</bash-input>` (+ bash-stdout/bash-stderr output wrappers).
+/// Restore what the user actually typed (`/foo args` or `! cmd`). Returns
+/// None when no wrapper is present/parsable — caller keeps content verbatim.
+fn restore_typed_input(content: &str) -> Option<String> {
+    if let Some(name) = tag_value(content, "command-name").map(str::trim) {
+        if !name.is_empty() {
+            let args = tag_value(content, "command-args")
+                .map(str::trim)
+                .unwrap_or("");
+            return Some(if args.is_empty() {
+                name.to_string()
+            } else {
+                format!("{name} {args}")
+            });
+        }
+    }
+    let input = tag_value(content, "bash-input")?.trim();
+    if input.is_empty() {
+        return None;
+    }
+    Some(format!("! {input}"))
+}
+
+/// True when an array content consists only of tool-result style blocks —
+/// a user-role line carrying tool output, not something the user typed.
+fn content_is_only_tool_results(item: &serde_json::Value) -> bool {
+    match item.get("content") {
+        Some(serde_json::Value::Array(blocks)) if !blocks.is_empty() => {
+            blocks.iter().all(|block| {
+                matches!(
+                    block.get("type").and_then(|v| v.as_str()),
+                    Some("tool_result") | Some("function_call_output")
+                )
+            })
+        }
+        _ => false,
+    }
+}
+
+/// Classify an entry as user-visible dialogue vs harness/agent machinery.
+/// Structural signals win; content prefixes are a fallback heuristic; anything
+/// unrecognized fails open to "conversation" so real dialogue is never hidden.
+fn classify_channel(
+    value: &serde_json::Value,
+    item: &serde_json::Value,
+    role: &str,
+    content: &str,
+) -> String {
+    let flag = |key: &str| value.get(key).and_then(|v| v.as_bool()) == Some(true);
+    if flag("isSidechain") || flag("isMeta") {
+        return CHANNEL_BACKGROUND.to_string();
+    }
+    if value.get("type").and_then(|v| v.as_str()) == Some("system") {
+        return CHANNEL_BACKGROUND.to_string();
+    }
+    if matches!(
+        item.get("type").and_then(|v| v.as_str()),
+        Some("reasoning") | Some("function_call") | Some("function_call_output")
+    ) {
+        return CHANNEL_BACKGROUND.to_string();
+    }
+    if content_is_only_tool_results(item) {
+        return CHANNEL_BACKGROUND.to_string();
+    }
+    // Prefix heuristic applies to user-role lines; the source format's declared
+    // role wins over the inferred display role (content blocks of type "text"
+    // make the inferred role "assistant" even on user lines).
+    let declared_user = item.get("role").and_then(|v| v.as_str()) == Some("user");
+    if declared_user || role == "user" {
+        let trimmed = content.trim_start();
+        if HARNESS_INJECTION_PREFIXES
+            .iter()
+            .any(|prefix| trimmed.starts_with(prefix))
+        {
+            return CHANNEL_BACKGROUND.to_string();
+        }
+    }
+    CHANNEL_CONVERSATION.to_string()
+}
+
 fn u64_at<'a>(value: &'a serde_json::Value, path: &[&str]) -> Option<u64> {
     let mut current = value;
     for key in path {
@@ -473,6 +579,7 @@ fn transcript_entries_from_value(value: &serde_json::Value) -> Vec<TranscriptEnt
             let output = usage.get("output_tokens").and_then(|v| v.as_u64());
             entries.push(TranscriptEntry {
                 role: "usage".to_string(),
+                channel: CHANNEL_CONVERSATION.to_string(),
                 content: "Token usage".to_string(),
                 timestamp,
                 model: None,
@@ -504,8 +611,13 @@ fn transcript_entries_from_value(value: &serde_json::Value) -> Vec<TranscriptEnt
     if let Some(item) = item {
         let role = infer_transcript_role(item, value.get("type").and_then(|v| v.as_str()));
         if let Some(content) = item.get("content").and_then(extract_text) {
+            // Slash-command / bash-escape wrappers carry real user input —
+            // show it as typed.
+            let content = restore_typed_input(&content).unwrap_or(content);
+            let channel = classify_channel(value, item, &role, &content);
             entries.push(TranscriptEntry {
                 role,
+                channel,
                 content,
                 timestamp: timestamp.clone(),
                 model: item
@@ -523,6 +635,7 @@ fn transcript_entries_from_value(value: &serde_json::Value) -> Vec<TranscriptEnt
         if item.get("usage").is_some() {
             entries.push(TranscriptEntry {
                 role: "usage".to_string(),
+                channel: CHANNEL_CONVERSATION.to_string(),
                 content: "Token usage".to_string(),
                 timestamp,
                 model: item
@@ -1054,6 +1167,209 @@ mod tests {
         assert!(sessions[0].transcript_available);
         assert!(!sessions[1].transcript_available);
         cleanup_path(&root);
+    }
+
+    fn entries_from_line(line: &str) -> Vec<TranscriptEntry> {
+        let value: serde_json::Value = serde_json::from_str(line).expect("parse test line");
+        transcript_entries_from_value(&value)
+    }
+
+    fn single_entry_from_line(line: &str) -> TranscriptEntry {
+        let entries = entries_from_line(line);
+        assert_eq!(entries.len(), 1, "expected one entry from {line}");
+        entries.into_iter().next().unwrap()
+    }
+
+    #[test]
+    fn claude_structural_signals_classify_background_channel() {
+        // Sidechain (subagent) line — background even though it looks like dialogue.
+        let sidechain = single_entry_from_line(
+            r#"{"type":"assistant","isSidechain":true,"message":{"role":"assistant","content":[{"type":"text","text":"subagent reply"}]}}"#,
+        );
+        assert_eq!(sidechain.channel, "background");
+
+        // Meta line — background.
+        let meta = single_entry_from_line(
+            r#"{"type":"user","isMeta":true,"message":{"role":"user","content":[{"type":"text","text":"meta note"}]}}"#,
+        );
+        assert_eq!(meta.channel, "background");
+
+        // type=system line — background.
+        let system = single_entry_from_line(
+            r#"{"type":"system","message":{"role":"system","content":"hook output"}}"#,
+        );
+        assert_eq!(system.channel, "background");
+
+        // User-role line whose content is only tool_result blocks — background.
+        let tool_result = single_entry_from_line(
+            r#"{"type":"user","message":{"role":"user","content":[{"type":"tool_result","content":"command output"}]}}"#,
+        );
+        assert_eq!(tool_result.channel, "background");
+    }
+
+    #[test]
+    fn claude_harness_prefixes_classify_background_channel() {
+        for prefix in [
+            "<system-reminder>",
+            "<local-command-stdout>",
+            "<local-command-caveat>",
+            "Caveat:",
+        ] {
+            let line = serde_json::json!({
+                "type": "user",
+                "message": {
+                    "role": "user",
+                    "content": [{"type": "text", "text": format!("{prefix} injected body")}]
+                }
+            })
+            .to_string();
+            let entry = single_entry_from_line(&line);
+            assert_eq!(
+                entry.channel, "background",
+                "prefix {prefix} should classify background"
+            );
+        }
+    }
+
+    #[test]
+    fn plain_dialogue_classifies_conversation_channel() {
+        // Plain user-typed text — conversation.
+        let user = single_entry_from_line(
+            r#"{"type":"user","message":{"role":"user","content":[{"type":"text","text":"hello"}]}}"#,
+        );
+        assert_eq!(user.channel, "conversation");
+
+        // Assistant reply text — conversation.
+        let assistant = single_entry_from_line(
+            r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"hi there"}]}}"#,
+        );
+        assert_eq!(assistant.channel, "conversation");
+    }
+
+    #[test]
+    fn codex_payload_types_classify_background_channel() {
+        // reasoning response item — background.
+        let reasoning = single_entry_from_line(
+            r#"{"type":"response_item","payload":{"type":"reasoning","content":[{"type":"reasoning_text","text":"thinking"}]}}"#,
+        );
+        assert_eq!(reasoning.channel, "background");
+
+        // function_call / function_call_output items must never surface as
+        // conversation; today they yield no displayable entry at all, and any
+        // entry they do yield must be background.
+        for line in [
+            r#"{"type":"response_item","payload":{"type":"function_call","name":"shell","arguments":"{}"}}"#,
+            r#"{"type":"response_item","payload":{"type":"function_call_output","output":"done"}}"#,
+        ] {
+            let entries = entries_from_line(line);
+            assert!(
+                entries
+                    .iter()
+                    .all(|entry| entry.role == "usage" || entry.channel == "background"),
+                "function_call(_output) must not yield conversation entries: {entries:#?}"
+            );
+        }
+
+        // message response item with user input text — conversation.
+        let message = single_entry_from_line(
+            r#"{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"hello"}]}}"#,
+        );
+        assert_eq!(message.channel, "conversation");
+    }
+
+    #[test]
+    fn slash_command_lines_restore_typed_input_as_conversation() {
+        // Spec example: wrapper tags carry real user input — restore "/cmd args".
+        let line = serde_json::json!({
+            "type": "user",
+            "message": {
+                "role": "user",
+                "content": [{
+                    "type": "text",
+                    "text": "<command-message>spectra-discuss</command-message> <command-name>/spectra-discuss</command-name> <command-args>import browser should support folders</command-args>"
+                }]
+            }
+        })
+        .to_string();
+        let entry = single_entry_from_line(&line);
+        assert_eq!(entry.channel, "conversation");
+        assert_eq!(
+            entry.content,
+            "/spectra-discuss import browser should support folders"
+        );
+
+        // Empty args — command name only.
+        let no_args = serde_json::json!({
+            "type": "user",
+            "message": {
+                "role": "user",
+                "content": [{
+                    "type": "text",
+                    "text": "<command-message>clear</command-message> <command-name>/clear</command-name> <command-args></command-args>"
+                }]
+            }
+        })
+        .to_string();
+        let entry = single_entry_from_line(&no_args);
+        assert_eq!(entry.channel, "conversation");
+        assert_eq!(entry.content, "/clear");
+
+        // Unparsable tag structure — keep verbatim, still conversation.
+        let broken = serde_json::json!({
+            "type": "user",
+            "message": {
+                "role": "user",
+                "content": [{"type": "text", "text": "<command-name>/oops"}]
+            }
+        })
+        .to_string();
+        let entry = single_entry_from_line(&broken);
+        assert_eq!(entry.channel, "conversation");
+        assert_eq!(entry.content, "<command-name>/oops");
+    }
+
+    #[test]
+    fn bash_escape_lines_restore_typed_input_as_conversation() {
+        // Spec example: <bash-input> is user input — restore "! cmd",
+        // discarding stdout/stderr wrappers.
+        let line = serde_json::json!({
+            "type": "user",
+            "message": {
+                "role": "user",
+                "content": [{
+                    "type": "text",
+                    "text": "<bash-input>code .</bash-input> \n<bash-stdout>(no output)</bash-stdout><bash-stderr></bash-stderr>"
+                }]
+            }
+        })
+        .to_string();
+        let entry = single_entry_from_line(&line);
+        assert_eq!(entry.channel, "conversation");
+        assert_eq!(entry.content, "! code .");
+
+        // stdout/stderr-only line without bash-input — background.
+        let output_only = serde_json::json!({
+            "type": "user",
+            "message": {
+                "role": "user",
+                "content": [{
+                    "type": "text",
+                    "text": "<bash-stdout>some output</bash-stdout><bash-stderr></bash-stderr>"
+                }]
+            }
+        })
+        .to_string();
+        let entry = single_entry_from_line(&output_only);
+        assert_eq!(entry.channel, "background");
+    }
+
+    #[test]
+    fn missing_channel_signals_default_to_conversation() {
+        // No structural signals, unknown shape — fail-open to conversation.
+        let unknown = single_entry_from_line(
+            r#"{"item":{"role":"user","content":"bare string content"}}"#,
+        );
+        assert_eq!(unknown.channel, "conversation");
     }
 
     #[test]

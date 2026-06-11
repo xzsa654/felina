@@ -8,6 +8,7 @@ import {
   glassListSelectedRowClass,
   glassListSurfaceClass,
 } from "$lib/components/shared/PageScaffold";
+import MarkdownPreview from "$lib/components/shared/MarkdownPreview";
 import { api } from "$lib/tauri/commands";
 import type { AgentId, HistorySession, SessionTranscript, TranscriptEntry } from "$lib/types/token-analytics";
 import { formatNumber } from "$lib/utils/format";
@@ -110,7 +111,8 @@ function matchesTranscriptEntry(
   roleFilter: TranscriptFilter,
   query: string,
 ): boolean {
-  if (roleFilter === "conversation" && entry.role === "usage") return false;
+  if (roleFilter === "conversation" && (entry.role === "usage" || entry.channel === "background"))
+    return false;
   if (roleFilter === "usage" && entry.role !== "usage") return false;
 
   const q = query.trim().toLowerCase();
@@ -502,9 +504,17 @@ export default function HistoryPage() {
                             </span>
                           )}
                         </div>
-                        <pre className="whitespace-pre-wrap break-words text-sm text-text-primary font-sans leading-relaxed">
-                          {usage ?? entry.content}
-                        </pre>
+                        {usage == null && (entry.role === "user" || entry.role === "assistant") ? (
+                          <MarkdownPreview
+                            markdown={entry.content ?? ""}
+                            escapeHtml
+                            className="md-compact"
+                          />
+                        ) : (
+                          <pre className="whitespace-pre-wrap break-words text-sm text-text-primary font-sans leading-relaxed">
+                            {usage ?? entry.content}
+                          </pre>
+                        )}
                       </article>
                     </div>
                   );

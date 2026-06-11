@@ -937,9 +937,15 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<(), String> {
 /// Extra frontmatter is preserved verbatim.
 fn ensure_required_fields(raw: &str, name: &str, source_agent: AgentId) -> Result<String, String> {
     // Try to parse as-is first; if it succeeds, we already have everything
-    // we need and just re-serialize.
+    // we need and just re-serialize. `agents` is optional at the parse layer
+    // (agents=[] is a valid content-only state), but importing FROM an agent
+    // directory means the source agent is known — tag it so the canonical
+    // skill fans back out to where it came from.
     if let Ok(mut parsed) = parse_skill_md(raw) {
         parsed.name = name.to_string();
+        if parsed.agents.is_empty() {
+            parsed.agents = vec![source_agent];
+        }
         return Ok(reserialize(parsed));
     }
 
@@ -1119,42 +1125,74 @@ fn collect_zip_candidates_in(
         if !entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false) {
             continue;
         }
-        let skill_md = entry.path().join("SKILL.md");
-        if !skill_md.is_file() {
-            continue;
+        if let Some(cand) = candidate_from_skill_dir(&entry.path(), canonical_dir) {
+            out.push(cand);
         }
-        let raw = match fs::read_to_string(&skill_md) {
-            Ok(s) => s,
-            Err(_) => continue,
-        };
-        let dir_name = entry.file_name().to_string_lossy().to_string();
-        let body_preview = body_preview_from(&raw);
-        let source_agent = infer_agent_from_frontmatter(&raw).unwrap_or(AgentId::Anthropic);
-
-        let canonical_path = canonical_dir.join(&dir_name).join("SKILL.md");
-        let conflict = if canonical_path.is_file() {
-            let canonical_raw = fs::read_to_string(&canonical_path).unwrap_or_default();
-            Some(ConflictInfo {
-                canonical_path: normalize_display_path(&canonical_path.to_string_lossy()),
-                canonical_body_preview: body_preview_from(&canonical_raw),
-                diff_summary: summarise_diff_raw(&raw, &canonical_raw),
-                hunks: build_diff_hunks(&canonical_raw, &raw),
-            })
-        } else {
-            None
-        };
-        let validation_error = validate_source_frontmatter(&raw).err();
-
-        out.push(ImportCandidate {
-            source_path: normalize_display_path(&skill_md.to_string_lossy()),
-            source_agent,
-            skill_name: dir_name,
-            body_preview,
-            conflict,
-            deferred: None,
-            validation_error,
-        });
     }
+}
+
+/// Build one `ImportCandidate` from a directory expected to contain a
+/// `SKILL.md`. Shared by ZIP-sourced and folder-sourced scans so agent
+/// inference, conflict detection, and validation stay on a single path.
+/// Returns `None` when the directory has no readable `SKILL.md`.
+fn candidate_from_skill_dir(skill_dir: &Path, canonical_dir: &Path) -> Option<ImportCandidate> {
+    let skill_md = skill_dir.join("SKILL.md");
+    if !skill_md.is_file() {
+        return None;
+    }
+    let raw = fs::read_to_string(&skill_md).ok()?;
+    let dir_name = skill_dir.file_name()?.to_string_lossy().to_string();
+    let body_preview = body_preview_from(&raw);
+    let source_agent = infer_agent_from_frontmatter(&raw).unwrap_or(AgentId::Anthropic);
+
+    let canonical_path = canonical_dir.join(&dir_name).join("SKILL.md");
+    let conflict = if canonical_path.is_file() {
+        let canonical_raw = fs::read_to_string(&canonical_path).unwrap_or_default();
+        Some(ConflictInfo {
+            canonical_path: normalize_display_path(&canonical_path.to_string_lossy()),
+            canonical_body_preview: body_preview_from(&canonical_raw),
+            diff_summary: summarise_diff_raw(&raw, &canonical_raw),
+            hunks: build_diff_hunks(&canonical_raw, &raw),
+        })
+    } else {
+        None
+    };
+    let validation_error = validate_source_frontmatter(&raw).err();
+
+    Some(ImportCandidate {
+        source_path: normalize_display_path(&skill_md.to_string_lossy()),
+        source_agent,
+        skill_name: dir_name,
+        body_preview,
+        conflict,
+        deferred: None,
+        validation_error,
+    })
+}
+
+/// Scan a user-selected on-disk directory for importable skills. Unlike the
+/// ZIP path there is no temp extraction: candidates' `source_path` points at
+/// the original location and the apply step reads from there directly.
+///
+/// Resolution order: (1) the selected directory itself contains `SKILL.md` →
+/// exactly one candidate named after that directory; (2) otherwise scan
+/// first-level subdirectories only, skipping those without `SKILL.md`;
+/// (3) neither yields anything → `Ok(vec![])` ("no skills found", not an
+/// error). A missing or non-directory path is an error.
+#[tauri::command]
+pub fn skill_import_scan_dir(dir_path: String) -> Result<Vec<ImportCandidate>, String> {
+    let root = PathBuf::from(&dir_path);
+    if !root.is_dir() {
+        return Err(format!("not a directory: {dir_path}"));
+    }
+    let canonical_dir = canonical_skills_dir();
+    let mut out: Vec<ImportCandidate> = Vec::new();
+    if let Some(cand) = candidate_from_skill_dir(&root, &canonical_dir) {
+        out.push(cand);
+        return Ok(out);
+    }
+    collect_zip_candidates_in(&root, &canonical_dir, &mut out);
+    Ok(out)
 }
 
 fn infer_agent_from_frontmatter(raw: &str) -> Option<AgentId> {
@@ -2228,5 +2266,129 @@ mod tests {
             "canonical_path case must be preserved: {}",
             conflict.canonical_path
         );
+    }
+
+    /// Guard that points `canonical_skills_dir()` at a temp home for the
+    /// duration of a test, mirroring the zip-scan test setup.
+    struct FelinaHomeGuard;
+    impl Drop for FelinaHomeGuard {
+        fn drop(&mut self) {
+            crate::paths::set_felina_home_override_for_test(None);
+        }
+    }
+    fn override_felina_home(label: &str) -> (PathBuf, FelinaHomeGuard) {
+        let home = unique_tmp(label);
+        crate::paths::set_felina_home_override_for_test(Some(home.join(".felina")));
+        (home, FelinaHomeGuard)
+    }
+
+    /// `skill_import_scan_dir` resolution rule 1: the selected directory
+    /// itself contains a `SKILL.md` → exactly one candidate named after
+    /// the selected directory.
+    #[test]
+    fn skill_import_scan_dir_selected_dir_is_itself_a_skill() {
+        let (_home, _g) = override_felina_home("scan-dir-self-home");
+        let tmp = unique_tmp("scan-dir-self");
+        let skill_dir = tmp.join("my-skill");
+        fs::create_dir_all(&skill_dir).unwrap();
+        fs::write(
+            skill_dir.join("SKILL.md"),
+            "---\nname: my-skill\ndescription: d\nagents: [gemini]\n---\nbody\n",
+        )
+        .unwrap();
+
+        let out = skill_import_scan_dir(skill_dir.to_string_lossy().to_string()).expect("scan");
+        assert_eq!(out.len(), 1, "exactly one candidate, got {out:#?}");
+        assert_eq!(out[0].skill_name, "my-skill", "named after selected directory");
+        assert_eq!(out[0].source_agent, AgentId::Gemini, "agent inferred from frontmatter");
+        assert!(out[0].conflict.is_none());
+    }
+
+    /// Resolution rule 2: selected directory is a parent — scan first-level
+    /// subdirectories only; entries without `SKILL.md` are skipped.
+    /// Mirrors the spec example: alpha/SKILL.md, beta/SKILL.md, notes/readme.txt,
+    /// stray.md → candidates alpha and beta only.
+    #[test]
+    fn skill_import_scan_dir_parent_collects_first_level_skill_subdirs() {
+        let (_home, _g) = override_felina_home("scan-dir-parent-home");
+        let tmp = unique_tmp("scan-dir-parent");
+        for name in ["alpha", "beta"] {
+            let d = tmp.join(name);
+            fs::create_dir_all(&d).unwrap();
+            fs::write(
+                d.join("SKILL.md"),
+                format!("---\nname: {name}\ndescription: d\nagents: [anthropic]\n---\nbody\n"),
+            )
+            .unwrap();
+        }
+        fs::create_dir_all(tmp.join("notes")).unwrap();
+        fs::write(tmp.join("notes").join("readme.txt"), "not a skill").unwrap();
+        fs::write(tmp.join("stray.md"), "loose file").unwrap();
+        // Nested skill below first level must NOT be picked up.
+        let nested = tmp.join("notes").join("deep");
+        fs::create_dir_all(&nested).unwrap();
+        fs::write(
+            nested.join("SKILL.md"),
+            "---\nname: deep\ndescription: d\nagents: [anthropic]\n---\nbody\n",
+        )
+        .unwrap();
+
+        let out = skill_import_scan_dir(tmp.to_string_lossy().to_string()).expect("scan");
+        let mut names: Vec<_> = out.iter().map(|c| c.skill_name.clone()).collect();
+        names.sort();
+        assert_eq!(names, ["alpha", "beta"], "got {out:#?}");
+    }
+
+    /// Resolution rule 3: no SKILL.md anywhere at the allowed depths →
+    /// Ok with an empty list, not an error.
+    #[test]
+    fn skill_import_scan_dir_no_skills_returns_empty_ok() {
+        let (_home, _g) = override_felina_home("scan-dir-empty-home");
+        let tmp = unique_tmp("scan-dir-empty");
+        fs::create_dir_all(tmp.join("nothing-here")).unwrap();
+
+        let out = skill_import_scan_dir(tmp.to_string_lossy().to_string()).expect("scan");
+        assert!(out.is_empty(), "expected empty, got {out:#?}");
+    }
+
+    /// Nonexistent path or a file (not a directory) → Err string.
+    #[test]
+    fn skill_import_scan_dir_rejects_missing_or_non_directory_path() {
+        let (_home, _g) = override_felina_home("scan-dir-bad-home");
+        let tmp = unique_tmp("scan-dir-bad");
+
+        let missing = tmp.join("no-such-dir");
+        assert!(skill_import_scan_dir(missing.to_string_lossy().to_string()).is_err());
+
+        let file_path = tmp.join("a-file.txt");
+        fs::write(&file_path, "x").unwrap();
+        assert!(skill_import_scan_dir(file_path.to_string_lossy().to_string()).is_err());
+    }
+
+    /// Same-named canonical skill → candidate carries ConflictInfo, on the
+    /// same path as zip / agent-directory candidates.
+    #[test]
+    fn skill_import_scan_dir_detects_canonical_conflict() {
+        let (home, _g) = override_felina_home("scan-dir-conflict-home");
+        let canonical = home.join(".felina").join("skills").join("dup-skill");
+        fs::create_dir_all(&canonical).unwrap();
+        fs::write(
+            canonical.join("SKILL.md"),
+            "---\nname: dup-skill\ndescription: existing\nagents: [anthropic]\n---\nold\n",
+        )
+        .unwrap();
+
+        let tmp = unique_tmp("scan-dir-conflict");
+        let skill_dir = tmp.join("dup-skill");
+        fs::create_dir_all(&skill_dir).unwrap();
+        fs::write(
+            skill_dir.join("SKILL.md"),
+            "---\nname: dup-skill\ndescription: incoming\nagents: [anthropic]\n---\nnew\n",
+        )
+        .unwrap();
+
+        let out = skill_import_scan_dir(skill_dir.to_string_lossy().to_string()).expect("scan");
+        assert_eq!(out.len(), 1);
+        assert!(out[0].conflict.is_some(), "expected conflict info, got {out:#?}");
     }
 }

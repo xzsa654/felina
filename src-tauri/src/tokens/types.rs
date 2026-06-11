@@ -197,6 +197,9 @@ pub struct TranscriptMetadata {
 #[derive(Serialize, Clone, Debug)]
 pub struct TranscriptEntry {
     pub role: String,
+    /// "conversation" (user-visible dialogue) or "background" (harness/agent
+    /// machinery: sidechain, meta, tool results, reasoning, injected text).
+    pub channel: String,
     pub content: String,
     pub timestamp: Option<String>,
     pub model: Option<String>,

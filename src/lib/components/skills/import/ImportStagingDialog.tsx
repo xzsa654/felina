@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Download, FolderOpen, X } from "lucide-react";
+import { Download, FileArchive, FolderOpen, X } from "lucide-react";
 import Modal from "$lib/components/shared/Modal";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useLocaleStore } from "$lib/stores/locale";
@@ -117,7 +117,22 @@ export default function ImportStagingDialog({ projectPath, onClose }: Props) {
     }
   }, [staging, projectPath, loadEntries, refreshImportCount, onClose]);
 
-  const handleBrowseFiles = useCallback(async () => {
+  // ZIP / 資料夾是使用者明確選擇匯入的來源,直接進右邊 Staging,不必再拖一次。
+  // 同名衝突由 SkillStagingCard 內建的 overwrite/rename UI 處理。
+  const stageCandidates = useCallback(
+    (candidates: ImportCandidate[]) => {
+      setStaging((prev) => {
+        const seen = new Set(prev.map((s) => s.candidate.sourcePath));
+        const fresh = candidates
+          .filter((c) => !seen.has(c.sourcePath))
+          .map((c) => createStagingItem(c, existingNames));
+        return [...prev, ...fresh];
+      });
+    },
+    [existingNames],
+  );
+
+  const handleBrowseZip = useCallback(async () => {
     try {
       const path = await open({
         filters: [{ name: "ZIP", extensions: ["zip"] }],
@@ -125,20 +140,21 @@ export default function ImportStagingDialog({ projectPath, onClose }: Props) {
         directory: false,
       });
       if (!path) return;
-      const zipCandidates = await api.skillImport.scanZip(path as string);
-      // ZIP 是使用者明確選擇匯入的來源,直接進右邊 Staging,不必再拖一次。
-      // 同名衝突由 SkillStagingCard 內建的 overwrite/rename UI 處理。
-      setStaging((prev) => {
-        const seen = new Set(prev.map((s) => s.candidate.sourcePath));
-        const fresh = zipCandidates
-          .filter((c) => !seen.has(c.sourcePath))
-          .map((c) => createStagingItem(c, existingNames));
-        return [...prev, ...fresh];
-      });
+      stageCandidates(await api.skillImport.scanZip(path as string));
     } catch (e) {
       setError(String(e));
     }
-  }, [existingNames]);
+  }, [stageCandidates]);
+
+  const handleBrowseFolder = useCallback(async () => {
+    try {
+      const path = await open({ multiple: false, directory: true });
+      if (!path) return;
+      stageCandidates(await api.skillImport.scanDir(path as string));
+    } catch (e) {
+      setError(String(e));
+    }
+  }, [stageCandidates]);
 
   const canImport = staging.length > 0 && !hasUnresolved(staging) && !importing;
 
@@ -249,14 +265,24 @@ export default function ImportStagingDialog({ projectPath, onClose }: Props) {
               ))}
             </div>
             <div className="px-3 py-2 border-t border-border">
-              <button
-                type="button"
-                onClick={handleBrowseFiles}
-                className="inline-flex items-center gap-1.5 text-xs text-text-secondary hover:text-text-primary"
-              >
-                <FolderOpen size={12} />
-                {t(locale, "skills.importDialog.browseFiles")}
-              </button>
+              <div className="flex items-center gap-4">
+                <button
+                  type="button"
+                  onClick={handleBrowseZip}
+                  className="inline-flex items-center gap-1.5 text-xs text-text-secondary hover:text-text-primary"
+                >
+                  <FileArchive size={12} />
+                  {t(locale, "skills.importDialog.browseZip")}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleBrowseFolder}
+                  className="inline-flex items-center gap-1.5 text-xs text-text-secondary hover:text-text-primary"
+                >
+                  <FolderOpen size={12} />
+                  {t(locale, "skills.importDialog.browseFolder")}
+                </button>
+              </div>
             </div>
           </div>
 

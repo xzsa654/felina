@@ -133,6 +133,7 @@ export interface TranscriptMetadata {
 
 export interface TranscriptEntry {
   role: string;
+  channel: "conversation" | "background";
   content: string;
   timestamp: string | null;
   model: string | null;
