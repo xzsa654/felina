@@ -193,7 +193,7 @@ Felina uses Spectra for spec-driven development:
 - Specs live in `openspec/specs/`.
 - Active change proposals live in `openspec/changes/`.
 - Completed changes are archived under `openspec/changes/archive/`.
-- Product roadmap items live in `.session/product-backlog.md` until they become Spectra changes.
+- Product roadmap items live in `.knowledge/ideas-backlog.md` until they become Spectra changes.
 
 ## License
 

@@ -26,7 +26,7 @@ Felina 的高層架構原則。用途是協助未來 agent 做出正確技術判
 **Updated:** 2026-05-25
 **Status:** active
 **Confidence:** confirmed
-**Source:** 2026-05-25 討論；.session/product-backlog.md Product Direction
+**Source:** 2026-05-25 討論；.knowledge/ideas-backlog.md Product Direction
 **Context:** Product backlog 將 Felina 定位為 local agent control plane，而不是單純的 skill editor。
 **Applies when:** 設計新的 skill-specific abstraction、資料模型、UI flow、backend module，或評估未來 capability family 是否會被目前設計卡住時。
 **Lesson:**
@@ -34,7 +34,7 @@ Felina 的高層架構原則。用途是協助未來 agent 做出正確技術判
 - 新增 skill-specific abstraction 前，先檢查它是否能自然延伸到其他 capability kind，或至少不會阻礙後續的 `hook`、`subagent`、`workflow`、`mcp-tool`、`prompt-template`、`policy-pack`。
 - 可用 `Capability`、`Artifact`、`RuntimeBinding`、`ExecutionRecord` 作為長期模型方向，但目前實作仍以已存在的 `kind=skill` surface 為準；不要把 backlog 方向誤寫成已完成能力。
 **Keywords:** architecture, control plane, capability, capability kind, skill-only, local agent, roadmap, backlog, artifact, runtime binding, execution record
-**Related:** kb-architecture-skill-source-of-truth; .session/product-backlog.md
+**Related:** kb-architecture-skill-source-of-truth; .knowledge/ideas-backlog.md
 
 ## Skill source of truth 與 fan-out 邊界
 **ID:** kb-architecture-skill-source-of-truth
