@@ -19,6 +19,8 @@ struct ConversationLine {
 #[derive(Deserialize)]
 struct AssistantMessage {
     #[serde(default)]
+    id: Option<String>,
+    #[serde(default)]
     model: Option<String>,
     #[serde(default)]
     usage: Option<Usage>,
@@ -98,6 +100,7 @@ impl ClaudeCodeParser {
             fs::File::open(path).map_err(|e| format!("Cannot open {}: {}", path.display(), e))?;
         let reader = BufReader::new(file);
         let mut events = Vec::new();
+        let mut seen_message_ids = std::collections::HashSet::new();
 
         let project = path
             .parent()
@@ -130,6 +133,15 @@ impl ClaudeCodeParser {
 
             if let Some(msg) = parsed.message {
                 if let Some(usage) = msg.usage {
+                    // Claude Code logs the same API response multiple times in a session
+                    // (once per streaming chunk that carries usage). Deduplicate by
+                    // message.id so each API call is counted exactly once.
+                    if let Some(ref msg_id) = msg.id {
+                        if !seen_message_ids.insert(msg_id.clone()) {
+                            continue;
+                        }
+                    }
+
                     let model = msg.model.unwrap_or_else(|| "unknown".to_string());
                     let timestamp = parsed
                         .timestamp

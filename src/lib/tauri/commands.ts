@@ -7,10 +7,11 @@ import type {
   SkillInfo,
   RuleFile,
   TokenAnalytics,
+  TokenAnalyticsPair,
   ModelBreakdown,
-  CacheEfficiency,
   AgentStatus,
   RefreshResult,
+  TokenImportStatus,
   CanonicalSkill,
   SkillListEntry,
   SyncResult,
@@ -313,23 +314,21 @@ export const api = {
         dateStart: dateStart ?? null,
         dateEnd: dateEnd ?? null,
       }),
-    getCacheEfficiency: (dateStart?: number, dateEnd?: number, sourceOverride?: string) =>
-      invoke<CacheEfficiency>("get_cache_efficiency", {
-        dateStart: dateStart ?? null,
-        dateEnd: dateEnd ?? null,
-        sourceOverride: sourceOverride ?? null,
-      }),
     getAvailableAgents: () =>
       invoke<AgentStatus[]>("get_available_agents"),
     getAnalyticsPair: (params: {
-      dateStart?: number;
-      dateEnd?: number;
+      monthlyDateStart?: number;
+      monthlyDateEnd?: number;
+      dailyDateStart?: number;
+      dailyDateEnd?: number;
       monthlySource?: string;
       dailySource?: string;
     }) =>
-      invoke<{ monthly: TokenAnalytics; daily: TokenAnalytics }>("get_token_analytics_pair", {
-        dateStart: params.dateStart ?? null,
-        dateEnd: params.dateEnd ?? null,
+      invoke<TokenAnalyticsPair>("get_token_analytics_pair", {
+        monthlyDateStart: params.monthlyDateStart ?? null,
+        monthlyDateEnd: params.monthlyDateEnd ?? null,
+        dailyDateStart: params.dailyDateStart ?? null,
+        dailyDateEnd: params.dailyDateEnd ?? null,
         monthlySource: params.monthlySource ?? null,
         dailySource: params.dailySource ?? null,
       }),
@@ -381,6 +380,7 @@ export const api = {
         agent,
         sessionId,
       }),
+    importStatus: () => invoke<TokenImportStatus>("token_import_status"),
     refresh: () => invoke<RefreshResult>("refresh_token_data"),
     pruneTokenEvents: (retentionDays: number) =>
       invoke<number>("prune_token_events", {
@@ -440,4 +440,3 @@ export interface DiskUsageEntry {
   description: string;
   safe_to_delete: boolean;
 }
-

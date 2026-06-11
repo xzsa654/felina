@@ -97,7 +97,8 @@ export function getTokenComposition(analytics: TokenAnalytics | null): TokenComp
 }
 
 export function cacheReadRatio(composition: TokenComposition): number {
-  return composition.total > 0 ? composition.cacheRead / composition.total : 0;
+  const cacheable = composition.input + composition.cacheRead;
+  return cacheable > 0 ? composition.cacheRead / cacheable : 0;
 }
 
 export function classifyDataResolution(
@@ -145,7 +146,10 @@ export function getTopModelInsights(data: ModelBreakdown[]): TopModelInsight[] {
         total,
         estimatedCostUsd: model.cost_usd,
         eventCount: model.event_count,
-        cacheReadRatio: total > 0 ? model.cache_read_tokens / total : 0,
+        cacheReadRatio:
+          model.input_tokens + model.cache_read_tokens > 0
+            ? model.cache_read_tokens / (model.input_tokens + model.cache_read_tokens)
+            : 0,
         maxInputTokens: model.max_input_tokens ?? null,
       };
     })

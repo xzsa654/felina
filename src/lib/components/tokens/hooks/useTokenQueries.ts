@@ -1,7 +1,8 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useRef } from "react";
+import { listen } from "@tauri-apps/api/event";
+import { useEffect, useRef, useState } from "react";
 import { api } from "$lib/tauri/commands";
-import type { QuotaSnapshot } from "$lib/types";
+import type { QuotaSnapshot, ScanProgress } from "$lib/types";
 
 // ── Query key factory ──────────────────────────────────────────────────────────
 
@@ -21,8 +22,27 @@ export const tokenKeys = {
       params.dateEnd,
       params.sourceOverride,
     ] as const,
+  analyticsPair: (params: {
+    monthlyDateStart?: number;
+    monthlyDateEnd?: number;
+    dailyDateStart?: number;
+    dailyDateEnd?: number;
+    monthlySource?: string;
+    dailySource?: string;
+  }) =>
+    [
+      "tokenAnalytics",
+      "analyticsPair",
+      params.monthlyDateStart,
+      params.monthlyDateEnd,
+      params.dailyDateStart,
+      params.dailyDateEnd,
+      params.monthlySource,
+      params.dailySource,
+    ] as const,
   quota: ["tokenAnalytics", "quota"] as const,
   quotaTtl: ["felinaSettings", "quotaTtl"] as const,
+  importStatus: ["tokenAnalytics", "importStatus"] as const,
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -61,6 +81,7 @@ export interface TokenAnalyticsParams {
   days: number | null;
   sourceOverride?: string;
   isToday?: boolean;
+  enabled?: boolean;
 }
 
 export function useTokenAnalytics(params: TokenAnalyticsParams) {
@@ -80,6 +101,41 @@ export function useTokenAnalytics(params: TokenAnalyticsParams) {
       }),
     staleTime: params.isToday ? 0 : undefined,
     refetchInterval: params.isToday ? 60_000 : undefined,
+    enabled: params.enabled ?? true,
+  });
+}
+
+// ── useAnalyticsPair ─────────────────────────────────────────────────────────
+
+export interface AnalyticsPairParams {
+  monthlyDays: number | null;
+  dailyDays: number | null;
+  monthlySource?: string;
+  dailySource?: string;
+  overviewIsToday?: boolean;
+  dailyIsToday?: boolean;
+  enabled?: boolean;
+}
+
+export function useAnalyticsPair(params: AnalyticsPairParams) {
+  const monthlyBounds = getDateBounds(params.monthlyDays);
+  const dailyBounds = getDateBounds(params.dailyDays);
+  const isToday = params.overviewIsToday === true || params.dailyIsToday === true;
+  const queryParams = {
+    monthlyDateStart: monthlyBounds.dateStart,
+    monthlyDateEnd: monthlyBounds.dateEnd,
+    dailyDateStart: dailyBounds.dateStart,
+    dailyDateEnd: dailyBounds.dateEnd,
+    monthlySource: params.monthlySource,
+    dailySource: params.dailySource,
+  };
+
+  return useQuery({
+    queryKey: tokenKeys.analyticsPair(queryParams),
+    queryFn: () => api.tokenAnalytics.getAnalyticsPair(queryParams),
+    staleTime: isToday ? 0 : undefined,
+    refetchInterval: isToday ? 60_000 : undefined,
+    enabled: params.enabled ?? true,
   });
 }
 
@@ -94,6 +150,42 @@ export function useRefreshTokenData() {
       queryClient.invalidateQueries({ queryKey: tokenKeys.all });
     },
   });
+}
+
+// ── useTokenImportStatus / useScanProgress ──────────────────────────────────
+
+export function useTokenImportStatus() {
+  return useQuery({
+    queryKey: tokenKeys.importStatus,
+    queryFn: () => api.tokenAnalytics.importStatus(),
+    retry: false,
+  });
+}
+
+export function useScanProgress() {
+  const [progress, setProgress] = useState<ScanProgress | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    let unlisten: (() => void) | undefined;
+
+    listen<ScanProgress>("token-scan-progress", (event) => {
+      setProgress(event.payload);
+    }).then((cleanup) => {
+      if (active) {
+        unlisten = cleanup;
+      } else {
+        cleanup();
+      }
+    });
+
+    return () => {
+      active = false;
+      unlisten?.();
+    };
+  }, []);
+
+  return progress;
 }
 
 // ── useFelinaQuotaTtl / useSetFelinaQuotaTtl ─────────────────────────────────

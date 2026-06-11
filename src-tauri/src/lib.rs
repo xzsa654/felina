@@ -180,6 +180,7 @@ pub fn run() {
             commands::tokens::read_session_transcript,
             commands::tokens::resolve_session_transcript,
             commands::tokens::reveal_session_transcript,
+            commands::tokens::token_import_status,
             commands::tokens::refresh_token_data,
             commands::tokens::prune_token_events,
             commands::tokens::delete_all_token_events,

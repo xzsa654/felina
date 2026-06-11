@@ -507,6 +507,11 @@ impl PricingService {
         Err(format!("No pricing found for model: {}", model))
     }
 
+    #[cfg(test)]
+    pub fn set_price_for_test(&mut self, pricing: ModelPricing) {
+        self.prices.insert(pricing.model.clone(), pricing);
+    }
+
     /// Calculate cost for a TokenEvent.
     pub fn calculate_cost(&mut self, event: &TokenEvent) -> f64 {
         match self.get_price(&event.model) {

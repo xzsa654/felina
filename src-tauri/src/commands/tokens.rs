@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 #[cfg(not(target_os = "windows"))]
 use std::process::Command;
 use std::sync::{Arc, Mutex};
+use tauri::Emitter;
 use tauri::State;
 use walkdir::WalkDir;
 
@@ -12,6 +13,16 @@ use crate::tokens::aggregator::TokenAggregator;
 use crate::tokens::types::*;
 
 type SessionRoots = Vec<(AgentId, Vec<PathBuf>)>;
+
+struct TauriProgressSink {
+    app: tauri::AppHandle,
+}
+
+impl ProgressSink for TauriProgressSink {
+    fn report(&self, progress: ScanProgress) {
+        let _ = self.app.emit("token-scan-progress", progress);
+    }
+}
 
 fn session_search_roots(agent: &AgentId) -> Vec<PathBuf> {
     let home = dirs::home_dir().unwrap_or_default();
@@ -680,8 +691,10 @@ pub async fn get_agent_quota_snapshot() -> Result<crate::tokens::ccusage::QuotaS
 
 #[tauri::command]
 pub fn get_token_analytics_pair(
-    date_start: Option<i64>,
-    date_end: Option<i64>,
+    monthly_date_start: Option<i64>,
+    monthly_date_end: Option<i64>,
+    daily_date_start: Option<i64>,
+    daily_date_end: Option<i64>,
     monthly_source: Option<String>,
     daily_source: Option<String>,
     state: State<'_, TokenState>,
@@ -690,7 +703,14 @@ pub fn get_token_analytics_pair(
         .aggregator
         .lock()
         .map_err(|e| format!("Lock error: {}", e))?;
-    let mut pair = agg.build_analytics_pair(date_start, date_end, monthly_source, daily_source)?;
+    let mut pair = agg.build_analytics_pair(
+        monthly_date_start,
+        monthly_date_end,
+        daily_date_start,
+        daily_date_end,
+        monthly_source,
+        daily_source,
+    )?;
     mark_analytics_transcript_availability(&mut pair.monthly);
     mark_analytics_transcript_availability(&mut pair.daily);
     Ok(pair)
@@ -837,21 +857,48 @@ pub fn get_available_agents(state: State<'_, TokenState>) -> Result<Vec<AgentSta
 }
 
 #[tauri::command]
-pub async fn refresh_token_data(state: State<'_, TokenState>) -> Result<RefreshResult, String> {
-    // Clone the Arc so we can move it into spawn_blocking
-    let aggregator = state.aggregator.clone();
+pub async fn refresh_token_data(
+    app: tauri::AppHandle,
+    state: State<'_, TokenState>,
+) -> Result<RefreshResult, String> {
+    let (storage, dated_source_cache) = {
+        let agg = state
+            .aggregator
+            .lock()
+            .map_err(|e| format!("Lock error: {}", e))?;
+        (agg.storage.clone(), agg.dated_source_cache.clone())
+    };
+    let progress_sink: Arc<dyn ProgressSink> = Arc::new(TauriProgressSink { app });
+    let storage_for_refresh = storage.clone();
 
     // Spawn blocking work on tokio's thread pool so the UI stays responsive
     let result = tokio::task::spawn_blocking(move || {
-        let agg = aggregator
-            .lock()
-            .map_err(|e| format!("Lock error: {}", e))?;
-        agg.refresh_with_options(true)
+        TokenAggregator::run_refresh(
+            storage_for_refresh,
+            dated_source_cache,
+            true,
+            Some(progress_sink),
+        )
     })
     .await
     .map_err(|e| format!("Task join error: {}", e))?;
 
+    if result.is_ok() {
+        storage.mark_token_import_completed()?;
+    }
+
     result
+}
+
+#[tauri::command]
+pub fn token_import_status(state: State<'_, TokenState>) -> Result<TokenImportStatus, String> {
+    let agg = state
+        .aggregator
+        .lock()
+        .map_err(|e| format!("Lock error: {}", e))?;
+    Ok(TokenImportStatus {
+        needs_import: agg.storage.token_import_needs_import()?,
+    })
 }
 
 #[tauri::command]
@@ -880,6 +927,7 @@ mod tests {
     use super::*;
     use crate::tokens::pricing::PricingService;
     use crate::tokens::storage::TokenStorage;
+    use std::sync::Arc;
 
     fn temp_dir(name: &str) -> PathBuf {
         let path =
@@ -906,9 +954,9 @@ mod tests {
         let storage = TokenStorage::with_path(db.clone()).expect("storage");
         (
             TokenAggregator {
-                storage,
+                storage: Arc::new(storage),
                 pricing: Mutex::new(PricingService::new()),
-                dated_source_cache: Mutex::new(None),
+                dated_source_cache: Arc::new(Mutex::new(None)),
             },
             db,
         )

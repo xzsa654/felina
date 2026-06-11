@@ -1,9 +1,10 @@
 use rayon::prelude::*;
+use std::sync::Arc;
 use walkdir::WalkDir;
 
 use crate::tokens::parsers::{AgentParser, ParserRegistry};
 use crate::tokens::scan_state::ScanState;
-use crate::tokens::types::{ScanError, TokenEvent};
+use crate::tokens::types::{ProgressSink, ScanError, ScanProgress, TokenEvent};
 
 /// Output from a scanner run.
 pub struct ScanOutput {
@@ -27,12 +28,16 @@ impl TokenScanner {
     /// determine which files need processing.
     /// Returns Err on system-level errors (e.g. scan state read/write failure).
     /// Parse errors are collected per-file in ScanOutput.errors.
-    pub fn scan_all(&self, scan_state: &ScanState) -> Result<ScanOutput, String> {
+    pub fn scan_all(
+        &self,
+        scan_state: &ScanState,
+        progress_sink: Option<Arc<dyn ProgressSink>>,
+    ) -> Result<ScanOutput, String> {
         let parsers = self.registry.available_parsers();
 
         let results: Vec<Result<ScanOutput, String>> = parsers
             .par_iter()
-            .map(|parser| self.scan_parser(*parser, scan_state))
+            .map(|parser| self.scan_parser(*parser, scan_state, progress_sink.clone()))
             .collect();
 
         let mut all_events = Vec::new();
@@ -74,7 +79,7 @@ impl TokenScanner {
         _start: i64,
         _end: i64,
     ) -> Result<ScanOutput, String> {
-        let output = self.scan_all(scan_state)?;
+        let output = self.scan_all(scan_state, None)?;
         let filtered: Vec<TokenEvent> = output
             .events
             .into_iter()
@@ -92,6 +97,7 @@ impl TokenScanner {
         &self,
         parser: &dyn AgentParser,
         scan_state: &ScanState,
+        progress_sink: Option<Arc<dyn ProgressSink>>,
     ) -> Result<ScanOutput, String> {
         let agent = parser.agent_id();
         let mut events = Vec::new();
@@ -168,6 +174,7 @@ impl TokenScanner {
 
             // Sort by mtime ascending for stable processing
             files.sort_by(|a, b| a.1.cmp(&b.1));
+            let files_total = files.len() as u64;
 
             // Track whether this source had any parse errors so we can decide
             // whether it's safe to advance the cursor.
@@ -201,6 +208,14 @@ impl TokenScanner {
                         if file_mtime > max_processed_mtime {
                             max_processed_mtime = file_mtime;
                         }
+                        if let Some(sink) = progress_sink.as_ref() {
+                            sink.report(ScanProgress {
+                                phase: "parser".to_string(),
+                                files_scanned,
+                                files_total,
+                                events_ingested: events.len() as u64,
+                            });
+                        }
                     }
                     Err(err) => {
                         source_had_errors = true;
@@ -209,6 +224,14 @@ impl TokenScanner {
                             source: path.to_string_lossy().to_string(),
                             message: err,
                         });
+                        if let Some(sink) = progress_sink.as_ref() {
+                            sink.report(ScanProgress {
+                                phase: "parser".to_string(),
+                                files_scanned,
+                                files_total,
+                                events_ingested: events.len() as u64,
+                            });
+                        }
                     }
                 }
             }
@@ -269,6 +292,7 @@ mod tests {
     use std::fs;
     use std::io::Write;
     use std::path::PathBuf;
+    use std::sync::Mutex;
 
     /// Return a per-test temp DB path that will never collide with the real
     /// ~/.felina/tokens.db or with other tests running in parallel.
@@ -329,6 +353,17 @@ mod tests {
         }
     }
 
+    #[derive(Default)]
+    struct RecordingProgressSink {
+        events: Mutex<Vec<ScanProgress>>,
+    }
+
+    impl ProgressSink for RecordingProgressSink {
+        fn report(&self, progress: ScanProgress) {
+            self.events.lock().unwrap().push(progress);
+        }
+    }
+
     #[test]
     fn test_seventy_five_changed_files_are_all_scanned() {
         let tmp = std::env::temp_dir().join("glyphic_test_75files");
@@ -361,7 +396,7 @@ mod tests {
         let scanner = TokenScanner::new(registry);
 
         let output = scanner
-            .scan_all(&scan_state)
+            .scan_all(&scan_state, None)
             .expect("scan_all should succeed");
         assert_eq!(
             output.files_scanned, 75,
@@ -369,6 +404,48 @@ mod tests {
             output.files_scanned
         );
         assert_eq!(output.events.len(), 75);
+
+        cleanup_db(&db);
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn scan_all_reports_incrementing_file_and_event_progress() {
+        let tmp = std::env::temp_dir().join("glyphic_test_scan_progress");
+        let _ = fs::remove_dir_all(&tmp);
+        fs::create_dir_all(&tmp).unwrap();
+
+        for i in 0..3 {
+            let path = tmp.join(format!("conv_{:03}.jsonl", i));
+            let ev = make_event(1_716_400_000 + i as i64, 100 + i, 50 + i);
+            fs::write(&path, serde_json::to_string(&ev).unwrap()).unwrap();
+        }
+
+        let parser = TestParser {
+            agent: AgentId::ClaudeCode,
+            dirs: vec![tmp.clone()],
+        };
+
+        let db = temp_db("scan_progress");
+        cleanup_db(&db);
+        let scan_state = ScanState::with_path(db.clone()).unwrap();
+        let mut registry = ParserRegistry::new();
+        registry.register(Box::new(parser));
+        let scanner = TokenScanner::new(registry);
+        let sink = Arc::new(RecordingProgressSink::default());
+
+        let output = scanner
+            .scan_all(&scan_state, Some(sink.clone()))
+            .expect("scan_all should succeed");
+
+        assert_eq!(output.files_scanned, 3);
+        let progress = sink.events.lock().unwrap();
+        assert_eq!(progress.len(), 3);
+        assert_eq!(progress[0].files_scanned, 1);
+        assert_eq!(progress[1].files_scanned, 2);
+        assert_eq!(progress[2].files_scanned, 3);
+        assert_eq!(progress[2].files_total, 3);
+        assert_eq!(progress[2].events_ingested, 3);
 
         cleanup_db(&db);
         let _ = fs::remove_dir_all(&tmp);
@@ -409,7 +486,7 @@ mod tests {
             registry.register(Box::new(make_parser()));
             let scanner = TokenScanner::new(registry);
             let output = scanner
-                .scan_all(&scan_state)
+                .scan_all(&scan_state, None)
                 .expect("First scan should succeed");
             assert_eq!(output.files_scanned, 3);
             assert_eq!(output.events.len(), 3);
@@ -435,7 +512,7 @@ mod tests {
             registry.register(Box::new(make_parser()));
             let scanner = TokenScanner::new(registry);
             let output = scanner
-                .scan_all(&scan_state)
+                .scan_all(&scan_state, None)
                 .expect("Second scan should succeed");
 
             assert_eq!(
@@ -528,7 +605,7 @@ mod tests {
         let scanner = TokenScanner::new(registry);
 
         let output = scanner
-            .scan_all(&scan_state)
+            .scan_all(&scan_state, None)
             .expect("scan_all should succeed");
 
         assert_eq!(output.files_scanned, 3);
@@ -586,7 +663,7 @@ mod tests {
             registry.register(Box::new(make_parser()));
             let scanner = TokenScanner::new(registry);
             scanner
-                .scan_all(&scan_state)
+                .scan_all(&scan_state, None)
                 .expect("First scan should succeed")
         };
         assert_eq!(first_scan.errors.len(), 1, "Should have 1 parse error");
@@ -617,7 +694,7 @@ mod tests {
             registry.register(Box::new(make_parser()));
             let scanner = TokenScanner::new(registry);
             scanner
-                .scan_all(&scan_state)
+                .scan_all(&scan_state, None)
                 .expect("Second scan should succeed")
         };
 
@@ -681,7 +758,7 @@ mod tests {
 
         let scanner = TokenScanner::new(registry);
         let output = scanner
-            .scan_all(&scan_state)
+            .scan_all(&scan_state, None)
             .expect("scan_all should succeed");
 
         assert_eq!(

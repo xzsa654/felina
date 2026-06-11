@@ -1,14 +1,16 @@
 use rusqlite::{params, Connection, OptionalExtension};
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
-use crate::tokens::types::{AgentId, TokenEvent};
+use crate::tokens::types::{AgentId, ProgressSink, ScanProgress, TokenEvent};
 
 pub const SOURCE_FELINA_PARSER: &str = "felina_parser";
 pub const SOURCE_TOKSCALE_EXPORT: &str = "tokscale_export";
 pub const SOURCE_PARSER_FALLBACK: &str = "parser_fallback";
 const ACTIVE_SOURCE_KEY: &str = "active_source";
 const CODEX_INPUT_CACHE_NORMALIZED_KEY: &str = "codex_input_cache_normalized_v1";
+const TOKEN_IMPORT_COMPLETED_KEY: &str = "token_import_completed_v1";
+const PARSER_UPSERT_BATCH_SIZE: usize = 5_000;
 
 /// SQLite-backed cache for token events at `~/.felina/tokens.db`.
 pub struct TokenStorage {
@@ -274,41 +276,73 @@ impl TokenStorage {
         source: &str,
         generation: &str,
     ) -> Result<u64, String> {
-        let conn = self.db.lock().map_err(|e| format!("Lock error: {}", e))?;
+        self.upsert_events_for_source_with_progress(events, source, generation, None, 0, 0)
+    }
+
+    pub(crate) fn upsert_events_for_source_with_progress(
+        &self,
+        events: &[TokenEvent],
+        source: &str,
+        generation: &str,
+        progress_sink: Option<Arc<dyn ProgressSink>>,
+        files_scanned: u64,
+        files_total: u64,
+    ) -> Result<u64, String> {
+        let mut conn = self.db.lock().map_err(|e| format!("Lock error: {}", e))?;
         let mut inserted = 0u64;
 
-        for event in events {
-            let result = conn.execute(
-                "INSERT OR IGNORE INTO token_events
-                    (agent, provider, model, timestamp, input_tokens, output_tokens,
-                     cache_read_tokens, cache_write_tokens, reasoning_tokens,
-                     project, session_id, cost_usd, source, source_generation, event_count)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, 0.0, ?12, ?13, 1)",
-                params![
-                    event.agent.to_string(),
-                    event.provider,
-                    event.model,
-                    event.timestamp,
-                    event.input_tokens,
-                    event.output_tokens,
-                    event.cache_read_tokens,
-                    event.cache_write_tokens,
-                    event.reasoning_tokens,
-                    event.project,
-                    event.session_id,
-                    source,
-                    generation,
-                ],
-            );
-            match result {
-                Ok(rows) => {
-                    if rows > 0 {
-                        inserted += 1;
+        for chunk in events.chunks(PARSER_UPSERT_BATCH_SIZE) {
+            let tx = conn
+                .transaction()
+                .map_err(|e| format!("Cannot begin parser upsert batch: {}", e))?;
+            {
+                let mut stmt = tx
+                    .prepare_cached(
+                        "INSERT OR IGNORE INTO token_events
+                            (agent, provider, model, timestamp, input_tokens, output_tokens,
+                             cache_read_tokens, cache_write_tokens, reasoning_tokens,
+                             project, session_id, cost_usd, source, source_generation, event_count)
+                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, 0.0, ?12, ?13, 1)",
+                    )
+                    .map_err(|e| format!("Cannot prepare parser upsert: {}", e))?;
+
+                for event in chunk {
+                    let result = stmt.execute(params![
+                        event.agent.to_string(),
+                        event.provider,
+                        event.model,
+                        event.timestamp,
+                        event.input_tokens,
+                        event.output_tokens,
+                        event.cache_read_tokens,
+                        event.cache_write_tokens,
+                        event.reasoning_tokens,
+                        event.project,
+                        event.session_id,
+                        source,
+                        generation,
+                    ]);
+                    match result {
+                        Ok(rows) => {
+                            if rows > 0 {
+                                inserted += 1;
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!("Storage: error inserting event: {}", e);
+                        }
                     }
                 }
-                Err(e) => {
-                    eprintln!("Storage: error inserting event: {}", e);
-                }
+            }
+            tx.commit()
+                .map_err(|e| format!("Cannot commit parser upsert batch: {}", e))?;
+            if let Some(sink) = progress_sink.as_ref() {
+                sink.report(ScanProgress {
+                    phase: "parser".to_string(),
+                    files_scanned,
+                    files_total,
+                    events_ingested: inserted,
+                });
             }
         }
 
@@ -405,6 +439,29 @@ impl TokenStorage {
         Ok(source)
     }
 
+    pub fn token_import_needs_import(&self) -> Result<bool, String> {
+        let conn = self.db.lock().map_err(|e| format!("Lock error: {}", e))?;
+        let completed = conn
+            .query_row(
+                "SELECT value FROM token_ingestion_state WHERE key = ?1",
+                params![TOKEN_IMPORT_COMPLETED_KEY],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .map_err(|e| format!("Cannot read token import status: {}", e))?;
+        Ok(completed.as_deref() != Some("1"))
+    }
+
+    pub fn mark_token_import_completed(&self) -> Result<(), String> {
+        let conn = self.db.lock().map_err(|e| format!("Lock error: {}", e))?;
+        conn.execute(
+            "INSERT OR REPLACE INTO token_ingestion_state (key, value) VALUES (?1, '1')",
+            params![TOKEN_IMPORT_COMPLETED_KEY],
+        )
+        .map_err(|e| format!("Cannot mark token import completed: {}", e))?;
+        Ok(())
+    }
+
     pub fn count_events_for_source(&self, source: &str) -> Result<u64, String> {
         let conn = self.db.lock().map_err(|e| format!("Lock error: {}", e))?;
         conn.query_row(
@@ -449,10 +506,20 @@ impl TokenStorage {
     /// Delete all rows from `token_events` (both dated and aggregate).
     /// Returns the number of rows deleted.
     pub fn delete_all_events(&self) -> Result<u64, String> {
-        let conn = self.db.lock().map_err(|e| format!("Lock error: {}", e))?;
-        let deleted = conn
+        let mut conn = self.db.lock().map_err(|e| format!("Lock error: {}", e))?;
+        let tx = conn
+            .transaction()
+            .map_err(|e| format!("Cannot begin delete all events: {}", e))?;
+        let deleted = tx
             .execute("DELETE FROM token_events", [])
             .map_err(|e| format!("Cannot delete all events: {}", e))?;
+        tx.execute(
+            "DELETE FROM token_ingestion_state WHERE key = ?1",
+            params![TOKEN_IMPORT_COMPLETED_KEY],
+        )
+        .map_err(|e| format!("Cannot reset token import completion: {}", e))?;
+        tx.commit()
+            .map_err(|e| format!("Cannot commit delete all events: {}", e))?;
         Ok(deleted as u64)
     }
 
@@ -558,6 +625,116 @@ mod tests {
             "DB should have 5 total events (3 + 2, no duplicates)"
         );
         drop(conn);
+        remove_test_db(&db);
+    }
+
+    #[test]
+    fn upsert_events_for_source_preserves_insert_or_ignore_counts() {
+        let db = temp_db("source_insert_or_ignore_counts");
+        remove_test_db(&db);
+        let storage = TokenStorage::with_path(db.clone()).expect("Failed to create storage");
+
+        let first_batch = vec![
+            make_event(AgentId::ClaudeCode, 1000, 100, 50, "sess-a"),
+            make_event(AgentId::ClaudeCode, 1001, 200, 60, "sess-b"),
+        ];
+        let inserted = storage
+            .upsert_events_for_source(&first_batch, SOURCE_PARSER_FALLBACK, "fallback")
+            .expect("first source upsert");
+        assert_eq!(inserted, 2);
+
+        let second_batch = vec![
+            make_event(AgentId::ClaudeCode, 1000, 100, 50, "sess-a"),
+            make_event(AgentId::ClaudeCode, 1002, 300, 70, "sess-c"),
+        ];
+        let inserted = storage
+            .upsert_events_for_source(&second_batch, SOURCE_PARSER_FALLBACK, "fallback")
+            .expect("second source upsert");
+        assert_eq!(inserted, 1);
+
+        let conn = storage.db.lock().unwrap();
+        let total: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM token_events WHERE source = ?1 AND source_generation = ?2",
+                params![SOURCE_PARSER_FALLBACK, "fallback"],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(total, 3);
+
+        drop(conn);
+        remove_test_db(&db);
+    }
+
+    #[test]
+    fn token_import_status_uses_persisted_completion_flag() {
+        let db = temp_db("token_import_status");
+        remove_test_db(&db);
+        let storage = TokenStorage::with_path(db.clone()).expect("Failed to create storage");
+
+        assert!(
+            storage
+                .token_import_needs_import()
+                .expect("read initial import status"),
+            "new storage should require first import"
+        );
+
+        storage
+            .mark_token_import_completed()
+            .expect("mark import completed");
+
+        assert!(
+            !storage
+                .token_import_needs_import()
+                .expect("read completed import status"),
+            "completed import flag should skip first import"
+        );
+
+        remove_test_db(&db);
+    }
+
+    #[test]
+    fn delete_all_events_resets_import_completion_but_preserves_active_source() {
+        let db = temp_db("delete_resets_import_completion");
+        remove_test_db(&db);
+        let storage = TokenStorage::with_path(db.clone()).expect("Failed to create storage");
+        let event = make_event(AgentId::ClaudeCode, 1000, 100, 50, "sess-a");
+
+        assert_eq!(storage.upsert_events(&[event]).expect("insert event"), 1);
+        storage
+            .set_active_source(SOURCE_TOKSCALE_EXPORT)
+            .expect("set active source");
+        storage
+            .mark_token_import_completed()
+            .expect("mark import completed");
+        assert!(
+            !storage
+                .token_import_needs_import()
+                .expect("completed import status"),
+            "completed flag should skip import before delete"
+        );
+
+        let deleted = storage.delete_all_events().expect("delete all events");
+
+        assert_eq!(deleted, 1);
+        assert_eq!(
+            storage
+                .count_events_for_source(SOURCE_FELINA_PARSER)
+                .expect("felina parser count"),
+            0
+        );
+        assert!(
+            storage
+                .token_import_needs_import()
+                .expect("post-delete import status"),
+            "delete_all_events should clear the completed import flag"
+        );
+        assert_eq!(
+            storage.active_source().expect("active source"),
+            SOURCE_TOKSCALE_EXPORT,
+            "active source should survive event deletion"
+        );
+
         remove_test_db(&db);
     }
 

@@ -212,6 +212,7 @@ pub struct TranscriptEntry {
 pub struct TokenAnalyticsPair {
     pub monthly: TokenAnalytics,
     pub daily: TokenAnalytics,
+    pub cache_efficiency: CacheEfficiency,
 }
 
 /// Cache efficiency metrics.
@@ -244,6 +245,23 @@ pub struct ScanError {
     pub agent: AgentId,
     pub source: String,
     pub message: String,
+}
+
+#[derive(Serialize, Clone, Debug, PartialEq, Eq)]
+pub struct ScanProgress {
+    pub phase: String,
+    pub files_scanned: u64,
+    pub files_total: u64,
+    pub events_ingested: u64,
+}
+
+pub trait ProgressSink: Send + Sync {
+    fn report(&self, progress: ScanProgress);
+}
+
+#[derive(Serialize, Clone, Debug, PartialEq, Eq)]
+pub struct TokenImportStatus {
+    pub needs_import: bool,
 }
 
 /// Result from a refresh scan.
@@ -304,5 +322,22 @@ mod tests {
         assert_eq!(err["agent"], "claude-code");
         assert_eq!(err["source"], "/tmp/bad_file.jsonl");
         assert!(err["message"].as_str().unwrap().contains("json error"));
+    }
+
+    #[test]
+    fn scan_progress_json_shape_matches_event_payload() {
+        let progress = ScanProgress {
+            phase: "parser".into(),
+            files_scanned: 2,
+            files_total: 5,
+            events_ingested: 13,
+        };
+
+        let json = serde_json::to_value(&progress).expect("Serialize ScanProgress");
+
+        assert_eq!(json["phase"], "parser");
+        assert_eq!(json["files_scanned"], 2);
+        assert_eq!(json["files_total"], 5);
+        assert_eq!(json["events_ingested"], 13);
     }
 }
