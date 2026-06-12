@@ -1,5 +1,5 @@
 {
-  "lastUpdated": "2026-06-11",
+  "lastUpdated": "2026-06-12",
   "categories": [
     {
       "id": "architecture",
@@ -61,7 +61,7 @@
         "store mutation"
       ],
       "file": "dev-docs.md",
-      "count": 5
+      "count": 9
     },
     {
       "id": "platform",

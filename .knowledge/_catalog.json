@@ -1,5 +1,5 @@
 {
-  "lastUpdated": "2026-06-11",
+  "lastUpdated": "2026-06-12",
   "entries": [
     {
       "id": "kb-architecture-local-only-boundary",
@@ -682,6 +682,84 @@
       "file": "knowledge-base/platform.md",
       "anchor": "claude-code-transcript-harness-tag-分類學background-vs-使用者輸入",
       "updated": "2026-06-11"
+    },
+    {
+      "id": "kb-frontend-error-display",
+      "title": "Error display convention: ErrorNotice, no window.alert",
+      "type": "knowledge",
+      "status": "active",
+      "confidence": "confirmed",
+      "keywords": [
+        "error",
+        "ErrorNotice",
+        "window.alert",
+        "i18n",
+        "verbatim",
+        "danger",
+        "inline error"
+      ],
+      "appliesWhen": "Any frontend code path that surfaces a failure to the user",
+      "file": "knowledge-base/dev-docs.md",
+      "anchor": "error-display-convention-errornotice-no-windowalert",
+      "updated": "2026-06-11"
+    },
+    {
+      "id": "kb-i18n-verbatim-boundary",
+      "title": "i18n verbatim boundary rulings",
+      "type": "knowledge",
+      "status": "active",
+      "confidence": "confirmed",
+      "keywords": [
+        "i18n",
+        "verbatim",
+        "locale",
+        "formatNumber",
+        "zh-TW",
+        "translation",
+        "TranslationDict"
+      ],
+      "appliesWhen": "Adding i18n keys or deciding translatable UI text vs verbatim data",
+      "file": "knowledge-base/dev-docs.md",
+      "anchor": "i18n-verbatim-boundary-rulings",
+      "updated": "2026-06-11"
+    },
+    {
+      "id": "kb-react-query-migration-side-effects",
+      "title": "React Query 遷移：key 重置不會保留舊 effect 的副作用",
+      "type": "knowledge",
+      "status": "active",
+      "confidence": "confirmed",
+      "keywords": [
+        "react-query",
+        "useInfiniteQuery",
+        "migration",
+        "side effect",
+        "selection",
+        "refresh-on-mount"
+      ],
+      "appliesWhen": "頁面手動 useEffect/useState 資料層遷移到 React Query 時",
+      "file": "knowledge-base/dev-docs.md",
+      "anchor": "react-query-遷移key-重置不會保留舊-effect-的副作用",
+      "updated": "2026-06-12"
+    },
+    {
+      "id": "kb-url-searchparams-encoding",
+      "title": "URL 查詢參數編解碼交給 URLSearchParams，勿重複 decode",
+      "type": "knowledge",
+      "status": "active",
+      "confidence": "confirmed",
+      "keywords": [
+        "URLSearchParams",
+        "useSearchParams",
+        "deep-link",
+        "encode",
+        "decode",
+        "query params"
+      ],
+      "appliesWhen": "頁面新增 URL deep-link / 查詢參數同步時",
+      "file": "knowledge-base/dev-docs.md",
+      "anchor": "url-查詢參數編解碼交給-urlsearchparams勿重複-decode",
+      "updated": "2026-06-12"
     }
   ]
 }
