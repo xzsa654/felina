@@ -3,6 +3,7 @@ import { useSearchParams } from "react-router";
 import { useLocaleStore } from "$lib/stores/locale";
 import { t } from "$lib/i18n";
 import { PageBody, PageHeader } from "$lib/components/shared/PageScaffold";
+import ErrorNotice from "$lib/components/shared/ErrorNotice";
 import TokenStatCards from "./components/TokenStatCards";
 import TokenTimeSeries from "./components/TokenTimeSeries";
 import TokenCostTimeSeries from "./components/TokenCostTimeSeries";
@@ -259,9 +260,7 @@ export default function TokensPage() {
       <PageBody>
         <div className="space-y-4">
             {queryError && (
-              <div className="px-4 py-2 bg-danger-dim border border-danger/30 rounded-md text-sm text-danger">
-                {String(queryError)}
-              </div>
+              <ErrorNotice title={t(locale, "tokens.queryFailed")} detail={String(queryError)} />
             )}
 
             {isImporting ? (

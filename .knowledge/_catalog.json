@@ -1,5 +1,5 @@
 {
-  "lastUpdated": "2026-06-11",
+  "lastUpdated": "2026-06-12",
   "entries": [
     {
       "id": "kb-architecture-local-only-boundary",
@@ -682,6 +682,141 @@
       "file": "knowledge-base/platform.md",
       "anchor": "claude-code-transcript-harness-tag-分類學background-vs-使用者輸入",
       "updated": "2026-06-11"
+    },
+    {
+      "id": "kb-frontend-error-display",
+      "title": "Error display convention: ErrorNotice, no window.alert",
+      "type": "knowledge",
+      "status": "active",
+      "confidence": "confirmed",
+      "keywords": [
+        "error",
+        "ErrorNotice",
+        "window.alert",
+        "i18n",
+        "verbatim",
+        "danger",
+        "inline error"
+      ],
+      "appliesWhen": "Any frontend code path that surfaces a failure to the user",
+      "file": "knowledge-base/dev-docs.md",
+      "anchor": "error-display-convention-errornotice-no-windowalert",
+      "updated": "2026-06-11"
+    },
+    {
+      "id": "kb-i18n-verbatim-boundary",
+      "title": "i18n verbatim boundary rulings",
+      "type": "knowledge",
+      "status": "active",
+      "confidence": "confirmed",
+      "keywords": [
+        "i18n",
+        "verbatim",
+        "locale",
+        "formatNumber",
+        "zh-TW",
+        "translation",
+        "TranslationDict"
+      ],
+      "appliesWhen": "Adding i18n keys or deciding translatable UI text vs verbatim data",
+      "file": "knowledge-base/dev-docs.md",
+      "anchor": "i18n-verbatim-boundary-rulings",
+      "updated": "2026-06-11"
+    },
+    {
+      "id": "kb-react-query-migration-side-effects",
+      "title": "React Query 遷移：key 重置不會保留舊 effect 的副作用",
+      "type": "knowledge",
+      "status": "active",
+      "confidence": "confirmed",
+      "keywords": [
+        "react-query",
+        "useInfiniteQuery",
+        "migration",
+        "side effect",
+        "selection",
+        "refresh-on-mount"
+      ],
+      "appliesWhen": "頁面手動 useEffect/useState 資料層遷移到 React Query 時",
+      "file": "knowledge-base/dev-docs.md",
+      "anchor": "react-query-遷移key-重置不會保留舊-effect-的副作用",
+      "updated": "2026-06-12"
+    },
+    {
+      "id": "kb-url-searchparams-encoding",
+      "title": "URL 查詢參數編解碼交給 URLSearchParams，勿重複 decode",
+      "type": "knowledge",
+      "status": "active",
+      "confidence": "confirmed",
+      "keywords": [
+        "URLSearchParams",
+        "useSearchParams",
+        "deep-link",
+        "encode",
+        "decode",
+        "query params"
+      ],
+      "appliesWhen": "頁面新增 URL deep-link / 查詢參數同步時",
+      "file": "knowledge-base/dev-docs.md",
+      "anchor": "url-查詢參數編解碼交給-urlsearchparams勿重複-decode",
+      "updated": "2026-06-12"
+    },
+    {
+      "id": "kb-skills-dedupe-schema",
+      "title": "多 skill 共用規則：schema 單一權威源 + 顯式角色差異",
+      "type": "knowledge",
+      "status": "active",
+      "confidence": "confirmed",
+      "keywords": [
+        "skill",
+        "schema",
+        "dedupe",
+        "single source of truth",
+        "DRY",
+        "drift"
+      ],
+      "appliesWhen": "兩個以上協作 skill 出現近逐字相同的規則段落時",
+      "file": "knowledge-base/dev-docs.md",
+      "anchor": "多-skill-共用規則schema-單一權威源--顯式角色差異",
+      "updated": "2026-06-12"
+    },
+    {
+      "id": "kb-workflow-backlog-ownership",
+      "title": "Backlog/Milestone 唯一權威：project-knowledge，session skills 只讀與委派",
+      "type": "knowledge",
+      "status": "active",
+      "confidence": "confirmed",
+      "keywords": [
+        "backlog",
+        "milestone",
+        "project-knowledge",
+        "ideas-backlog",
+        "ownership",
+        "delegation"
+      ],
+      "appliesWhen": "任何 skill 要新增/更新/移動 backlog 或 milestone 條目時",
+      "file": "knowledge-base/dev-docs.md",
+      "anchor": "backlogmilestone-唯一權威project-knowledgesession-skills-只讀與委派",
+      "updated": "2026-06-12"
+    },
+    {
+      "id": "exp-claude-code-hooks-stop-work-cycle",
+      "title": "Stop hook 防騷擾：工作週期 re-arm 模式",
+      "type": "experience",
+      "status": "active",
+      "confidence": "confirmed",
+      "keywords": [
+        "stop hook",
+        "sentinel",
+        "re-arm",
+        "work cycle",
+        "anti-nag",
+        "cooldown"
+      ],
+      "appliesWhen": "任何收尾/同步提醒類 Stop hook 或事件後重新武裝的一次性提醒",
+      "file": "experience/claude-code-hooks.md",
+      "anchor": "stop-hook-防騷擾工作週期-re-arm-模式",
+      "updated": "2026-06-12"
     }
   ]
 }

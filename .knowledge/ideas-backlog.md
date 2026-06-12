@@ -199,6 +199,27 @@ Notes:
 - 不在這個 change 做：tag / category / collection / rating / download count — 等使用者實際反映需求再加
 - Loading skeleton 跟 retry UX 屬於 cross-cutting polish，跟主要功能一起做不獨立切 change
 
+### lan-device-skill-transfer
+
+| Field | Value |
+|---|---|
+| type | suggestion |
+| status | not-committed |
+| flagged | 2026-06-11 |
+| last-seen | 2026-06-11 |
+| description | Device-to-device skill 傳輸：同一使用者多台電腦間（同 Wi-Fi / LAN）直接從 A 機丟 skill 到 B 機，分享端臨時起本機 HTTP server，傳完即關。定位是裝置間傳輸，不是 mini market，與內網自架 Hub 互補。 |
+
+Design route (2026-06-11 討論收斂):
+- 分享端：Felina 內按「分享」起臨時 HTTP server（Rust 端 axum/tiny-http），session 結束即關閉，無常駐服務。
+- 發現機制：mDNS（`_felina._tcp.local`，`mdns-sd` crate）列出「附近的 Felina 裝置」，限同網段；保底 fallback 為手動輸入 `IP:port-配對碼` 一體字串（公司 Wi-Fi client isolation / VLAN 隔離時 mDNS 失靈）。
+- 配對：6 位數短配對碼，雙向確認（B 確認連對機器、防同網段他人亂連），當 bearer token 驗證；不做帳號、不做 TLS（威脅模型：LAN 內傳輸 skill 文字檔）。
+- 接收端：直接接現有 skill import staging 流程（`skill_import.rs`），等於新增一種 import source「從另一台 Felina」。
+- MVP 可只做手動輸入字串路徑，mDNS 發現層後補（連線 + 配對碼驗證邏輯兩者共用）。
+
+Notes:
+- Windows 防火牆 inbound 授權提示的 UX 要處理（首次起 server 會跳）。
+- 設計警戒：別讓它長成第二套 market 協定 — scope 限縮在一次性傳輸。
+
 ---
 
 ## Installer / Distribution
@@ -301,3 +322,22 @@ Scope:
 Notes:
 - 由 2026-06-01 OQ 移入。`refactor-zip-import-staging` change 的 Non-Goals 明確不改後端匯入邏輯,所以另開 change。
 - Decision 3「ZIP 直送 Staging」的行為若延伸到 folder picker,需確認「使用者明確選擇 = 直送 Staging」對任意路徑也成立(可能要保留 Discovered 給 folder picker 的批次掃描)。
+
+## Tokens / Analytics
+
+### tokens-agent-open-type
+
+| Field | Value |
+|---|---|
+| type | planned-change |
+| status | planned |
+| flagged | 2026-05-29 |
+| last-seen | 2026-06-12 |
+| description | `TokenEvent.agent` 從封閉 enum 改開放型別（string），tokscale 給什麼 agent 就照實入庫、照實顯示，使用者新增第三方 agent（如 OpenCode）時可直接看到其用量。 |
+
+Notes:
+- 原 handoff OQ「tokscale ingestion 第三道閘：AgentId enum 封閉」，2026-06-12 確認現況後收斂移入。
+- 現況：方案 B（skip 未知 row）已實作於 `tokscale_ingestion.rs:output_from_collection` —— 未知 agent 逐筆跳過、計數僅寫 stderr、整批不失敗。殘餘缺口：(a) skip 計數未浮現到 UI；(b) 全部未知時錯誤訊息為 `unsupported_schema` 不指明原因。
+- 決議方向（方案 A 變形）：`tokens/types.rs` 的 `AgentId` enum 改開放 string。Skills 側 `canonical_skills.rs` 的 `AgentId` enum 不動——fan-out 需實體程式碼支援，封閉合理，兩者不耦合。
+- 影響範圍：`types.rs`、storage 序列化、aggregation group key、前端 Tokens 頁 agent 顯示（未知 agent 需 fallback 名稱/顏色）。
+- 與 `third-party-agent-path-configuration` / `dynamic-agent-field-catalog`（Skills 側動態 agent）方向互補，但獨立可做。

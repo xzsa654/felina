@@ -9,33 +9,32 @@ import {
   glassListSurfaceClass,
 } from "$lib/components/shared/PageScaffold";
 import MarkdownPreview from "$lib/components/shared/MarkdownPreview";
+import ErrorNotice from "$lib/components/shared/ErrorNotice";
 import { api } from "$lib/tauri/commands";
-import type { AgentId, HistorySession, SessionTranscript, TranscriptEntry } from "$lib/types/token-analytics";
+import { t, type Locale } from "$lib/i18n";
+import { useLocaleStore } from "$lib/stores/locale";
+import type { AgentId, HistorySession, TranscriptEntry } from "$lib/types/token-analytics";
 import { formatNumber } from "$lib/utils/format";
+import { useHistorySessions, useSessionTranscript } from "./hooks/useHistoryQueries";
 
-const AGENTS: { id: "all" | AgentId; label: string }[] = [
-  { id: "all", label: "All" },
+// Agent product names (Claude/Codex/Gemini) stay verbatim; only "All" is translated.
+const AGENTS: { id: "all" | AgentId; label: string | null }[] = [
+  { id: "all", label: null },
   { id: "claude-code", label: "Claude" },
   { id: "codex-cli", label: "Codex" },
   { id: "gemini-cli", label: "Gemini" },
 ];
 
-const PAGE_SIZE = 50;
+const TRANSCRIPT_FILTERS = ["all", "conversation", "usage"] as const;
 
-const TRANSCRIPT_FILTERS = [
-  { id: "all", label: "All" },
-  { id: "conversation", label: "Conversation" },
-  { id: "usage", label: "Usage" },
-] as const;
-
-type TranscriptFilter = (typeof TRANSCRIPT_FILTERS)[number]["id"];
+type TranscriptFilter = (typeof TRANSCRIPT_FILTERS)[number];
 
 function shortSession(id: string): string {
   return id.length > 12 ? `${id.slice(0, 12)}...` : id;
 }
 
-function formatTimestamp(ts: number | null): string {
-  if (!ts) return "No date";
+function formatTimestamp(ts: number | null, locale: Locale): string {
+  if (!ts) return t(locale, "history.noDate");
   return new Date(ts * 1000).toLocaleString(undefined, {
     month: "short",
     day: "numeric",
@@ -44,24 +43,25 @@ function formatTimestamp(ts: number | null): string {
   });
 }
 
-function usageLine(entry: TranscriptEntry): string | null {
+// Token metric tags (input/output/cache/write/reasoning) stay verbatim as telemetry identifiers.
+function usageLine(entry: TranscriptEntry, locale: Locale): string | null {
   if (entry.role !== "usage") return null;
   const parts = [
-    entry.input_tokens != null ? `input ${formatNumber(entry.input_tokens)}` : null,
-    entry.output_tokens != null ? `output ${formatNumber(entry.output_tokens)}` : null,
-    entry.cache_read_tokens != null ? `cache ${formatNumber(entry.cache_read_tokens)}` : null,
-    entry.cache_write_tokens != null ? `write ${formatNumber(entry.cache_write_tokens)}` : null,
-    entry.reasoning_tokens != null ? `reasoning ${formatNumber(entry.reasoning_tokens)}` : null,
+    entry.input_tokens != null ? `input ${formatNumber(entry.input_tokens, locale)}` : null,
+    entry.output_tokens != null ? `output ${formatNumber(entry.output_tokens, locale)}` : null,
+    entry.cache_read_tokens != null ? `cache ${formatNumber(entry.cache_read_tokens, locale)}` : null,
+    entry.cache_write_tokens != null ? `write ${formatNumber(entry.cache_write_tokens, locale)}` : null,
+    entry.reasoning_tokens != null ? `reasoning ${formatNumber(entry.reasoning_tokens, locale)}` : null,
   ].filter(Boolean);
   return parts.length ? parts.join(" · ") : null;
 }
 
-function roleLabel(role: string): string {
+function roleLabel(role: string, locale: Locale): string {
   switch (role) {
     case "user":
-      return "User";
+      return t(locale, "history.roleUser");
     case "assistant":
-      return "Agent";
+      return t(locale, "history.roleAgent");
     default:
       return role;
   }
@@ -85,7 +85,7 @@ function entryBubbleClass(role: string): string {
     case "assistant":
       return "border-success/30 bg-success/5";
     case "usage":
-      return "border-purple-500/25 bg-purple-500/5";
+      return "border-info/25 bg-info/5";
     case "tool":
       return "border-warning/25 bg-warning/5";
     case "system":
@@ -110,6 +110,7 @@ function matchesTranscriptEntry(
   entry: TranscriptEntry,
   roleFilter: TranscriptFilter,
   query: string,
+  locale: Locale,
 ): boolean {
   if (roleFilter === "conversation" && (entry.role === "usage" || entry.channel === "background"))
     return false;
@@ -118,78 +119,45 @@ function matchesTranscriptEntry(
   const q = query.trim().toLowerCase();
   if (!q) return true;
 
-  return [entry.role, entry.model, entry.content, usageLine(entry)]
+  return [entry.role, entry.model, entry.content, usageLine(entry, locale)]
     .filter(Boolean)
     .some((value) => value!.toLowerCase().includes(q));
 }
 
 export default function HistoryPage() {
+  const locale = useLocaleStore((s) => s.locale);
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const deepLinkAgent = searchParams.get("agent") as AgentId | null;
   const deepLinkSession = searchParams.get("session");
 
-  const [sessions, setSessions] = useState<HistorySession[]>([]);
-  const [historyOffset, setHistoryOffset] = useState(0);
-  const [historyTotal, setHistoryTotal] = useState(0);
-  const [loading, setLoading] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [listError, setListError] = useState<string | null>(null);
   const [agentFilter, setAgentFilter] = useState<"all" | AgentId>("all");
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<HistorySession | null>(null);
-  const [transcript, setTranscript] = useState<SessionTranscript | null>(null);
   const [transcriptFilter, setTranscriptFilter] = useState<TranscriptFilter>("conversation");
   const [transcriptQuery, setTranscriptQuery] = useState("");
-  const [transcriptLoading, setTranscriptLoading] = useState(false);
-  const [transcriptError, setTranscriptError] = useState<string | null>(null);
   const [revealing, setRevealing] = useState(false);
+  const [revealError, setRevealError] = useState<string | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    setListError(null);
-    setHistoryOffset(0);
-    setHistoryTotal(0);
-    setSessions([]);
-    setSelected(null);
-    api.tokenAnalytics
-      .refresh()
-      .catch(() => {})
-      .then(() => {
-        if (cancelled) return;
-        return api.tokenAnalytics.listHistorySessions({
-          limit: PAGE_SIZE,
-          offset: 0,
-          agentFilter,
-          query,
-        });
-      })
-      .then((page) => {
-        if (cancelled || !page) return;
-        setSessions(page.sessions);
-        setHistoryTotal(page.total);
-        setHistoryOffset(page.sessions.length);
-      })
-      .catch((error) => {
-        if (!cancelled) setListError(String(error));
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [agentFilter, query]);
+  const sessionsQuery = useHistorySessions({ agentFilter, query });
+  const sessions = sessionsQuery.data?.pages.flatMap((page) => page.sessions) ?? [];
+  const historyTotal = sessionsQuery.data?.pages.at(-1)?.total ?? 0;
+  const loading = sessionsQuery.isPending;
+  const listError = sessionsQuery.error ? String(sessionsQuery.error) : null;
 
-  const hasMoreSessions = historyOffset < historyTotal;
+  const transcriptQueryResult = useSessionTranscript(selected);
+  const transcript = transcriptQueryResult.data ?? null;
+  const transcriptLoading = transcriptQueryResult.isLoading;
+  const transcriptError = transcriptQueryResult.error
+    ? String(transcriptQueryResult.error)
+    : revealError;
 
   const filteredTranscriptEntries = useMemo(
     () =>
       transcript?.entries.filter((entry) =>
-        matchesTranscriptEntry(entry, transcriptFilter, transcriptQuery),
+        matchesTranscriptEntry(entry, transcriptFilter, transcriptQuery, locale),
       ) ?? [],
-    [transcript, transcriptFilter, transcriptQuery],
+    [transcript, transcriptFilter, transcriptQuery, locale],
   );
 
   useEffect(() => {
@@ -204,86 +172,42 @@ export default function HistoryPage() {
     setSelected(fromLink ?? sessions[0] ?? null);
   }, [deepLinkAgent, deepLinkSession, selected, sessions]);
 
-  useEffect(() => {
-    if (!selected) {
-      setTranscript(null);
-      setTranscriptError(null);
-      return;
-    }
-
-    let cancelled = false;
-    setTranscript(null);
-    setTranscriptError(null);
-    setTranscriptLoading(true);
-    api.tokenAnalytics
-      .readSessionTranscript(selected.agent, selected.session_id)
-      .then((result) => {
-        if (!cancelled) setTranscript(result);
-      })
-      .catch((error) => {
-        if (!cancelled) setTranscriptError(String(error));
-      })
-      .finally(() => {
-        if (!cancelled) setTranscriptLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [selected]);
-
   function selectSession(session: HistorySession) {
     setSelected(session);
+    setRevealError(null);
     navigate(`/history?agent=${session.agent}&session=${encodeURIComponent(session.session_id)}`);
   }
 
   async function revealSelected() {
     if (!selected) return;
     setRevealing(true);
-    setTranscriptError(null);
+    setRevealError(null);
     try {
       await api.tokenAnalytics.revealSessionTranscript(selected.agent, selected.session_id);
     } catch (error) {
-      setTranscriptError(String(error));
+      setRevealError(String(error));
     } finally {
       setRevealing(false);
     }
   }
 
-  async function loadMoreSessions() {
-    if (loadingMore || !hasMoreSessions) return;
-    setLoadingMore(true);
-    setListError(null);
-    try {
-      const page = await api.tokenAnalytics.listHistorySessions({
-        limit: PAGE_SIZE,
-        offset: historyOffset,
-        agentFilter,
-        query,
-      });
-      setSessions((current) => [...current, ...page.sessions]);
-      setHistoryTotal(page.total);
-      setHistoryOffset((current) => current + page.sessions.length);
-    } catch (error) {
-      setListError(String(error));
-    } finally {
-      setLoadingMore(false);
-    }
-  }
-
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden">
-      <PageHeader title="History" icon={HistoryIcon} />
+      <PageHeader title={t(locale, "history.title")} icon={HistoryIcon} />
       <PageBody>
         <div className="flex h-full min-h-0 overflow-hidden">
       <aside className={`w-80 shrink-0 border-r flex flex-col min-h-0 ${glassListSurfaceClass}`}>
-        <div className="p-3 border-b border-white/5 space-y-3">
+        <div className="p-3 border-b border-border space-y-3">
           <div className="relative">
             <Search size={14} className="absolute left-2.5 top-2 text-text-muted" />
             <input
               value={query}
-              onChange={(event) => setQuery(event.target.value)}
+              onChange={(event) => {
+                setQuery(event.target.value);
+                setSelected(null);
+              }}
               className="w-full pl-8 pr-3 py-1.5 text-xs bg-bg-tertiary border border-border rounded-md text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent"
-              placeholder="Search session, project, model"
+              placeholder={t(locale, "history.searchSessions")}
             />
           </div>
           <div className="flex items-center gap-1">
@@ -291,14 +215,17 @@ export default function HistoryPage() {
               <button
                 key={agent.id}
                 type="button"
-                onClick={() => setAgentFilter(agent.id)}
+                onClick={() => {
+                  setAgentFilter(agent.id);
+                  setSelected(null);
+                }}
                 className={`px-2.5 py-1 text-xs rounded border transition-colors ${
                   agentFilter === agent.id
                     ? "border-accent bg-accent/10 text-accent"
-                    : "border-white/10 bg-white/[0.02] text-text-muted hover:bg-white/[0.06] hover:text-text-primary"
+                    : "border-border text-text-muted hover:bg-bg-hover hover:text-text-primary"
                 }`}
               >
-                {agent.label}
+                {agent.label ?? t(locale, "history.agentAll")}
               </button>
             ))}
           </div>
@@ -308,14 +235,18 @@ export default function HistoryPage() {
           {loading ? (
             <div className="px-3 py-4 text-xs text-text-muted flex items-center gap-2">
               <Loader2 size={14} className="animate-spin" />
-              Loading history
+              {t(locale, "history.loadingHistory")}
             </div>
           ) : listError ? (
-            <div className="px-3 py-4 text-xs text-danger">{listError}</div>
+            <ErrorNotice
+              title={t(locale, "history.listLoadFailed")}
+              detail={listError}
+              className="mx-2 my-2"
+            />
           ) : sessions.length === 0 ? (
             <div className="px-3 py-8 text-center">
               <FileText size={24} className="mx-auto mb-2 text-text-muted opacity-50" />
-              <p className="text-sm text-text-secondary">No sessions found</p>
+              <p className="text-sm text-text-secondary">{t(locale, "history.noSessions")}</p>
             </div>
           ) : (
             <>
@@ -339,7 +270,7 @@ export default function HistoryPage() {
                         {shortSession(session.session_id)}
                       </span>
                       <span className="text-[10px] text-text-muted shrink-0">
-                        {formatTimestamp(session.timestamp)}
+                        {formatTimestamp(session.timestamp, locale)}
                       </span>
                     </div>
                     <div className="mt-1 flex items-center gap-2 text-[10px] text-text-muted">
@@ -348,28 +279,34 @@ export default function HistoryPage() {
                     </div>
                     <div className="mt-1 flex items-center justify-between gap-2 text-[10px]">
                       <span className="text-text-muted truncate">
-                        {session.project ?? "No project"}
+                        {session.project ?? t(locale, "history.noProject")}
                       </span>
                       <span className="text-text-secondary shrink-0">
-                        {formatNumber(session.tokens)} tokens · {formatNumber(session.messages)} msgs
+                        {t(locale, "history.tokensMsgs", {
+                          tokens: formatNumber(session.tokens, locale),
+                          msgs: formatNumber(session.messages, locale),
+                        })}
                       </span>
                     </div>
                     {!session.transcript_available && (
-                      <p className="mt-1 text-[10px] text-warning">Transcript unavailable</p>
+                      <p className="mt-1 text-[10px] text-warning">{t(locale, "history.transcriptUnavailable")}</p>
                     )}
                   </button>
                 );
               })}
-              {hasMoreSessions && (
+              {sessionsQuery.hasNextPage && (
                 <div className="p-3">
                   <button
                     type="button"
-                    onClick={() => void loadMoreSessions()}
-                    disabled={loadingMore}
+                    onClick={() => void sessionsQuery.fetchNextPage()}
+                    disabled={sessionsQuery.isFetchingNextPage}
                     className="w-full h-8 inline-flex items-center justify-center gap-2 rounded border border-border text-xs text-text-secondary hover:text-text-primary hover:bg-bg-hover disabled:opacity-60"
                   >
-                    {loadingMore && <Loader2 size={14} className="animate-spin" />}
-                    Load more ({sessions.length}/{historyTotal})
+                    {sessionsQuery.isFetchingNextPage && <Loader2 size={14} className="animate-spin" />}
+                    {t(locale, "history.loadMore", {
+                      loaded: String(sessions.length),
+                      total: String(historyTotal),
+                    })}
                   </button>
                 </div>
               )}
@@ -383,7 +320,7 @@ export default function HistoryPage() {
           <div className="h-full flex items-center justify-center text-text-muted">
             <div className="text-center">
               <FileText size={32} className="mx-auto mb-3 opacity-30" />
-              <p className="text-sm">Select a session</p>
+              <p className="text-sm">{t(locale, "history.selectSession")}</p>
             </div>
           </div>
         ) : (
@@ -399,7 +336,7 @@ export default function HistoryPage() {
                   </span>
                 </div>
                 <p className="text-xs text-text-muted">
-                  {[selected.project, selected.model, formatTimestamp(selected.timestamp)]
+                  {[selected.project, selected.model, formatTimestamp(selected.timestamp, locale)]
                     .filter(Boolean)
                     .join(" · ")}
                 </p>
@@ -421,7 +358,7 @@ export default function HistoryPage() {
                   ) : (
                     <FolderOpen size={14} />
                   )}
-                  Reveal
+                  {t(locale, "history.reveal")}
                 </button>
               </div>
             </div>
@@ -434,22 +371,22 @@ export default function HistoryPage() {
                     value={transcriptQuery}
                     onChange={(event) => setTranscriptQuery(event.target.value)}
                     className="w-full pl-8 pr-3 py-1.5 text-xs bg-bg-secondary border border-border rounded-md text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent"
-                    placeholder="Search transcript content"
+                    placeholder={t(locale, "history.searchTranscript")}
                   />
                 </div>
                 <div className="flex items-center gap-1">
                   {TRANSCRIPT_FILTERS.map((filter) => (
                     <button
-                      key={filter.id}
+                      key={filter}
                       type="button"
-                      onClick={() => setTranscriptFilter(filter.id)}
+                      onClick={() => setTranscriptFilter(filter)}
                       className={`px-2.5 py-1 text-xs rounded border transition-colors ${
-                        transcriptFilter === filter.id
+                        transcriptFilter === filter
                           ? "border-accent bg-accent/10 text-accent"
                           : "border-border text-text-muted hover:text-text-primary hover:bg-bg-hover"
                       }`}
                     >
-                      {filter.label}
+                      {t(locale, `history.filter.${filter}` as never)}
                     </button>
                   ))}
                 </div>
@@ -459,28 +396,25 @@ export default function HistoryPage() {
             {transcriptLoading ? (
               <div className="text-sm text-text-muted flex items-center gap-2">
                 <Loader2 size={16} className="animate-spin" />
-                Loading transcript
+                {t(locale, "history.loadingTranscript")}
               </div>
             ) : transcriptError ? (
-              <div className="border border-warning/30 bg-warning-dim text-warning rounded-md p-4 text-sm">
-                <p className="font-medium">Transcript unavailable</p>
-                <p className="text-xs mt-1">{transcriptError}</p>
-                <p className="text-xs mt-2 font-mono">
-                  {selected.agent}/{selected.session_id}
-                </p>
-              </div>
+              <ErrorNotice
+                title={t(locale, "history.transcriptLoadFailed")}
+                detail={`${transcriptError}\n${selected.agent}/${selected.session_id}`}
+              />
             ) : transcript && transcript.entries.length === 0 ? (
               <div className="border border-border rounded-md p-8 text-center text-sm text-text-muted">
-                Transcript has no displayable entries
+                {t(locale, "history.emptyTranscript")}
               </div>
             ) : transcript && filteredTranscriptEntries.length === 0 ? (
               <div className="border border-border rounded-md p-8 text-center text-sm text-text-muted">
-                No transcript entries match the current filters
+                {t(locale, "history.noFilterMatches")}
               </div>
             ) : transcript ? (
               <div className="space-y-3">
                 {filteredTranscriptEntries.map((entry, index) => {
-                  const usage = usageLine(entry);
+                  const usage = usageLine(entry, locale);
                   return (
                     <div
                       key={`${entry.timestamp ?? "entry"}-${index}`}
@@ -492,7 +426,7 @@ export default function HistoryPage() {
                         <div className="flex items-center justify-between gap-3 mb-2">
                           <div className="flex items-center gap-2">
                             <span className={`px-1.5 py-0.5 rounded border text-[10px] uppercase font-medium ${rolePillClass(entry.role)}`}>
-                              {roleLabel(entry.role)}
+                              {roleLabel(entry.role, locale)}
                             </span>
                             {entry.model && (
                               <span className="text-[10px] text-text-muted">{entry.model}</span>
@@ -532,7 +466,7 @@ export default function HistoryPage() {
                 className="mt-4 inline-flex items-center gap-1.5 text-xs text-accent hover:text-accent-hover"
               >
                 <ExternalLink size={12} />
-                Open source location
+                {t(locale, "history.openSource")}
               </a>
             )}
           </div>

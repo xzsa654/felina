@@ -234,3 +234,105 @@ Conventions, workflows, UI consistency rules, and reusable design-time checklist
 - 修法：`createApp` 改為 `async function`，每個 `fastify.register(plugin, opts)` 前加 `await`
 - 所有 caller（server.js、test files）必須同步改為 `await createApp()`
 **Keywords:** fastify, v5, register, await, plugin, rate-limit, breaking change, async
+
+## Error display convention: ErrorNotice, no window.alert
+**ID:** kb-frontend-error-display
+**Date:** 2026-06-11
+**Updated:** 2026-06-11
+**Status:** active
+**Confidence:** confirmed
+**Source:** Spectra change shared-error-display (archived 2026-06-11, merge f711ad3)
+**Context:** Error presentation was inconsistent across pages — window.alert (blocking, non-copyable) and bare String(e) renders without localized framing.
+**Applies when:** Any frontend code path that surfaces a failure to the user (command invoke errors, query errors, dialog action failures).
+**Lesson:**
+- Use the shared `src/lib/components/shared/ErrorNotice.tsx`: localized title via t(locale, key) + verbatim backend error as detail (monospace, selectable, collapsible when long, danger semantic tokens only, non-blocking inline).
+- `window.alert` is banned in `src/lib/components/` — normative requirement in `openspec/specs/shared-error-display/spec.md`; verify with grep (must stay zero).
+- Pattern for call sites: `const [pageError, setPageError] = useState<{title; detail} | null>(null)` in the page, render `<ErrorNotice ... onDismiss />` near the top of content; in catch blocks use `setPageError({ title: t(locale, "<ns>.xxxFailed"), detail: String(e) })`.
+- Backend error payloads stay verbatim in detail — never translate, parse, or truncate them.
+- Sites still rendering String(e) inside styled blocks (ManagedInventory, SkillEditor, ImportStagingDialog, skills-store) are accepted leftovers; adopt ErrorNotice opportunistically when touching them.
+**Keywords:** error, ErrorNotice, window.alert, i18n, verbatim, danger, inline error, toast
+**Related:** kb-ui-consistency-design
+
+## i18n verbatim boundary rulings
+**ID:** kb-i18n-verbatim-boundary
+**Date:** 2026-06-11
+**Updated:** 2026-06-11
+**Status:** active
+**Confidence:** confirmed
+**Source:** Spectra changes shared-error-display + memory-history-i18n (archived 2026-06-11)
+**Context:** CLAUDE.md says user/system data stays verbatim, but several borderline cases needed explicit rulings during the Memory/History i18n migration.
+**Applies when:** Adding i18n keys or migrating hardcoded UI text; deciding whether a string is translatable UI text or verbatim data.
+**Lesson:**
+- Verbatim (never translate): agent product names (Claude/Codex/Gemini), token metric tags in usage lines (input/output/cache/write/reasoning), session IDs, model names, paths, filenames, timestamps values, transcript/memory content, backend error payloads, memory_type enum values (user/feedback/project/reference).
+- Translate: filter labels like "All", role labels (User/Agent), empty states, placeholders, button text, error titles.
+- Number formatting: pass the active locale to formatNumber; numeric values must not change. Timestamps keep `toLocaleString(undefined, ...)` (system locale) — spec only mandates locale-aware numbers.
+- Removing keys: when a migration orphans an i18n key, delete it from BOTH en.ts and zh-TW.ts in the same change (no deprecation residue); TranslationDict type enforces structural alignment.
+**Keywords:** i18n, verbatim, locale, formatNumber, zh-TW, translation, TranslationDict
+**Related:** kb-frontend-error-display
+
+## React Query 遷移：key 重置不會保留舊 effect 的副作用
+**ID:** kb-react-query-migration-side-effects
+**Date:** 2026-06-12
+**Updated:** 2026-06-12
+**Status:** active
+**Confidence:** confirmed
+**Source:** Spectra change history-react-query-migration (archived 2026-06-12, merge 30e09fc)
+**Context:** HistoryPage 手動資料層遷 useInfiniteQuery 時，舊 effect 在 filter/query 變更時除了重查列表，還順帶 setSelected(null)；query key 變更只會重置列表資料，不會重現這個副作用。
+**Applies when:** 任何頁面把「手動 useEffect + useState 資料層」遷移到 React Query（Memory/Projects/Settings 等頁的後續遷移）。
+**Lesson:**
+- 遷移前先盤點舊載入 effect 裡「非資料」的副作用（清 selection、重置 scroll、關 editor 等）——key 變更只管資料重置，這些副作用會默默消失。
+- 補回位置選互動 handler（如 filter 按鈕 onClick、搜尋框 onChange 加 setSelected(null)），不要另開 useEffect 監聽 filter 變化，避免回到手動狀態機。
+- refresh-on-mount 類前置動作放進第一頁 queryFn（pageParam === 0 時 await refresh().catch(() => {})），不要獨立 mutation 協調順序。
+- 命令式一次性副作用（如 revealSessionTranscript）維持 try/catch + 獨立 error state，不進 query。
+**Keywords:** react-query, useInfiniteQuery, migration, side effect, selection, query key, refresh-on-mount
+**Related:** kb-frontend-error-display
+
+## URL 查詢參數編解碼交給 URLSearchParams，勿重複 decode
+**ID:** kb-url-searchparams-encoding
+**Date:** 2026-06-12
+**Updated:** 2026-06-12
+**Status:** active
+**Confidence:** confirmed
+**Source:** Spectra change memory-url-deep-link (archived 2026-06-12, merge 48b384c)
+**Context:** tasks 寫「file 參數 encodeURIComponent/decodeURIComponent」，但 react-router useSearchParams 底層的 URLSearchParams.set/get 已做百分比編解碼。
+**Applies when:** 任何頁面新增 URL deep-link / 查詢參數同步（含中文、空格、特殊字元的值）。
+**Lesson:**
+- params.set() 寫入時自動編碼、searchParams.get() 讀取時自動解碼；再手動 decodeURIComponent 會雙重解碼，含字面 % 的值會壞掉或丟 URIError。
+- URL 更新集中在單一 helper（比照 TokensPage updateTokenSearchParams、MemoryPage updateMemorySearchParams）：next 值為 null 表示刪參數、undefined 表示不動。
+- 還原走「列表就緒後一次性比對」模式（useRef flag），無命中靜默忽略維持預設狀態。
+**Keywords:** URLSearchParams, useSearchParams, deep-link, encode, decode, double-decode, query params
+**Related:** kb-react-query-migration-side-effects
+
+## 多 skill 共用規則：schema 單一權威源 + 顯式角色差異
+**ID:** kb-skills-dedupe-schema
+**Date:** 2026-06-12
+**Updated:** 2026-06-12
+**Status:** active
+**Confidence:** confirmed
+**Source:** session 2026-06-12（product-backlog→project-knowledge 遷移改 6 檔 + session-* dedupe 約 90 行）
+**Context:** session-* 五個 skill 各自整段複製 Handoff Root Resolution / Quote-Trace / Concurrent Write Guard，schema 已有完整版仍重抄；遷移時要同步改 6 檔，且複本間已出現用詞 drift（無法分辨刻意特化 vs 抄寫漂移）。
+**Applies when:** 兩個以上協作 skill（session-*、spectra-* 等）出現逐字或近逐字相同的規則段落時。
+**Lesson:**
+- 完整規則只存 schema 檔；schema 寫成涵蓋所有變體的「超集」（如 reader 讀 shared root 並回報 mismatch、writer 拒寫 worktree-local 副本同列）。
+- 各 skill 只留：一行引用（Follow ## X in schema）+ 顯式標註的 skill 特有差異（如 session-start 的 source-label 自檢、session-handoff 的 lock 與 insertion script 互斥規則）。
+- 純引用會丟角色差異、純複製會漂移——「超集 + 顯式差異」是關鍵中間態。
+- 反例：真正 skill 特有的流程（claim Fast Path、handoff Session Entry Insertion）不抽，避免 schema 變成第二個大雜燴。
+**Keywords:** skill, schema, dedupe, single source of truth, DRY, session skills, drift
+**Related:** kb-workflow-backlog-ownership
+
+## Backlog/Milestone 唯一權威：project-knowledge，session skills 只讀與委派
+**ID:** kb-workflow-backlog-ownership
+**Date:** 2026-06-12
+**Updated:** 2026-06-12
+**Status:** active
+**Confidence:** confirmed
+**Source:** session 2026-06-12（誤建 .session/product-backlog.md 後全面遷移，不留 fallback）
+**Context:** session-* skills 原指向 .session/product-backlog.md，project-knowledge 另管 .knowledge/ideas-backlog.md，雙軌並存導致 OQ prune 時誤建錯誤檔案。
+**Applies when:** 任何 skill 要新增/更新/移動 backlog 或 milestone 條目時；以及未來新 skill 設計涉及產品工作項儲存時。
+**Lesson:**
+- backlog = .knowledge/ideas-backlog.md、milestone = .knowledge/milestones.md，唯一管理者是 project-knowledge skill（--backlog add/update/promote、--milestone move/record）。
+- 其他 skill 一律「讀取 + 委派」：不直寫檔案、不自持 lock；寫入走 project-knowledge 的 schema 驗證腳本（backlog_insert.py / backlog_move.py）。
+- OQ prune 移入 → --backlog add；spectra archive 完成項 → --milestone move；claim 啟動 → --backlog update 設 active。
+- 同責任不留雙軌路徑（fallback）：舊路徑殘留會在語義觸發時複活錯誤行為。
+**Keywords:** backlog, milestone, project-knowledge, ideas-backlog, ownership, delegation, session skills
+**Related:** kb-skills-dedupe-schema

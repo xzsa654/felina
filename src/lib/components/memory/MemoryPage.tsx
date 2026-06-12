@@ -1,8 +1,12 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
+import { useSearchParams } from "react-router";
 import { api } from "$lib/tauri/commands";
 import type { ProjectInfo, MemoryFile } from "$lib/types";
 import ConfirmDialog from "$lib/components/shared/ConfirmDialog";
+import ErrorNotice from "$lib/components/shared/ErrorNotice";
 import MarkdownPreview from "$lib/components/shared/MarkdownPreview";
+import { t } from "$lib/i18n";
+import { useLocaleStore } from "$lib/stores/locale";
 import {
   PageBody,
   PageHeader,
@@ -26,12 +30,22 @@ const TYPE_ICONS: Record<string, React.ComponentType<{ size: number }>> = {
   reference: BookOpen,
 };
 
+/** Display-only basename; backslash-normalized so Windows paths show the last segment. */
+function projectDisplayName(path: string): string {
+  const normalized = path.replace(/\\/g, "/");
+  return normalized.split("/").pop() || path;
+}
+
 export default function MemoryPage() {
+  const locale = useLocaleStore((s) => s.locale);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const deepLinkRestored = useRef(false);
   const [projects, setProjects] = useState<ProjectInfo[]>([]);
   const [selectedProject, setSelectedProject] = useState<ProjectInfo | null>(null);
   const [memoryFiles, setMemoryFiles] = useState<MemoryFile[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
+  const [pageError, setPageError] = useState<{ title: string; detail: string } | null>(null);
 
   const [editingFile, setEditingFile] = useState<MemoryFile | null>(null);
   const [editContent, setEditContent] = useState("");
@@ -55,24 +69,39 @@ export default function MemoryPage() {
     try {
       setProjects(await api.projects.list());
     } catch (e) {
-      console.error("Failed:", e);
+      setPageError({ title: t(locale, "memory.loadProjectsFailed"), detail: String(e) });
     } finally {
       setLoading(false);
     }
   }
 
-  async function selectProject(project: ProjectInfo) {
+  function updateMemorySearchParams(next: { project?: string; file?: string | null }) {
+    setSearchParams((current) => {
+      const params = new URLSearchParams(current);
+      if (next.project) params.set("project", next.project);
+      if (next.file === null) params.delete("file");
+      else if (next.file) params.set("file", next.file);
+      return params;
+    });
+  }
+
+  async function selectProject(project: ProjectInfo): Promise<MemoryFile[]> {
     setSelectedProject(project);
     setEditingFile(null);
+    updateMemorySearchParams({ project: project.hash, file: null });
     try {
-      setMemoryFiles(await api.memory.listFiles(project.hash));
+      const files = await api.memory.listFiles(project.hash);
+      setMemoryFiles(files);
+      return files;
     } catch (e) {
-      console.error("Failed:", e);
+      setPageError({ title: t(locale, "memory.loadFilesFailed"), detail: String(e) });
       setMemoryFiles([]);
+      return [];
     }
   }
 
   function openEditor(file: MemoryFile) {
+    updateMemorySearchParams({ file: file.filename });
     setEditingFile(file);
     setEditContent(file.content);
     setEditName(file.name ?? "");
@@ -85,6 +114,7 @@ export default function MemoryPage() {
   function startCreate() {
     setShowCreate(true);
     setEditingFile(null);
+    updateMemorySearchParams({ file: null });
     setEditContent("");
     setEditName("");
     setEditDescription("");
@@ -106,7 +136,7 @@ export default function MemoryPage() {
         selectedProject.hash, filename,
         editName || null, editDescription || null, editType || null, editContent,
       );
-      setSaveMessage("Saved!");
+      setSaveMessage(t(locale, "memory.saved"));
       setTimeout(() => setSaveMessage(null), 2000);
       const files = await api.memory.listFiles(selectedProject.hash);
       setMemoryFiles(files);
@@ -116,7 +146,7 @@ export default function MemoryPage() {
         if (found) openEditor(found);
       }
     } catch (e) {
-      setSaveMessage(`Error: ${e}`);
+      setPageError({ title: t(locale, "memory.saveFailed"), detail: String(e) });
     } finally {
       setSaving(false);
     }
@@ -128,14 +158,31 @@ export default function MemoryPage() {
       await api.memory.deleteFile(selectedProject.hash, editingFile.filename);
       setMemoryFiles((prev) => prev.filter((f) => f.filename !== editingFile!.filename));
       setEditingFile(null);
+      updateMemorySearchParams({ file: null });
     } catch (e) {
-      console.error("Failed:", e);
+      setPageError({ title: t(locale, "memory.deleteFailed"), detail: String(e) });
     } finally {
       setDeleteDialogOpen(false);
     }
   }
 
-  useEffect(() => { loadProjects(); }, []);
+  useEffect(() => { loadProjects(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // One-shot deep-link restore once the project list is ready; unmatched params are silently ignored.
+  useEffect(() => {
+    if (deepLinkRestored.current || projects.length === 0) return;
+    deepLinkRestored.current = true;
+    const projectParam = searchParams.get("project");
+    if (!projectParam) return;
+    const project = projects.find((p) => p.has_memory && p.hash === projectParam);
+    if (!project) return;
+    const fileParam = searchParams.get("file");
+    void selectProject(project).then((files) => {
+      if (!fileParam) return;
+      const file = files.find((f) => f.filename === fileParam);
+      if (file) openEditor(file);
+    });
+  }, [projects, searchParams]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const showEditor = editingFile || showCreate;
 
@@ -143,25 +190,34 @@ export default function MemoryPage() {
     <>
       <ConfirmDialog
         open={deleteDialogOpen}
-        title="Delete Memory File"
-        message="This memory file will be permanently deleted."
+        title={t(locale, "memory.deleteDialogTitle")}
+        message={t(locale, "memory.deleteDialogMessage")}
+        confirmLabel={t(locale, "memory.deleteConfirm")}
         onconfirm={deleteFile}
         oncancel={() => setDeleteDialogOpen(false)}
       />
 
       <div className="flex h-full min-h-0 flex-col overflow-hidden">
-        <PageHeader title="Memory" icon={Brain} />
+        <PageHeader title={t(locale, "memory.title")} icon={Brain} />
         <PageBody>
+          {pageError && (
+            <ErrorNotice
+              title={pageError.title}
+              detail={pageError.detail}
+              onDismiss={() => setPageError(null)}
+              className="mb-3"
+            />
+          )}
           <div className="flex h-full min-h-0 overflow-hidden">
         {/* Project Sidebar */}
         <div className={`w-56 shrink-0 border-r flex flex-col ${glassListSurfaceClass}`}>
-          <div className="p-3 border-b border-white/5">
+          <div className="p-3 border-b border-border">
             <div className="relative">
               <Search size={14} className="absolute left-2.5 top-2 text-text-muted" />
               <input
                 type="text"
                 className="w-full pl-8 pr-3 py-1.5 text-xs bg-bg-tertiary border border-border rounded-md text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent"
-                placeholder="Search projects..."
+                placeholder={t(locale, "memory.searchPlaceholder")}
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
               />
@@ -170,9 +226,9 @@ export default function MemoryPage() {
 
           <div className="flex-1 overflow-y-auto py-1">
             {loading ? (
-              <p className="text-xs text-text-muted px-3 py-4 text-center">Loading...</p>
+              <p className="text-xs text-text-muted px-3 py-4 text-center">{t(locale, "common.loading")}</p>
             ) : filteredProjects.length === 0 ? (
-              <p className="text-xs text-text-muted px-3 py-4 text-center">No projects with memory</p>
+              <p className="text-xs text-text-muted px-3 py-4 text-center">{t(locale, "memory.noProjects")}</p>
             ) : (
               filteredProjects.map((project) => (
                 <button
@@ -185,7 +241,7 @@ export default function MemoryPage() {
                   onClick={() => selectProject(project)}
                 >
                   <div className="flex items-center justify-between">
-                    <p className="text-sm font-medium truncate">{project.path.split("/").pop()}</p>
+                    <p className="text-sm font-medium truncate">{projectDisplayName(project.path)}</p>
                     <Brain size={12} className="text-accent shrink-0" />
                   </div>
                   <p className="text-[10px] text-text-muted truncate font-mono">{project.path}</p>
@@ -200,15 +256,15 @@ export default function MemoryPage() {
           {!selectedProject ? (
             <div className="flex flex-col items-center justify-center h-full text-text-muted">
               <Brain size={32} className="opacity-20 mb-3" />
-              <p className="text-sm">Select a project to browse its memory</p>
-              <p className="text-xs mt-1">Only projects with memory files are shown</p>
+              <p className="text-sm">{t(locale, "memory.selectPrompt")}</p>
+              <p className="text-xs mt-1">{t(locale, "memory.selectHint")}</p>
             </div>
           ) : (
             <>
               <div className="flex items-center justify-between mb-4">
                 <div>
                   <h3 className="text-base font-medium text-text-primary">
-                    {selectedProject.path.split("/").pop()}
+                    {projectDisplayName(selectedProject.path)}
                   </h3>
                   <p className="text-xs text-text-muted font-mono">{selectedProject.path}</p>
                 </div>
@@ -217,13 +273,13 @@ export default function MemoryPage() {
                   onClick={startCreate}
                 >
                   <Plus size={14} />
-                  New Memory
+                  {t(locale, "memory.newMemory")}
                 </button>
               </div>
 
               {memoryFiles.length === 0 && !showCreate ? (
                 <div className="text-center py-12 text-sm text-text-muted">
-                  No memory files in this project
+                  {t(locale, "memory.noFiles")}
                 </div>
               ) : (
                 <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
@@ -273,19 +329,17 @@ export default function MemoryPage() {
           <div className="w-[450px] shrink-0 border-l border-border flex flex-col bg-bg-secondary">
             <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
               <span className="text-sm font-medium text-text-primary truncate">
-                {showCreate ? "New Memory" : editingFile?.filename}
+                {showCreate ? t(locale, "memory.newMemory") : editingFile?.filename}
               </span>
               <div className="flex items-center gap-2">
                 {saveMessage && (
-                  <span className={`text-xs ${saveMessage.startsWith("Error") ? "text-danger" : "text-success"}`}>
-                    {saveMessage}
-                  </span>
+                  <span className="text-xs text-success">{saveMessage}</span>
                 )}
                 {editingFile && !showCreate && (
                   <button
                     className="p-1 text-text-muted hover:text-danger"
                     onClick={() => setDeleteDialogOpen(true)}
-                    aria-label="Delete"
+                    aria-label={t(locale, "memory.delete")}
                   >
                     <Trash2 size={14} />
                   </button>
@@ -295,12 +349,12 @@ export default function MemoryPage() {
                   onClick={saveFile}
                   disabled={saving || (showCreate && !newFilename.trim())}
                 >
-                  {saving ? "..." : "Save"}
+                  {saving ? "..." : t(locale, "memory.save")}
                 </button>
                 <button
                   className="p-1 text-text-muted hover:text-text-primary"
-                  onClick={() => { setEditingFile(null); setShowCreate(false); }}
-                  aria-label="Close"
+                  onClick={() => { setEditingFile(null); setShowCreate(false); updateMemorySearchParams({ file: null }); }}
+                  aria-label={t(locale, "common.close")}
                 >
                   <X size={16} />
                 </button>
@@ -310,7 +364,7 @@ export default function MemoryPage() {
             <div className="px-4 py-3 border-b border-border space-y-2">
               {showCreate && (
                 <label className="block">
-                  <span className="text-xs text-text-muted">Filename</span>
+                  <span className="text-xs text-text-muted">{t(locale, "memory.filename")}</span>
                   <input
                     type="text"
                     className="w-full mt-1 px-2 py-1 text-sm bg-bg-tertiary border border-border rounded text-text-primary font-mono focus:outline-none focus:border-accent"
@@ -322,7 +376,7 @@ export default function MemoryPage() {
               )}
               <div className="grid grid-cols-2 gap-2">
                 <label className="block">
-                  <span className="text-xs text-text-muted">Name</span>
+                  <span className="text-xs text-text-muted">{t(locale, "memory.name")}</span>
                   <input
                     type="text"
                     className="w-full mt-1 px-2 py-1 text-sm bg-bg-tertiary border border-border rounded text-text-primary focus:outline-none focus:border-accent"
@@ -331,13 +385,13 @@ export default function MemoryPage() {
                   />
                 </label>
                 <label className="block">
-                  <span className="text-xs text-text-muted">Type</span>
+                  <span className="text-xs text-text-muted">{t(locale, "memory.type")}</span>
                   <select
                     className="w-full mt-1 px-2 py-1 text-sm bg-bg-tertiary border border-border rounded text-text-primary focus:outline-none focus:border-accent"
                     value={editType}
                     onChange={(e) => setEditType(e.target.value)}
                   >
-                    <option value="">none</option>
+                    <option value="">{t(locale, "memory.typeNone")}</option>
                     <option value="user">user</option>
                     <option value="feedback">feedback</option>
                     <option value="project">project</option>
@@ -346,11 +400,11 @@ export default function MemoryPage() {
                 </label>
               </div>
               <label className="block">
-                <span className="text-xs text-text-muted">Description</span>
+                <span className="text-xs text-text-muted">{t(locale, "memory.description")}</span>
                 <input
                   type="text"
                   className="w-full mt-1 px-2 py-1 text-sm bg-bg-tertiary border border-border rounded text-text-primary focus:outline-none focus:border-accent"
-                  placeholder="One-line description..."
+                  placeholder={t(locale, "memory.descriptionPlaceholder")}
                   value={editDescription}
                   onChange={(e) => setEditDescription(e.target.value)}
                 />
@@ -363,13 +417,13 @@ export default function MemoryPage() {
                   className={`px-3 py-1 text-xs rounded-md ${!previewMode ? "bg-bg-secondary text-text-primary" : "text-text-muted"}`}
                   onClick={() => setPreviewMode(false)}
                 >
-                  Edit
+                  {t(locale, "memory.edit")}
                 </button>
                 <button
                   className={`px-3 py-1 text-xs rounded-md ${previewMode ? "bg-bg-secondary text-text-primary" : "text-text-muted"}`}
                   onClick={() => setPreviewMode(true)}
                 >
-                  Preview
+                  {t(locale, "memory.preview")}
                 </button>
               </div>
             </div>
@@ -380,7 +434,7 @@ export default function MemoryPage() {
               ) : (
                 <textarea
                   className="w-full h-full px-3 py-2 text-sm bg-bg-tertiary border border-border rounded-lg text-text-primary font-mono resize-none focus:outline-none focus:border-accent"
-                  placeholder="Memory content..."
+                  placeholder={t(locale, "memory.contentPlaceholder")}
                   value={editContent}
                   onChange={(e) => setEditContent(e.target.value)}
                 />

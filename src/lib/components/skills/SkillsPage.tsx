@@ -32,6 +32,7 @@ import ResizableHandle from "./ResizableHandle";
 
 import ManagedInventory from "$lib/components/projects/ManagedInventory";
 import Modal from "$lib/components/shared/Modal";
+import ErrorNotice from "$lib/components/shared/ErrorNotice";
 
 /**
  * Skills page — manages the single global canonical skill list and its
@@ -72,6 +73,7 @@ export default function SkillsPage() {
 
   const [searchParams, setSearchParams] = useSearchParams();
   const [viewMode, setViewMode] = useState<"list" | "summary">("list");
+  const [pageError, setPageError] = useState<{ title: string; detail: string } | null>(null);
   const [selectedName, setSelectedName] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [activeSkill, setActiveSkill] = useState<CanonicalSkill | null>(null);
@@ -260,7 +262,7 @@ export default function SkillsPage() {
       setBrokenRaw((cur) => (cur?.name === pending.canonicalId ? null : cur));
       setPendingDelete(null);
     } catch (e) {
-      window.alert(t(locale, "skills.deleteDialog.failed", { error: String(e) }));
+      setPageError({ title: t(locale, "skills.errors.deleteFailed"), detail: String(e) });
     } finally {
       setDeleteBusy(false);
     }
@@ -272,7 +274,7 @@ export default function SkillsPage() {
       const preview = await api.skillSync.preview(canonicalId);
       setPushPreview(preview);
     } catch (e) {
-      window.alert(String(e));
+      setPageError({ title: t(locale, "skills.errors.pushPreviewFailed"), detail: String(e) });
     } finally {
       setLocalPushingNames((current) => {
         const next = new Set(current);
@@ -295,7 +297,7 @@ export default function SkillsPage() {
       void refreshDriftScan();
       setPushPreview(null);
     } catch (e) {
-      window.alert(String(e));
+      setPageError({ title: t(locale, "skills.errors.pushFailed"), detail: String(e) });
     } finally {
       setPushBusy(false);
     }
@@ -369,6 +371,15 @@ export default function SkillsPage() {
           <div className="text-xs text-danger bg-danger-dim border border-danger/30 rounded px-3 py-2 mb-4">
             {error}
           </div>
+        )}
+
+        {pageError && (
+          <ErrorNotice
+            title={pageError.title}
+            detail={pageError.detail}
+            onDismiss={() => setPageError(null)}
+            className="mb-4"
+          />
         )}
 
         {nameAdvisory && (
