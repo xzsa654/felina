@@ -1038,7 +1038,7 @@ code:
 ---
 ### Requirement: Cache efficiency card
 
-The system SHALL render a card showing cache hit ratio as a percentage and estimated cost savings from Anthropic prompt caching. The card SHALL display a visual indicator (progress bar or ring) for the hit ratio.
+The system SHALL render a card showing cache hit ratio as a percentage and estimated cost savings from prompt caching. The card SHALL display a visual indicator (progress bar or ring) for the hit ratio. The cache hit ratio SHALL be computed as cache-read tokens divided by the sum of input tokens and cache-read tokens. The estimated cost savings SHALL be computed per model from each model's actual input and cache-read pricing, summed across models, and MUST NOT assume a single hardcoded model price. When a model lacks a cache-read price, the system SHALL apply a fallback of ten percent of that model's input price; the result MUST NOT be negative and MUST NOT be NaN. The card's displayed values SHALL come from the backend cache efficiency computation rather than a separate frontend recomputation.
 
 #### Scenario: Cache card shows savings
 
@@ -1046,6 +1046,70 @@ The system SHALL render a card showing cache hit ratio as a percentage and estim
 - **WHEN** the cache efficiency card renders
 - **THEN** it SHALL display "60%" as the hit ratio
 - **THEN** it SHALL display "$15.30" as estimated savings
+
+#### Scenario: Savings reflect per-model pricing
+
+- **WHEN** the analytics include cache-read tokens across multiple models with different input and cache-read prices
+- **THEN** the estimated savings SHALL equal the sum over models of cache-read tokens times the per-model difference between input price and cache-read price
+- **THEN** the savings SHALL NOT be derived from a single hardcoded model price
+
+##### Example: mixed-model savings
+
+| Model | Cache-read tokens | Input $/1M | Cache-read $/1M | Per-model saving |
+| ----- | ----------------- | ---------- | --------------- | ---------------- |
+| claude-sonnet | 1000000 | 3.0 | 0.3 | 2.70 |
+| some-model (no cache price) | 1000000 | 5.0 | (fallback 0.5) | 4.50 |
+
+- **GIVEN** the two rows above
+- **WHEN** estimated savings is computed
+- **THEN** the total equals 2.70 + 4.50 = 7.20
+
+#### Scenario: Hit ratio uses cacheable-input denominator
+
+- **GIVEN** input tokens is 400 and cache-read tokens is 600
+- **WHEN** the cache hit ratio is computed
+- **THEN** the ratio SHALL be 600 / (400 + 600) = 0.6
+- **THEN** output and cache-write tokens MUST NOT affect the ratio
+
+
+<!-- @trace
+source: unify-cache-efficiency-metrics
+updated: 2026-06-11
+code:
+  - src/lib/tauri/commands.ts
+  - src/lib/types/index.ts
+  - src-tauri/src/tokens/parsers/claude_code.rs
+  - src-tauri/src/tokens/scanner.rs
+  - src/lib/components/tokens/TokensPage.tsx
+  - src-tauri/gen/schemas/macOS-schema.json
+  - src-tauri/src/tokens/pricing.rs
+  - src-tauri/src/tokens/aggregator.rs
+  - src-tauri/src/tokens/storage.rs
+  - src/lib/types/token-analytics.ts
+  - src/lib/components/tokens/hooks/useTokenQueries.ts
+  - src-tauri/src/tokens/types.rs
+  - src-tauri/src/commands/tokens.rs
+  - src/lib/components/tokens/components/TokenImportProgress.tsx
+  - src-tauri/src/lib.rs
+  - src/lib/components/tokens/token-insights.ts
+-->
+
+---
+### Requirement: Consistent cache hit ratio across dashboard views
+
+The system SHALL use a single cache hit ratio definition across all `/tokens` views that display it, computed as cache-read tokens divided by the sum of input tokens and cache-read tokens. This definition SHALL apply to the cache efficiency card, the summary stat card (including its fallback path), and the top models insight table. When the denominator is zero the ratio SHALL be zero.
+
+#### Scenario: Stat card and top models table agree
+
+- **WHEN** the same underlying token data is shown in the summary stat card and the top models insight table
+- **THEN** the cache hit ratio displayed in each SHALL be computed with the same cacheable-input denominator
+- **THEN** the two views SHALL NOT display contradictory cache ratios for the same data
+
+#### Scenario: Per-model ratio in top models table
+
+- **GIVEN** a model row with input tokens 800 and cache-read tokens 200
+- **WHEN** the top models table computes that model's cache ratio
+- **THEN** the ratio SHALL be 200 / (800 + 200) = 0.2
 
 
 <!-- @trace
@@ -1232,6 +1296,29 @@ code:
   - src/lib/stores/terminal.ts
   - src/lib/components/tokens/components/GranularityPicker.tsx
   - src/lib/components/settings/GeneralSettings.svelte
+-->
+
+
+<!-- @trace
+source: unify-cache-efficiency-metrics
+updated: 2026-06-11
+code:
+  - src/lib/tauri/commands.ts
+  - src/lib/types/index.ts
+  - src-tauri/src/tokens/parsers/claude_code.rs
+  - src-tauri/src/tokens/scanner.rs
+  - src/lib/components/tokens/TokensPage.tsx
+  - src-tauri/gen/schemas/macOS-schema.json
+  - src-tauri/src/tokens/pricing.rs
+  - src-tauri/src/tokens/aggregator.rs
+  - src-tauri/src/tokens/storage.rs
+  - src/lib/types/token-analytics.ts
+  - src/lib/components/tokens/hooks/useTokenQueries.ts
+  - src-tauri/src/tokens/types.rs
+  - src-tauri/src/commands/tokens.rs
+  - src/lib/components/tokens/components/TokenImportProgress.tsx
+  - src-tauri/src/lib.rs
+  - src/lib/components/tokens/token-insights.ts
 -->
 
 ---
@@ -2433,4 +2520,115 @@ tests:
   - tests/managed-inventory.test.ts
   - tests/staging-logic.test.ts
   - market-server/src/db.test.js
+-->
+
+---
+### Requirement: Single batched analytics fetch
+
+The `/tokens` dashboard SHALL load its overview (monthly) analytics, daily analytics, and cache efficiency through a single batched backend request rather than separate per-dataset requests. Independent date-range selection for the overview view and the daily view SHALL be preserved through the batched request. The cache hit ratio and estimated savings obtained from the batched request SHALL remain consistent with the values shown in the cache efficiency card, the summary stat card, and the top models table, using the existing cacheable-input ratio definition.
+
+#### Scenario: Independent date presets preserved
+
+- **GIVEN** the overview view uses a 90-day preset and the daily view uses a 7-day preset
+- **WHEN** the dashboard loads its data through the batched request
+- **THEN** the overview SHALL display data for the 90-day range
+- **THEN** the daily view SHALL display data for the 7-day range
+
+#### Scenario: Cache values stay consistent
+
+- **WHEN** the dashboard renders cache hit ratio from the batched request
+- **THEN** the cache efficiency card, summary stat card, and top models table SHALL show consistent cache hit ratios for the same data
+
+<!-- @trace
+source: consolidate-token-analytics-fetch
+updated: 2026-06-11
+code:
+  - src-tauri/src/tokens/aggregator.rs
+  - src-tauri/src/tokens/scanner.rs
+  - src/lib/components/tokens/token-insights.ts
+  - src/lib/types/index.ts
+  - src-tauri/src/tokens/pricing.rs
+  - src-tauri/src/tokens/parsers/claude_code.rs
+  - src-tauri/src/lib.rs
+  - src/lib/components/tokens/components/TokenImportProgress.tsx
+  - src-tauri/src/commands/tokens.rs
+  - src-tauri/src/tokens/storage.rs
+  - src/lib/components/tokens/hooks/useTokenQueries.ts
+  - src-tauri/src/tokens/types.rs
+  - src/lib/components/tokens/TokensPage.tsx
+  - src/lib/tauri/commands.ts
+  - src/lib/types/token-analytics.ts
+  - src-tauri/gen/schemas/macOS-schema.json
+-->
+
+---
+### Requirement: Daily tab auto-syncs current-day data on entry
+
+The system SHALL trigger a single token data refresh when the user enters the Daily tab on `/tokens`, so the current day's data is synchronized without a manual refresh. The trigger SHALL fire once per entry transition into the Daily tab and MUST NOT re-fire on unrelated re-renders while the Daily tab remains active. On refresh completion the system SHALL invalidate the token analytics queries so the Daily views render the latest data.
+
+#### Scenario: Entering the Daily tab triggers a sync
+
+- **WHEN** the user switches the active tab to Daily from another tab
+- **THEN** the system SHALL trigger exactly one token refresh
+- **THEN** after the refresh completes the Daily analytics queries SHALL be invalidated and re-rendered with the latest data
+
+#### Scenario: Staying on the Daily tab does not re-trigger
+
+- **WHEN** the Daily tab is already active and the component re-renders for an unrelated reason
+- **THEN** the system MUST NOT trigger an additional refresh from the tab-entry effect
+
+
+<!-- @trace
+source: add-token-daily-auto-sync
+updated: 2026-06-11
+code:
+  - src-tauri/src/tokens/pricing.rs
+  - src-tauri/src/commands/tokens.rs
+  - src-tauri/src/tokens/storage.rs
+  - src/lib/components/tokens/components/TokenImportProgress.tsx
+  - src/lib/tauri/commands.ts
+  - src/lib/components/tokens/token-insights.ts
+  - src-tauri/src/tokens/types.rs
+  - src-tauri/src/tokens/aggregator.rs
+  - src/lib/components/tokens/hooks/useTokenQueries.ts
+  - src/lib/types/index.ts
+  - src-tauri/gen/schemas/macOS-schema.json
+  - src-tauri/src/tokens/scanner.rs
+  - src-tauri/src/lib.rs
+  - src/lib/components/tokens/TokensPage.tsx
+  - src/lib/types/token-analytics.ts
+  - src-tauri/src/tokens/parsers/claude_code.rs
+-->
+
+---
+### Requirement: Daily analytics refetches on window refocus
+
+The system SHALL refetch the Daily analytics query when the application window regains focus, relying on the TanStack Query `refetchOnWindowFocus` behavior. The Daily analytics query MUST NOT disable window-focus refetching via a local override.
+
+#### Scenario: Returning to the window refetches Daily data
+
+- **WHEN** the user is on the Daily tab, switches away from the application window, and later returns focus to it
+- **THEN** the Daily analytics query SHALL refetch automatically
+- **THEN** the Daily views SHALL reflect the refetched data
+
+<!-- @trace
+source: add-token-daily-auto-sync
+updated: 2026-06-11
+code:
+  - src-tauri/src/tokens/pricing.rs
+  - src-tauri/src/commands/tokens.rs
+  - src-tauri/src/tokens/storage.rs
+  - src/lib/components/tokens/components/TokenImportProgress.tsx
+  - src/lib/tauri/commands.ts
+  - src/lib/components/tokens/token-insights.ts
+  - src-tauri/src/tokens/types.rs
+  - src-tauri/src/tokens/aggregator.rs
+  - src/lib/components/tokens/hooks/useTokenQueries.ts
+  - src/lib/types/index.ts
+  - src-tauri/gen/schemas/macOS-schema.json
+  - src-tauri/src/tokens/scanner.rs
+  - src-tauri/src/lib.rs
+  - src/lib/components/tokens/TokensPage.tsx
+  - src/lib/types/token-analytics.ts
+  - src-tauri/src/tokens/parsers/claude_code.rs
 -->

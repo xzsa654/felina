@@ -107,6 +107,15 @@ export default function TimeBucketTable({
     return () => clearTimeout(timer);
   }, [dated, selectedDate, sorted]);
 
+  const totals = useMemo(() => dated.reduce(
+    (acc, b) => ({
+      event_count: acc.event_count + b.event_count,
+      total: acc.total + totalTokensForBucket(b),
+      cost_usd: acc.cost_usd + b.cost_usd,
+    }),
+    { event_count: 0, total: 0, cost_usd: 0 },
+  ), [dated]);
+
   const arrow = (f: SortField) => sortField === f ? (sortAsc ? " ↑" : " ↓") : "";
 
   function Th({ field, label, right }: { field: SortField; label: string; right?: boolean }) {
@@ -121,15 +130,6 @@ export default function TimeBucketTable({
   }
 
   if (dated.length === 0) return null;
-
-  const totals = useMemo(() => dated.reduce(
-    (acc, b) => ({
-      event_count: acc.event_count + b.event_count,
-      total: acc.total + totalTokensForBucket(b),
-      cost_usd: acc.cost_usd + b.cost_usd,
-    }),
-    { event_count: 0, total: 0, cost_usd: 0 },
-  ), [dated]);
 
   return (
     <div className="bg-bg-secondary border border-border rounded-lg p-4">

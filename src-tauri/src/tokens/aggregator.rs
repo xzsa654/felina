@@ -1,6 +1,6 @@
 use rusqlite::params;
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use crate::tokens::pricing::PricingService;
 use crate::tokens::scan_state::ScanState;
@@ -38,11 +38,11 @@ fn is_synthetic_tokscale_session(session_id: &str) -> bool {
 }
 
 pub struct TokenAggregator {
-    pub(crate) storage: TokenStorage,
+    pub(crate) storage: Arc<TokenStorage>,
     pub(crate) pricing: Mutex<PricingService>,
     /// Cached result of pick_dated_source() — cleared on every refresh so the
     /// next query re-evaluates after new data is ingested.
-    pub(crate) dated_source_cache: Mutex<Option<String>>,
+    pub(crate) dated_source_cache: Arc<Mutex<Option<String>>>,
 }
 
 impl TokenAggregator {
@@ -53,9 +53,9 @@ impl TokenAggregator {
         svc.try_fetch_litellm();
         let pricing = Mutex::new(svc);
         Ok(TokenAggregator {
-            storage,
+            storage: Arc::new(storage),
             pricing,
-            dated_source_cache: Mutex::new(None),
+            dated_source_cache: Arc::new(Mutex::new(None)),
         })
     }
 
@@ -1035,28 +1035,38 @@ impl TokenAggregator {
     ///   Always pass `Some("auto_dated")` — tokscale has no timestamps.
     pub fn build_analytics_pair(
         &self,
-        date_start: Option<i64>,
-        date_end: Option<i64>,
+        monthly_date_start: Option<i64>,
+        monthly_date_end: Option<i64>,
+        daily_date_start: Option<i64>,
+        daily_date_end: Option<i64>,
         monthly_source: Option<String>,
         daily_source: Option<String>,
     ) -> Result<TokenAnalyticsPair, String> {
         let monthly = self.build_analytics(
             TimeGranularity::Monthly,
-            date_start,
-            date_end,
+            monthly_date_start,
+            monthly_date_end,
             None,
             None,
             monthly_source,
         )?;
         let daily = self.build_analytics(
             TimeGranularity::Daily,
-            date_start,
-            date_end,
+            daily_date_start,
+            daily_date_end,
             None,
             None,
             daily_source,
         )?;
-        Ok(TokenAnalyticsPair { monthly, daily })
+        let cache_efficiency = {
+            let mut pricing = self.pricing.lock().unwrap();
+            Self::cache_efficiency_from_analytics(&daily, &mut pricing)
+        };
+        Ok(TokenAnalyticsPair {
+            monthly,
+            daily,
+            cache_efficiency,
+        })
     }
 
     /// Build cache efficiency metrics.
@@ -1075,24 +1085,49 @@ impl TokenAggregator {
             source_override,
         )?;
 
-        let total_input = analytics.total_input_tokens + analytics.total_cache_read_tokens;
+        let mut pricing = self.pricing.lock().unwrap();
+        Ok(Self::cache_efficiency_from_analytics(
+            &analytics,
+            &mut pricing,
+        ))
+    }
+
+    pub(crate) fn cache_efficiency_from_analytics(
+        daily: &TokenAnalytics,
+        pricing: &mut PricingService,
+    ) -> CacheEfficiency {
+        let total_input = daily.total_input_tokens + daily.total_cache_read_tokens;
         let cache_hit_ratio = if total_input > 0 {
-            analytics.total_cache_read_tokens as f64 / total_input as f64
+            daily.total_cache_read_tokens as f64 / total_input as f64
         } else {
             0.0
         };
 
-        // Cache cost saved = cache_read * (regular_input_price - cache_read_price)
-        // Using Sonnet pricing as default: regular input $3/M, cache read $0.3/M
-        let cache_cost_saved = analytics.total_cache_read_tokens as f64 / 1_000_000.0 * (3.0 - 0.3);
+        // Cache cost saved = Σ per-model cache_read_tokens × (input_price − cache_read_price).
+        // Each model is priced from its own LiteLLM entry; when a model has no cache-read
+        // price we fall back to 10% of its input price, and an unknown model contributes 0.
+        let cache_cost_saved = daily
+            .model_breakdown
+            .iter()
+            .map(|m| {
+                let Ok(p) = pricing.get_price(&m.model) else {
+                    return 0.0;
+                };
+                let input_price = p.input_cost_per_1m;
+                let cache_read_price = p.cache_read_cost_per_1m.unwrap_or(input_price * 0.1);
+                let diff = (input_price - cache_read_price).max(0.0);
+                m.cache_read_tokens as f64 / 1_000_000.0 * diff
+            })
+            .sum::<f64>()
+            .max(0.0);
 
-        Ok(CacheEfficiency {
-            total_input_tokens: analytics.total_input_tokens,
-            cache_read_tokens: analytics.total_cache_read_tokens,
-            cache_write_tokens: analytics.total_cache_write_tokens,
+        CacheEfficiency {
+            total_input_tokens: daily.total_input_tokens,
+            cache_read_tokens: daily.total_cache_read_tokens,
+            cache_write_tokens: daily.total_cache_write_tokens,
             cache_hit_ratio,
             cache_cost_saved,
-        })
+        }
     }
 
     /// Pick the default source for analytics when no explicit override is provided.
@@ -1195,8 +1230,8 @@ impl TokenAggregator {
     }
 
     /// Invalidate the dated-source cache (called after refresh ingests new data).
-    fn invalidate_dated_source_cache(&self) {
-        if let Ok(mut cache) = self.dated_source_cache.lock() {
+    fn invalidate_dated_source_cache(dated_source_cache: &Mutex<Option<String>>) {
+        if let Ok(mut cache) = dated_source_cache.lock() {
             *cache = None;
         }
     }
@@ -1208,13 +1243,15 @@ impl TokenAggregator {
     /// first so that a full historical scan is performed instead of an
     /// incremental one. This handles the case where the cursor was previously
     /// advanced by an unrelated scan before any felina_parser data existed.
-    fn run_parser_scan(&self) -> Result<u64, String> {
+    fn run_parser_scan(
+        storage: &TokenStorage,
+        progress_sink: Option<Arc<dyn ProgressSink>>,
+    ) -> Result<u64, String> {
         use crate::tokens::scanner::TokenScanner;
 
         // Check whether we already have dated felina_parser events.
         let has_dated = {
-            let conn = self
-                .storage
+            let conn = storage
                 .connection()
                 .lock()
                 .map_err(|e| format!("Lock error: {}", e))?;
@@ -1230,8 +1267,7 @@ impl TokenAggregator {
 
         // No dated data yet → clear cursors so the scan reads every file.
         if !has_dated {
-            let conn = self
-                .storage
+            let conn = storage
                 .connection()
                 .lock()
                 .map_err(|e| format!("Lock error: {}", e))?;
@@ -1255,9 +1291,15 @@ impl TokenAggregator {
 
         let scan_state = ScanState::new()?;
         let scanner = TokenScanner::new(registry);
-        let output = scanner.scan_all(&scan_state)?;
-        self.storage
-            .upsert_events_for_source(&output.events, SOURCE_FELINA_PARSER, "parser")
+        let output = scanner.scan_all(&scan_state, progress_sink.clone())?;
+        storage.upsert_events_for_source_with_progress(
+            &output.events,
+            SOURCE_FELINA_PARSER,
+            "parser",
+            progress_sink,
+            output.files_scanned,
+            output.files_scanned + output.files_skipped,
+        )
     }
 
     /// Prune events older than `retention_days` from the database.
@@ -1281,9 +1323,11 @@ impl TokenAggregator {
         &self,
         allow_parser_fallback: bool,
     ) -> Result<RefreshResult, String> {
-        self.refresh_from_ingestion_result(
-            tokscale_ingestion::ingest_with_default_adapter(&self.storage),
+        Self::run_refresh(
+            self.storage.clone(),
+            self.dated_source_cache.clone(),
             allow_parser_fallback,
+            None,
         )
     }
 
@@ -1293,18 +1337,38 @@ impl TokenAggregator {
         adapter: &dyn TokscaleAdapter,
         allow_parser_fallback: bool,
     ) -> Result<RefreshResult, String> {
-        self.refresh_from_ingestion_result(
+        Self::refresh_from_ingestion_result(
+            self.storage.clone(),
+            self.dated_source_cache.clone(),
             tokscale_ingestion::ingest_with_adapter(&self.storage, adapter),
             allow_parser_fallback,
+            None,
+        )
+    }
+
+    pub(crate) fn run_refresh(
+        storage: Arc<TokenStorage>,
+        dated_source_cache: Arc<Mutex<Option<String>>>,
+        allow_parser_fallback: bool,
+        progress_sink: Option<Arc<dyn ProgressSink>>,
+    ) -> Result<RefreshResult, String> {
+        Self::refresh_from_ingestion_result(
+            storage.clone(),
+            dated_source_cache,
+            tokscale_ingestion::ingest_with_default_adapter(&storage),
+            allow_parser_fallback,
+            progress_sink,
         )
     }
 
     fn refresh_from_ingestion_result(
-        &self,
+        storage: Arc<TokenStorage>,
+        dated_source_cache: Arc<Mutex<Option<String>>>,
         result: Result<tokscale_ingestion::TokscaleIngestionOutput, String>,
         allow_parser_fallback: bool,
+        progress_sink: Option<Arc<dyn ProgressSink>>,
     ) -> Result<RefreshResult, String> {
-        self.invalidate_dated_source_cache();
+        Self::invalidate_dated_source_cache(&dated_source_cache);
 
         match result {
             Ok(output) => {
@@ -1312,7 +1376,7 @@ impl TokenAggregator {
                 // records (with real per-day timestamps) are populated in the
                 // DB. The Daily tab uses "auto_dated" which picks this source.
                 // Errors here are best-effort and do not affect the response.
-                let _ = self.run_parser_scan();
+                let _ = Self::run_parser_scan(&storage, progress_sink.clone());
 
                 Ok(RefreshResult {
                     agents_scanned: 0,
@@ -1329,10 +1393,11 @@ impl TokenAggregator {
                     fallback_used: false,
                 })
             }
-            Err(err) if allow_parser_fallback => self.refresh_parser_fallback(&err),
+            Err(err) if allow_parser_fallback => {
+                Self::run_parser_fallback(storage, dated_source_cache, &err, progress_sink)
+            }
             Err(err) => {
-                let active_source = self
-                    .storage
+                let active_source = storage
                     .active_source()
                     .unwrap_or_else(|_| SOURCE_FELINA_PARSER.to_string());
                 let status = err
@@ -1361,7 +1426,22 @@ impl TokenAggregator {
 
     /// Explicit diagnostic fallback to the legacy Felina parser path.
     pub fn refresh_parser_fallback(&self, reason: &str) -> Result<RefreshResult, String> {
-        let _ = self.storage.prune_older_than(90);
+        Self::run_parser_fallback(
+            self.storage.clone(),
+            self.dated_source_cache.clone(),
+            reason,
+            None,
+        )
+    }
+
+    fn run_parser_fallback(
+        storage: Arc<TokenStorage>,
+        dated_source_cache: Arc<Mutex<Option<String>>>,
+        reason: &str,
+        progress_sink: Option<Arc<dyn ProgressSink>>,
+    ) -> Result<RefreshResult, String> {
+        Self::invalidate_dated_source_cache(&dated_source_cache);
+        let _ = storage.prune_older_than(90);
         use crate::tokens::scanner::TokenScanner;
 
         let registry = {
@@ -1378,14 +1458,17 @@ impl TokenAggregator {
 
         let scan_state = ScanState::new()?;
         let scanner = TokenScanner::new(registry);
-        let output = scanner.scan_all(&scan_state)?;
+        let output = scanner.scan_all(&scan_state, progress_sink.clone())?;
         let parsed_count = output.events.len() as u64;
-        let inserted = self.storage.upsert_events_for_source(
+        let inserted = storage.upsert_events_for_source_with_progress(
             &output.events,
             SOURCE_PARSER_FALLBACK,
             "fallback",
+            progress_sink,
+            output.files_scanned,
+            output.files_scanned + output.files_skipped,
         )?;
-        self.storage.set_active_source(SOURCE_PARSER_FALLBACK)?;
+        storage.set_active_source(SOURCE_PARSER_FALLBACK)?;
         let mut errors = output.errors;
         errors.push(ScanError {
             agent: AgentId::ClaudeCode,
@@ -1510,6 +1593,7 @@ mod tests {
     use crate::tokens::reconciliation::{
         ReconcileOptions, ReconciliationRecord, SourceCollection, SourceStatus, TokenSource,
     };
+    use crate::tokens::pricing::ModelPricing;
     use crate::tokens::storage::{
         SOURCE_FELINA_PARSER, SOURCE_PARSER_FALLBACK, SOURCE_TOKSCALE_EXPORT,
     };
@@ -1532,9 +1616,9 @@ mod tests {
         let storage = TokenStorage::with_path(db.clone()).expect("storage");
         (
             TokenAggregator {
-                storage,
+                storage: Arc::new(storage),
                 pricing: Mutex::new(PricingService::new()),
-                dated_source_cache: Mutex::new(None),
+                dated_source_cache: Arc::new(Mutex::new(None)),
             },
             db,
         )
@@ -1870,6 +1954,237 @@ mod tests {
             Some(SOURCE_TOKSCALE_EXPORT)
         );
         assert!(!result.fallback_used);
+        cleanup_db(&db);
+    }
+
+    #[test]
+    fn cache_cost_saved_sums_per_model_pricing_with_fallback() {
+        let (aggregator, db) = aggregator("cache_cost_saved_per_model");
+
+        let mk = |model: &str| TokenEvent {
+            agent: AgentId::ClaudeCode,
+            provider: "anthropic".into(),
+            model: model.into(),
+            timestamp: 1_700_000_000,
+            input_tokens: 0,
+            output_tokens: 0,
+            cache_read_tokens: 1_000_000,
+            cache_write_tokens: 0,
+            reasoning_tokens: 0,
+            project: None,
+            session_id: Some(model.into()),
+        };
+        aggregator
+            .storage
+            .upsert_events(&[mk("priced-model"), mk("fallback-model")])
+            .expect("insert events");
+
+        {
+            let mut pricing = aggregator.pricing.lock().unwrap();
+            // Explicit cache-read price: saving = (3.0 - 0.3) per 1M = 2.70.
+            pricing.set_price_for_test(ModelPricing {
+                model: "priced-model".into(),
+                provider: "anthropic".into(),
+                input_cost_per_1m: 3.0,
+                output_cost_per_1m: 15.0,
+                cache_read_cost_per_1m: Some(0.3),
+                cache_write_cost_per_1m: Some(3.75),
+                max_input_tokens: Some(200_000),
+            });
+            // No cache-read price → fallback 10% of input (0.5): saving = (5.0 - 0.5) = 4.50.
+            pricing.set_price_for_test(ModelPricing {
+                model: "fallback-model".into(),
+                provider: "anthropic".into(),
+                input_cost_per_1m: 5.0,
+                output_cost_per_1m: 20.0,
+                cache_read_cost_per_1m: None,
+                cache_write_cost_per_1m: None,
+                max_input_tokens: Some(200_000),
+            });
+        }
+
+        let efficiency = aggregator
+            .build_cache_efficiency(None, None, None)
+            .expect("cache efficiency");
+
+        assert!((efficiency.cache_cost_saved - 7.20).abs() < 1e-9);
+        assert!(efficiency.cache_cost_saved.is_finite());
+        assert!(efficiency.cache_cost_saved >= 0.0);
+        cleanup_db(&db);
+    }
+
+    #[test]
+    fn cache_efficiency_from_analytics_matches_existing_public_method() {
+        let (aggregator, db) = aggregator("cache_efficiency_from_daily_analytics");
+
+        let mk = |model: &str| TokenEvent {
+            agent: AgentId::ClaudeCode,
+            provider: "anthropic".into(),
+            model: model.into(),
+            timestamp: 1_700_000_000,
+            input_tokens: 0,
+            output_tokens: 0,
+            cache_read_tokens: 1_000_000,
+            cache_write_tokens: 0,
+            reasoning_tokens: 0,
+            project: None,
+            session_id: Some(model.into()),
+        };
+        aggregator
+            .storage
+            .upsert_events(&[
+                mk("priced-model"),
+                mk("fallback-model"),
+                mk("missing-price-model"),
+            ])
+            .expect("insert events");
+
+        {
+            let mut pricing = aggregator.pricing.lock().unwrap();
+            pricing.set_price_for_test(ModelPricing {
+                model: "priced-model".into(),
+                provider: "anthropic".into(),
+                input_cost_per_1m: 3.0,
+                output_cost_per_1m: 15.0,
+                cache_read_cost_per_1m: Some(0.3),
+                cache_write_cost_per_1m: Some(3.75),
+                max_input_tokens: Some(200_000),
+            });
+            pricing.set_price_for_test(ModelPricing {
+                model: "fallback-model".into(),
+                provider: "anthropic".into(),
+                input_cost_per_1m: 5.0,
+                output_cost_per_1m: 20.0,
+                cache_read_cost_per_1m: None,
+                cache_write_cost_per_1m: None,
+                max_input_tokens: Some(200_000),
+            });
+        }
+
+        let daily = aggregator
+            .build_analytics(TimeGranularity::Daily, None, None, None, None, None)
+            .expect("daily analytics");
+        let expected = aggregator
+            .build_cache_efficiency(None, None, None)
+            .expect("cache efficiency");
+        let actual = {
+            let mut pricing = aggregator.pricing.lock().unwrap();
+            TokenAggregator::cache_efficiency_from_analytics(&daily, &mut pricing)
+        };
+
+        assert_eq!(actual.total_input_tokens, expected.total_input_tokens);
+        assert_eq!(actual.cache_read_tokens, expected.cache_read_tokens);
+        assert_eq!(actual.cache_write_tokens, expected.cache_write_tokens);
+        assert!((actual.cache_hit_ratio - expected.cache_hit_ratio).abs() < 1e-12);
+        assert!((actual.cache_cost_saved - expected.cache_cost_saved).abs() < 1e-12);
+        assert!((actual.cache_cost_saved - 7.20).abs() < 1e-9);
+        assert!(actual.cache_cost_saved.is_finite());
+        assert!(actual.cache_cost_saved >= 0.0);
+        cleanup_db(&db);
+    }
+
+    #[test]
+    fn analytics_pair_applies_independent_date_bounds() {
+        let (aggregator, db) = aggregator("analytics_pair_independent_bounds");
+        let mut january = event(AgentId::ClaudeCode, "claude-sonnet", 100, 10, "jan");
+        january.timestamp = 1_704_067_200; // 2024-01-01
+        let mut february = event(AgentId::ClaudeCode, "claude-sonnet", 200, 20, "feb");
+        february.timestamp = 1_706_745_600; // 2024-02-01
+
+        aggregator
+            .storage
+            .upsert_events(&[january, february])
+            .expect("insert events");
+
+        let pair = aggregator
+            .build_analytics_pair(
+                Some(1_704_067_200),
+                Some(1_704_153_600),
+                Some(1_706_745_600),
+                Some(1_706_832_000),
+                None,
+                None,
+            )
+            .expect("analytics pair");
+
+        assert_eq!(pair.monthly.total_input_tokens, 100);
+        assert_eq!(pair.daily.total_input_tokens, 200);
+        cleanup_db(&db);
+    }
+
+    #[test]
+    fn analytics_pair_cache_efficiency_matches_daily_range() {
+        let (aggregator, db) = aggregator("analytics_pair_cache_efficiency");
+
+        let mk = |model: &str, timestamp: i64| TokenEvent {
+            agent: AgentId::ClaudeCode,
+            provider: "anthropic".into(),
+            model: model.into(),
+            timestamp,
+            input_tokens: 0,
+            output_tokens: 0,
+            cache_read_tokens: 1_000_000,
+            cache_write_tokens: 0,
+            reasoning_tokens: 0,
+            project: None,
+            session_id: Some(format!("{}-{}", model, timestamp)),
+        };
+        aggregator
+            .storage
+            .upsert_events(&[
+                mk("priced-model", 1_704_067_200),
+                mk("fallback-model", 1_706_745_600),
+            ])
+            .expect("insert events");
+
+        {
+            let mut pricing = aggregator.pricing.lock().unwrap();
+            pricing.set_price_for_test(ModelPricing {
+                model: "priced-model".into(),
+                provider: "anthropic".into(),
+                input_cost_per_1m: 3.0,
+                output_cost_per_1m: 15.0,
+                cache_read_cost_per_1m: Some(0.3),
+                cache_write_cost_per_1m: Some(3.75),
+                max_input_tokens: Some(200_000),
+            });
+            pricing.set_price_for_test(ModelPricing {
+                model: "fallback-model".into(),
+                provider: "anthropic".into(),
+                input_cost_per_1m: 5.0,
+                output_cost_per_1m: 20.0,
+                cache_read_cost_per_1m: None,
+                cache_write_cost_per_1m: None,
+                max_input_tokens: Some(200_000),
+            });
+        }
+
+        let pair = aggregator
+            .build_analytics_pair(
+                None,
+                None,
+                Some(1_706_745_600),
+                Some(1_706_832_000),
+                None,
+                None,
+            )
+            .expect("analytics pair");
+        let expected = aggregator
+            .build_cache_efficiency(Some(1_706_745_600), Some(1_706_832_000), None)
+            .expect("cache efficiency");
+
+        assert_eq!(
+            pair.cache_efficiency.total_input_tokens,
+            expected.total_input_tokens
+        );
+        assert_eq!(
+            pair.cache_efficiency.cache_read_tokens,
+            expected.cache_read_tokens
+        );
+        assert!(
+            (pair.cache_efficiency.cache_cost_saved - expected.cache_cost_saved).abs() < 1e-12
+        );
+        assert!((pair.cache_efficiency.cache_cost_saved - 4.50).abs() < 1e-9);
         cleanup_db(&db);
     }
 

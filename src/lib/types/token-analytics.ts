@@ -64,6 +64,12 @@ export interface TokenAnalytics {
   hourly_heatmap: HourlyHeatmapEntry[];
 }
 
+export interface TokenAnalyticsPair {
+  monthly: TokenAnalytics;
+  daily: TokenAnalytics;
+  cache_efficiency: CacheEfficiency;
+}
+
 export interface DayHourlyBucket {
   hour: number;
   tokens: number;
@@ -212,4 +218,15 @@ export interface RefreshResult {
   status: string;
   last_successful_source: string | null;
   fallback_used: boolean;
+}
+
+export interface ScanProgress {
+  phase: string;
+  files_scanned: number;
+  files_total: number;
+  events_ingested: number;
+}
+
+export interface TokenImportStatus {
+  needs_import: boolean;
 }

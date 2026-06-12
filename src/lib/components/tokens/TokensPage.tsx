@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef } from "react";
 import { useSearchParams } from "react-router";
-import type { CacheEfficiency } from "$lib/types";
 import { useLocaleStore } from "$lib/stores/locale";
 import { t } from "$lib/i18n";
 import { PageBody, PageHeader } from "$lib/components/shared/PageScaffold";
@@ -22,6 +21,7 @@ import {
   ModelsTokensPageSkeleton,
   OverviewTokensPageSkeleton,
 } from "./components/TokensPageSkeleton";
+import TokenImportProgress from "./components/TokenImportProgress";
 import { Coins, RefreshCw } from "lucide-react";
 import {
   cacheReadRatio,
@@ -29,8 +29,9 @@ import {
   getTokenComposition,
 } from "./token-insights";
 import {
-  useTokenAnalytics,
+  useAnalyticsPair,
   useRefreshTokenData,
+  useTokenImportStatus,
 } from "./hooks/useTokenQueries";
 
 type Tab = "overview" | "daily" | "models";
@@ -85,22 +86,30 @@ export default function TokensPage() {
 
   const monthlyDays = DATE_PRESETS.find((p) => p.key === datePreset)!.days;
   const dailyDays = DATE_PRESETS.find((p) => p.key === dailyPreset)!.days;
+  const importStatusQuery = useTokenImportStatus();
+  const importRefreshStartedRef = useRef(false);
+  const needsImport = importStatusQuery.data?.needs_import === true;
+  const analyticsEnabled =
+    importStatusQuery.isError || importStatusQuery.data?.needs_import === false;
 
-  const monthlyQuery = useTokenAnalytics({
-    granularity: "monthly",
-    days: monthlyDays,
-    sourceOverride: datePreset === "all" ? undefined : "auto_dated",
-    isToday: datePreset === "today",
-  });
-
-  const dailyQuery = useTokenAnalytics({
-    granularity: "daily",
-    days: dailyDays,
-    sourceOverride: "auto_dated",
-    isToday: dailyPreset === "today",
+  const analyticsPairQuery = useAnalyticsPair({
+    monthlyDays,
+    dailyDays,
+    monthlySource: datePreset === "all" ? undefined : "auto_dated",
+    dailySource: "auto_dated",
+    overviewIsToday: datePreset === "today",
+    dailyIsToday: dailyPreset === "today",
+    enabled: analyticsEnabled,
   });
 
   const refreshMutation = useRefreshTokenData();
+
+  useEffect(() => {
+    if (needsImport && !importRefreshStartedRef.current) {
+      importRefreshStartedRef.current = true;
+      refreshMutation.mutate();
+    }
+  }, [needsImport]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Auto-refresh when switching to "today" ────────────────────────────────
 
@@ -108,11 +117,23 @@ export default function TokensPage() {
   const prevTodayRef = useRef(false);
 
   useEffect(() => {
-    if (isToday && !prevTodayRef.current) {
+    if (isToday && !prevTodayRef.current && !needsImport) {
       refreshMutation.mutate();
     }
     prevTodayRef.current = isToday;
-  }, [isToday]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [isToday, needsImport]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Auto-sync when entering the Daily tab ─────────────────────────────────
+
+  const prevDailyTabRef = useRef(activeTab === "daily");
+
+  useEffect(() => {
+    const isDailyTab = activeTab === "daily";
+    if (isDailyTab && !prevDailyTabRef.current && !needsImport) {
+      refreshMutation.mutate();
+    }
+    prevDailyTabRef.current = isDailyTab;
+  }, [activeTab, needsImport]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── searchParams sync ─────────────────────────────────────────────────────
 
@@ -128,22 +149,12 @@ export default function TokensPage() {
 
   // ── Derived data ──────────────────────────────────────────────────────────
 
-  const analytics = monthlyQuery.data ?? null;
-  const analyticsDaily = dailyQuery.data ?? null;
-  const cacheEfficiency: CacheEfficiency | null = dailyQuery.data
-    ? (() => {
-        const totalInput = dailyQuery.data.total_input_tokens + dailyQuery.data.total_cache_read_tokens;
-        return {
-          total_input_tokens: dailyQuery.data.total_input_tokens,
-          cache_read_tokens: dailyQuery.data.total_cache_read_tokens,
-          cache_write_tokens: dailyQuery.data.total_cache_write_tokens,
-          cache_hit_ratio: totalInput > 0 ? dailyQuery.data.total_cache_read_tokens / totalInput : 0,
-          cache_cost_saved: (dailyQuery.data.total_cache_read_tokens / 1_000_000) * (3.0 - 0.3),
-        };
-      })()
-    : null;
-  const isPending = monthlyQuery.isPending || dailyQuery.isPending;
-  const queryError = monthlyQuery.error ?? dailyQuery.error;
+  const analytics = analyticsPairQuery.data?.monthly ?? null;
+  const analyticsDaily = analyticsPairQuery.data?.daily ?? null;
+  const cacheEfficiency = analyticsPairQuery.data?.cache_efficiency ?? null;
+  const isImporting = needsImport || (importRefreshStartedRef.current && refreshMutation.isPending);
+  const isPending = importStatusQuery.isPending || analyticsPairQuery.isPending;
+  const queryError = analyticsPairQuery.error;
 
   const dataResolution = classifyDataResolution(
     analyticsDaily?.time_series ?? [],
@@ -252,7 +263,9 @@ export default function TokensPage() {
               <ErrorNotice title={t(locale, "tokens.queryFailed")} detail={String(queryError)} />
             )}
 
-            {isPending ? (
+            {isImporting ? (
+              <TokenImportProgress />
+            ) : isPending ? (
               <TokensPageSkeletonForTab tab={activeTab} />
             ) : analytics ? (
               <>
