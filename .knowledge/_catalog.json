@@ -760,6 +760,63 @@
       "file": "knowledge-base/dev-docs.md",
       "anchor": "url-查詢參數編解碼交給-urlsearchparams勿重複-decode",
       "updated": "2026-06-12"
+    },
+    {
+      "id": "kb-skills-dedupe-schema",
+      "title": "多 skill 共用規則：schema 單一權威源 + 顯式角色差異",
+      "type": "knowledge",
+      "status": "active",
+      "confidence": "confirmed",
+      "keywords": [
+        "skill",
+        "schema",
+        "dedupe",
+        "single source of truth",
+        "DRY",
+        "drift"
+      ],
+      "appliesWhen": "兩個以上協作 skill 出現近逐字相同的規則段落時",
+      "file": "knowledge-base/dev-docs.md",
+      "anchor": "多-skill-共用規則schema-單一權威源--顯式角色差異",
+      "updated": "2026-06-12"
+    },
+    {
+      "id": "kb-workflow-backlog-ownership",
+      "title": "Backlog/Milestone 唯一權威：project-knowledge，session skills 只讀與委派",
+      "type": "knowledge",
+      "status": "active",
+      "confidence": "confirmed",
+      "keywords": [
+        "backlog",
+        "milestone",
+        "project-knowledge",
+        "ideas-backlog",
+        "ownership",
+        "delegation"
+      ],
+      "appliesWhen": "任何 skill 要新增/更新/移動 backlog 或 milestone 條目時",
+      "file": "knowledge-base/dev-docs.md",
+      "anchor": "backlogmilestone-唯一權威project-knowledgesession-skills-只讀與委派",
+      "updated": "2026-06-12"
+    },
+    {
+      "id": "exp-claude-code-hooks-stop-work-cycle",
+      "title": "Stop hook 防騷擾：工作週期 re-arm 模式",
+      "type": "experience",
+      "status": "active",
+      "confidence": "confirmed",
+      "keywords": [
+        "stop hook",
+        "sentinel",
+        "re-arm",
+        "work cycle",
+        "anti-nag",
+        "cooldown"
+      ],
+      "appliesWhen": "任何收尾/同步提醒類 Stop hook 或事件後重新武裝的一次性提醒",
+      "file": "experience/claude-code-hooks.md",
+      "anchor": "stop-hook-防騷擾工作週期-re-arm-模式",
+      "updated": "2026-06-12"
     }
   ]
 }

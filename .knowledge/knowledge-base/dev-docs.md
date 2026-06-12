@@ -302,3 +302,37 @@ Conventions, workflows, UI consistency rules, and reusable design-time checklist
 - 還原走「列表就緒後一次性比對」模式（useRef flag），無命中靜默忽略維持預設狀態。
 **Keywords:** URLSearchParams, useSearchParams, deep-link, encode, decode, double-decode, query params
 **Related:** kb-react-query-migration-side-effects
+
+## 多 skill 共用規則：schema 單一權威源 + 顯式角色差異
+**ID:** kb-skills-dedupe-schema
+**Date:** 2026-06-12
+**Updated:** 2026-06-12
+**Status:** active
+**Confidence:** confirmed
+**Source:** session 2026-06-12（product-backlog→project-knowledge 遷移改 6 檔 + session-* dedupe 約 90 行）
+**Context:** session-* 五個 skill 各自整段複製 Handoff Root Resolution / Quote-Trace / Concurrent Write Guard，schema 已有完整版仍重抄；遷移時要同步改 6 檔，且複本間已出現用詞 drift（無法分辨刻意特化 vs 抄寫漂移）。
+**Applies when:** 兩個以上協作 skill（session-*、spectra-* 等）出現逐字或近逐字相同的規則段落時。
+**Lesson:**
+- 完整規則只存 schema 檔；schema 寫成涵蓋所有變體的「超集」（如 reader 讀 shared root 並回報 mismatch、writer 拒寫 worktree-local 副本同列）。
+- 各 skill 只留：一行引用（Follow ## X in schema）+ 顯式標註的 skill 特有差異（如 session-start 的 source-label 自檢、session-handoff 的 lock 與 insertion script 互斥規則）。
+- 純引用會丟角色差異、純複製會漂移——「超集 + 顯式差異」是關鍵中間態。
+- 反例：真正 skill 特有的流程（claim Fast Path、handoff Session Entry Insertion）不抽，避免 schema 變成第二個大雜燴。
+**Keywords:** skill, schema, dedupe, single source of truth, DRY, session skills, drift
+**Related:** kb-workflow-backlog-ownership
+
+## Backlog/Milestone 唯一權威：project-knowledge，session skills 只讀與委派
+**ID:** kb-workflow-backlog-ownership
+**Date:** 2026-06-12
+**Updated:** 2026-06-12
+**Status:** active
+**Confidence:** confirmed
+**Source:** session 2026-06-12（誤建 .session/product-backlog.md 後全面遷移，不留 fallback）
+**Context:** session-* skills 原指向 .session/product-backlog.md，project-knowledge 另管 .knowledge/ideas-backlog.md，雙軌並存導致 OQ prune 時誤建錯誤檔案。
+**Applies when:** 任何 skill 要新增/更新/移動 backlog 或 milestone 條目時；以及未來新 skill 設計涉及產品工作項儲存時。
+**Lesson:**
+- backlog = .knowledge/ideas-backlog.md、milestone = .knowledge/milestones.md，唯一管理者是 project-knowledge skill（--backlog add/update/promote、--milestone move/record）。
+- 其他 skill 一律「讀取 + 委派」：不直寫檔案、不自持 lock；寫入走 project-knowledge 的 schema 驗證腳本（backlog_insert.py / backlog_move.py）。
+- OQ prune 移入 → --backlog add；spectra archive 完成項 → --milestone move；claim 啟動 → --backlog update 設 active。
+- 同責任不留雙軌路徑（fallback）：舊路徑殘留會在語義觸發時複活錯誤行為。
+**Keywords:** backlog, milestone, project-knowledge, ideas-backlog, ownership, delegation, session skills
+**Related:** kb-skills-dedupe-schema

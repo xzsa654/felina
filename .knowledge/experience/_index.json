@@ -1,11 +1,39 @@
 {
-  "lastUpdated": "2026-05-25",
+  "lastUpdated": "2026-06-12",
   "skills": [
     {
       "id": "spectra",
       "name": "Spectra CLI",
-      "keywords": ["spectra", "spectra analyze", "spectra propose", "spectra ingest", "spectra apply", "Consistency", "Coverage", "Ambiguity", "Gaps", "design topic", "keyword matching"],
+      "keywords": [
+        "spectra",
+        "spectra analyze",
+        "spectra propose",
+        "spectra ingest",
+        "spectra apply",
+        "Consistency",
+        "Coverage",
+        "Ambiguity",
+        "Gaps",
+        "design topic",
+        "keyword matching"
+      ],
       "file": "spectra.md",
+      "count": 1
+    },
+    {
+      "id": "claude-code-hooks",
+      "name": "Claude Code Hooks",
+      "keywords": [
+        "hooks",
+        "stop hook",
+        "sessionstart",
+        "posttooluse",
+        "settings.json",
+        "sentinel",
+        "re-arm",
+        "anti-nag"
+      ],
+      "file": "claude-code-hooks.md",
       "count": 1
     }
   ]

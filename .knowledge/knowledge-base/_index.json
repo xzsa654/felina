@@ -58,10 +58,16 @@
         "canonical id",
         "rename",
         "async save",
-        "store mutation"
+        "store mutation",
+        "skill",
+        "schema",
+        "dedupe",
+        "backlog",
+        "milestone",
+        "project-knowledge"
       ],
       "file": "dev-docs.md",
-      "count": 9
+      "count": 11
     },
     {
       "id": "platform",
