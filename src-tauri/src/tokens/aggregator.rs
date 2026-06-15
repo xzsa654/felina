@@ -5,7 +5,8 @@ use std::sync::{Arc, Mutex};
 use crate::tokens::pricing::PricingService;
 use crate::tokens::scan_state::ScanState;
 use crate::tokens::storage::{
-    TokenStorage, SOURCE_FELINA_PARSER, SOURCE_PARSER_FALLBACK, SOURCE_TOKSCALE_EXPORT,
+    TokenStorage, SOURCE_FELINA_PARSER, SOURCE_MERGED, SOURCE_PARSER_FALLBACK,
+    SOURCE_TOKSCALE_EXPORT,
 };
 #[cfg(test)]
 use crate::tokens::tokscale::TokscaleAdapter;
@@ -992,17 +993,7 @@ impl TokenAggregator {
         source_override: Option<String>,
     ) -> Result<Vec<ModelBreakdown>, String> {
         let source = match source_override.as_deref() {
-            Some("auto_dated") => {
-                let tokscale_count = self
-                    .storage
-                    .count_events_for_source(SOURCE_TOKSCALE_EXPORT)
-                    .unwrap_or(0);
-                if tokscale_count > 0 {
-                    SOURCE_TOKSCALE_EXPORT.to_string()
-                } else {
-                    self.pick_dated_source()?
-                }
-            }
+            Some("auto_dated") => self.pick_dated_source()?,
             Some(s) => s.to_string(),
             None => self
                 .storage
@@ -1196,6 +1187,29 @@ impl TokenAggregator {
             }
         }
 
+        // Prefer the materialized merged source: it unions tokscale history with
+        // felina_parser detail, so the Daily tab spans the full date range instead
+        // of just what the parser still finds on disk. It only ever holds dated rows.
+        // Build it lazily so installs whose last refresh predates this feature get
+        // it on the next query without waiting for a manual refresh.
+        let mut merged_dated = self
+            .storage
+            .count_events_for_source(SOURCE_MERGED)
+            .unwrap_or(0);
+        if merged_dated == 0 {
+            let _ = self.storage.rebuild_merged_source();
+            merged_dated = self
+                .storage
+                .count_events_for_source(SOURCE_MERGED)
+                .unwrap_or(0);
+        }
+        if merged_dated > 0 {
+            if let Ok(mut cache) = self.dated_source_cache.lock() {
+                *cache = Some(SOURCE_MERGED.to_string());
+            }
+            return Ok(SOURCE_MERGED.to_string());
+        }
+
         // Query DB (scope conn lock so it's released before active_source).
         let dated_source = {
             let conn = self
@@ -1377,6 +1391,11 @@ impl TokenAggregator {
                 // DB. The Daily tab uses "auto_dated" which picks this source.
                 // Errors here are best-effort and do not affect the response.
                 let _ = Self::run_parser_scan(&storage, progress_sink.clone());
+
+                // Materialize the merged source (tokscale history + parser detail)
+                // so the Daily tab's auto_dated query spans the full date range.
+                let _ = storage.rebuild_merged_source();
+                Self::invalidate_dated_source_cache(&dated_source_cache);
 
                 Ok(RefreshResult {
                     agents_scanned: 0,

@@ -7,6 +7,9 @@ use crate::tokens::types::{AgentId, ProgressSink, ScanProgress, TokenEvent};
 pub const SOURCE_FELINA_PARSER: &str = "felina_parser";
 pub const SOURCE_TOKSCALE_EXPORT: &str = "tokscale_export";
 pub const SOURCE_PARSER_FALLBACK: &str = "parser_fallback";
+/// Materialized union of tokscale history + felina_parser detail, rebuilt on
+/// every refresh. Backs the Daily tab via the `auto_dated` source resolution.
+pub const SOURCE_MERGED: &str = "felina_merged";
 const ACTIVE_SOURCE_KEY: &str = "active_source";
 const CODEX_INPUT_CACHE_NORMALIZED_KEY: &str = "codex_input_cache_normalized_v1";
 const TOKEN_IMPORT_COMPLETED_KEY: &str = "token_import_completed_v1";
@@ -415,6 +418,73 @@ impl TokenStorage {
         Ok(inserted)
     }
 
+    /// Rebuild the materialized `felina_merged` source consumed by the Daily tab.
+    ///
+    /// Ownership is decided per local calendar day: any day that `felina_parser`
+    /// covers uses the parser's per-event rows (keeps session drill-down), and
+    /// every other day falls back to the aggregated `tokscale_export` rows so the
+    /// history extends past what local CLI logs still retain. Exactly one source
+    /// owns each day, so totals are never double-counted.
+    pub fn rebuild_merged_source(&self) -> Result<u64, String> {
+        let mut conn = self.db.lock().map_err(|e| format!("Lock error: {}", e))?;
+        let tx = conn
+            .transaction()
+            .map_err(|e| format!("Cannot begin merged rebuild: {}", e))?;
+
+        tx.execute(
+            "DELETE FROM token_events WHERE source = ?1",
+            params![SOURCE_MERGED],
+        )
+        .map_err(|e| format!("Cannot clear merged source: {}", e))?;
+
+        // Recent days: copy felina_parser's per-event rows verbatim.
+        tx.execute(
+            "INSERT OR IGNORE INTO token_events
+                (agent, provider, model, timestamp, input_tokens, output_tokens,
+                 cache_read_tokens, cache_write_tokens, reasoning_tokens,
+                 project, session_id, cost_usd, source, source_generation, event_count)
+             SELECT agent, provider, model, timestamp, input_tokens, output_tokens,
+                    cache_read_tokens, cache_write_tokens, reasoning_tokens,
+                    project, session_id, cost_usd, ?1, source_generation, event_count
+             FROM token_events
+             WHERE source = ?2 AND timestamp > 0",
+            params![SOURCE_MERGED, SOURCE_FELINA_PARSER],
+        )
+        .map_err(|e| format!("Cannot copy parser rows into merged: {}", e))?;
+
+        // Older days the parser no longer covers: fall back to tokscale aggregates.
+        tx.execute(
+            "INSERT OR IGNORE INTO token_events
+                (agent, provider, model, timestamp, input_tokens, output_tokens,
+                 cache_read_tokens, cache_write_tokens, reasoning_tokens,
+                 project, session_id, cost_usd, source, source_generation, event_count)
+             SELECT agent, provider, model, timestamp, input_tokens, output_tokens,
+                    cache_read_tokens, cache_write_tokens, reasoning_tokens,
+                    project, session_id, cost_usd, ?1, source_generation, event_count
+             FROM token_events t
+             WHERE t.source = ?2 AND t.timestamp > 0
+               AND date(t.timestamp, 'unixepoch', 'localtime') NOT IN (
+                   SELECT DISTINCT date(timestamp, 'unixepoch', 'localtime')
+                   FROM token_events
+                   WHERE source = ?3 AND timestamp > 0
+               )",
+            params![SOURCE_MERGED, SOURCE_TOKSCALE_EXPORT, SOURCE_FELINA_PARSER],
+        )
+        .map_err(|e| format!("Cannot copy tokscale rows into merged: {}", e))?;
+
+        let count: i64 = tx
+            .query_row(
+                "SELECT COUNT(*) FROM token_events WHERE source = ?1",
+                params![SOURCE_MERGED],
+                |row| row.get(0),
+            )
+            .map_err(|e| format!("Cannot count merged rows: {}", e))?;
+
+        tx.commit()
+            .map_err(|e| format!("Cannot commit merged rebuild: {}", e))?;
+        Ok(count as u64)
+    }
+
     pub fn set_active_source(&self, source: &str) -> Result<(), String> {
         let conn = self.db.lock().map_err(|e| format!("Lock error: {}", e))?;
         conn.execute(
@@ -625,6 +695,64 @@ mod tests {
             "DB should have 5 total events (3 + 2, no duplicates)"
         );
         drop(conn);
+        remove_test_db(&db);
+    }
+
+    #[test]
+    fn rebuild_merged_source_prefers_parser_per_day_and_falls_back_to_tokscale() {
+        let db = temp_db("rebuild_merged_source");
+        remove_test_db(&db);
+        let storage = TokenStorage::with_path(db.clone()).expect("storage");
+
+        let ts_old = 1_600_000_000; // tokscale-only day
+        let ts_recent = ts_old + 30 * 86_400; // a clearly different local day
+
+        // tokscale aggregates for both days (no session_id, like graph output).
+        let mut tok_old = make_event(AgentId::GeminiCli, ts_old, 1000, 0, "");
+        tok_old.session_id = None;
+        let mut tok_recent = make_event(AgentId::GeminiCli, ts_recent, 9999, 0, "");
+        tok_recent.session_id = None;
+        storage
+            .replace_tokscale_events(&[tok_old, tok_recent], "tok-gen")
+            .expect("tokscale insert");
+
+        // felina_parser only covers the recent day (per-event detail).
+        storage
+            .upsert_events_for_source(
+                &[make_event(AgentId::ClaudeCode, ts_recent, 200, 50, "sess-b")],
+                SOURCE_FELINA_PARSER,
+                "parser",
+            )
+            .expect("parser insert");
+
+        let merged = storage.rebuild_merged_source().expect("rebuild");
+        assert_eq!(merged, 2, "recent day from parser + old day from tokscale");
+
+        let conn = storage.db.lock().unwrap();
+        let total_input: i64 = conn
+            .query_row(
+                "SELECT COALESCE(SUM(input_tokens),0) FROM token_events WHERE source = ?1",
+                params![SOURCE_MERGED],
+                |row| row.get(0),
+            )
+            .unwrap();
+        // 1000 (tokscale old) + 200 (parser recent); the 9999 tokscale recent-day
+        // aggregate must be excluded so the day is not double-counted.
+        assert_eq!(total_input, 1200);
+
+        let excluded: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM token_events WHERE source = ?1 AND input_tokens = 9999",
+                params![SOURCE_MERGED],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(excluded, 0, "parser-covered day must not pull tokscale rows");
+        drop(conn);
+
+        // Rebuild is idempotent — running again yields the same row count.
+        let merged_again = storage.rebuild_merged_source().expect("rebuild again");
+        assert_eq!(merged_again, 2);
         remove_test_db(&db);
     }
 
