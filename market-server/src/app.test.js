@@ -831,3 +831,305 @@ test('POST /auth/login returns 401 for non-existent email', async () => {
   })
   assert.equal(res.statusCode, 401)
 })
+
+// ── Leaderboard ───────────────────────────────────────────────────────────────
+
+function windowCutoff(days) {
+  const d = new Date()
+  d.setDate(d.getDate() - (days - 1))
+  return d.toISOString().slice(0, 10)
+}
+
+function makeLeaderboardDb(seed = []) {
+  const entries = new Map() // userId -> entry
+  const daily = new Map() // userId -> rows
+  const models = new Map() // userId -> rows
+  for (const e of seed) entries.set(e.userId, { submitCount: 1, ...e })
+
+  function sorted(sort) {
+    const col = { tokens: 'totalTokens', cost: 'totalCostUsd', active_days: 'activeDays' }[sort] ?? 'totalTokens'
+    return [...entries.values()].sort((a, b) => (b[col] - a[col]) || (a.updatedAt - b.updatedAt))
+  }
+
+  return {
+    async upsertLeaderboardEntry(entry) {
+      for (const [uid, e] of entries) {
+        if (uid !== entry.userId && e.handle.toLowerCase() === entry.handle.toLowerCase()) {
+          throw Object.assign(new Error('duplicate handle'), { code: '23505' })
+        }
+      }
+      const prev = entries.get(entry.userId)
+      const submitCount = prev ? prev.submitCount + 1 : 1
+      entries.set(entry.userId, { ...entry, submitCount, updatedAt: Date.now() })
+      return { userId: entry.userId, handle: entry.handle, submitCount }
+    },
+    async replaceLeaderboardDaily(userId, rows) {
+      daily.set(userId, rows)
+    },
+    async getEntryRank(userId, sort) {
+      const idx = sorted(sort).findIndex((e) => e.userId === userId)
+      return idx >= 0 ? idx + 1 : null
+    },
+    async listLeaderboard({ sort = 'tokens', limit = 50, offset = 0 } = {}) {
+      return sorted(sort).slice(offset, offset + limit).map((e, i) => ({
+        rank: offset + i + 1,
+        userId: e.userId,
+        handle: e.handle,
+        totalTokens: e.totalTokens,
+        totalCostUsd: e.totalCostUsd,
+        activeDays: e.activeDays,
+        submitCount: e.submitCount,
+        topModel: e.topModel ?? null,
+      }))
+    },
+    async getLeaderboardAggregates() {
+      const all = [...entries.values()]
+      return {
+        userCount: all.length,
+        totalTokens: all.reduce((s, e) => s + e.totalTokens, 0),
+        totalCostUsd: all.reduce((s, e) => s + e.totalCostUsd, 0),
+      }
+    },
+    async getLeaderboardDailyByHandle(handle) {
+      for (const [uid, e] of entries) {
+        if (e.handle.toLowerCase() === handle.toLowerCase()) return daily.get(uid) ?? []
+      }
+      return []
+    },
+    async replaceLeaderboardModels(userId, rows) {
+      models.set(userId, rows)
+    },
+    async getLeaderboardModelsByHandle(handle) {
+      for (const [uid, e] of entries) {
+        if (e.handle.toLowerCase() === handle.toLowerCase()) {
+          return [...(models.get(uid) ?? [])].sort((a, b) => b.tokens - a.tokens)
+        }
+      }
+      return []
+    },
+    async listLeaderboardWindowed({ sort = 'tokens', days = 30, limit = 50, offset = 0 } = {}) {
+      const cutoff = windowCutoff(days)
+      const col = { tokens: 'totalTokens', cost: 'totalCostUsd', active_days: 'activeDays' }[sort] ?? 'totalTokens'
+      const rows = []
+      for (const [uid, e] of entries) {
+        const drows = (daily.get(uid) ?? []).filter((r) => r.day >= cutoff)
+        if (drows.length === 0) continue
+        rows.push({
+          userId: uid,
+          handle: e.handle,
+          totalTokens: drows.reduce((s, r) => s + r.tokens, 0),
+          totalCostUsd: drows.reduce((s, r) => s + r.cost, 0),
+          activeDays: drows.filter((r) => r.tokens > 0).length,
+          submitCount: e.submitCount,
+          topModel: e.topModel ?? null,
+        })
+      }
+      rows.sort((a, b) => b[col] - a[col])
+      return rows.slice(offset, offset + limit).map((r, i) => ({ ...r, rank: offset + i + 1 }))
+    },
+    async getLeaderboardAggregatesWindowed(days = 30) {
+      const cutoff = windowCutoff(days)
+      let userCount = 0
+      let totalTokens = 0
+      let totalCostUsd = 0
+      for (const [uid] of entries) {
+        const drows = (daily.get(uid) ?? []).filter((r) => r.day >= cutoff)
+        if (drows.length === 0) continue
+        userCount++
+        totalTokens += drows.reduce((s, r) => s + r.tokens, 0)
+        totalCostUsd += drows.reduce((s, r) => s + r.cost, 0)
+      }
+      return { userCount, totalTokens, totalCostUsd }
+    },
+    async deleteLeaderboardEntry(userId) {
+      entries.delete(userId)
+      daily.delete(userId)
+      models.delete(userId)
+    },
+    _entries: entries,
+  }
+}
+
+function validSummary() {
+  return {
+    inputTokens: 100, outputTokens: 50, cacheReadTokens: 10,
+    cacheWriteTokens: 5, reasoningTokens: 2, totalCostUsd: 1.25,
+    eventCount: 7, topModel: 'claude-opus-4-7',
+  }
+}
+
+function submitPayload(handle = 'alice', overrides = {}) {
+  return {
+    headers: { 'content-type': 'application/json', ...authHeader('alice@corp.local') },
+    payload: JSON.stringify({
+      handle,
+      summary: validSummary(),
+      daily: [{ day: '2026-06-01', tokens: 100, cost: 0.5 }, { day: '2026-06-02', tokens: 67, cost: 0.75 }],
+      ...overrides,
+    }),
+  }
+}
+
+test('POST /api/leaderboard/submit requires authentication', async () => {
+  const app = await createApp({ db: makeLeaderboardDb() })
+  const res = await app.inject({
+    method: 'POST', url: '/api/leaderboard/submit',
+    headers: { 'content-type': 'application/json' },
+    payload: JSON.stringify({ handle: 'alice', summary: validSummary(), daily: [] }),
+  })
+  assert.equal(res.statusCode, 401)
+})
+
+test('POST /api/leaderboard/submit stores entry and returns rank + submitCount', async () => {
+  const db = makeLeaderboardDb()
+  const app = await createApp({ db })
+  const res = await app.inject({ method: 'POST', url: '/api/leaderboard/submit', ...submitPayload('alice') })
+  assert.equal(res.statusCode, 200)
+  const body = res.json()
+  assert.equal(body.rank, 1)
+  assert.equal(body.submitCount, 1)
+  const stored = db._entries.get('00000000-0000-4000-8000-000000000001')
+  assert.equal(stored.handle, 'alice')
+  assert.equal(stored.totalTokens, 167) // 100+50+10+5+2
+  assert.equal(stored.activeDays, 2)
+})
+
+test('POST /api/leaderboard/submit increments submit_count on repeat', async () => {
+  const db = makeLeaderboardDb()
+  const app = await createApp({ db })
+  await app.inject({ method: 'POST', url: '/api/leaderboard/submit', ...submitPayload('alice') })
+  const res = await app.inject({ method: 'POST', url: '/api/leaderboard/submit', ...submitPayload('alice') })
+  assert.equal(res.json().submitCount, 2)
+})
+
+test('POST /api/leaderboard/submit rejects invalid handle, negatives, oversized daily', async () => {
+  const app = await createApp({ db: makeLeaderboardDb() })
+  const bad = await app.inject({ method: 'POST', url: '/api/leaderboard/submit', ...submitPayload('a') })
+  assert.equal(bad.statusCode, 400)
+  const space = await app.inject({ method: 'POST', url: '/api/leaderboard/submit', ...submitPayload('has space') })
+  assert.equal(space.statusCode, 400)
+  const neg = await app.inject({
+    method: 'POST', url: '/api/leaderboard/submit',
+    ...submitPayload('alice', { summary: { ...validSummary(), inputTokens: -1 } }),
+  })
+  assert.equal(neg.statusCode, 400)
+  const huge = await app.inject({
+    method: 'POST', url: '/api/leaderboard/submit',
+    ...submitPayload('alice', { daily: Array.from({ length: 801 }, (_, i) => ({ day: '2026-01-01', tokens: 1, cost: 0 })) }),
+  })
+  assert.equal(huge.statusCode, 400)
+})
+
+test('POST /api/leaderboard/submit returns 409 on duplicate handle', async () => {
+  const db = makeLeaderboardDb([
+    { userId: 'other-user', handle: 'alice', totalTokens: 1, totalCostUsd: 0, activeDays: 1, updatedAt: 1 },
+  ])
+  const app = await createApp({ db })
+  const res = await app.inject({ method: 'POST', url: '/api/leaderboard/submit', ...submitPayload('alice') })
+  assert.equal(res.statusCode, 409)
+})
+
+test('GET /api/leaderboard sorts by the requested metric', async () => {
+  const db = makeLeaderboardDb([
+    { userId: 'u1', handle: 'u1', totalTokens: 900, totalCostUsd: 1.0, activeDays: 3, updatedAt: 1 },
+    { userId: 'u2', handle: 'u2', totalTokens: 300, totalCostUsd: 5.0, activeDays: 9, updatedAt: 2 },
+  ])
+  const app = await createApp({ db })
+  const byTokens = (await app.inject({ method: 'GET', url: '/api/leaderboard?sort=tokens' })).json()
+  assert.deepEqual(byTokens.entries.map((e) => e.handle), ['u1', 'u2'])
+  const byCost = (await app.inject({ method: 'GET', url: '/api/leaderboard?sort=cost' })).json()
+  assert.deepEqual(byCost.entries.map((e) => e.handle), ['u2', 'u1'])
+  const byDays = (await app.inject({ method: 'GET', url: '/api/leaderboard?sort=active_days' })).json()
+  assert.deepEqual(byDays.entries.map((e) => e.handle), ['u2', 'u1'])
+})
+
+test('GET /api/leaderboard never exposes userId/email and flags isMe', async () => {
+  const db = makeLeaderboardDb([
+    { userId: '00000000-0000-4000-8000-000000000001', handle: 'alice', totalTokens: 900, totalCostUsd: 1, activeDays: 3, updatedAt: 1 },
+    { userId: 'u2', handle: 'bob', totalTokens: 300, totalCostUsd: 5, activeDays: 9, updatedAt: 2 },
+  ])
+  const app = await createApp({ db })
+  const res = await app.inject({ method: 'GET', url: '/api/leaderboard?sort=tokens', headers: authHeader('alice@corp.local') })
+  const body = res.json()
+  assert.ok(body.aggregates.userCount === 2)
+  for (const e of body.entries) {
+    assert.equal(e.userId, undefined)
+    assert.equal(e.email, undefined)
+    assert.ok('handle' in e)
+  }
+  assert.equal(body.entries.find((e) => e.handle === 'alice').isMe, true)
+  assert.equal(body.entries.find((e) => e.handle === 'bob').isMe, false)
+})
+
+test('GET /api/leaderboard/:handle/daily returns series and empty for unknown', async () => {
+  const db = makeLeaderboardDb([
+    { userId: 'u1', handle: 'alice', totalTokens: 1, totalCostUsd: 0, activeDays: 1, updatedAt: 1 },
+  ])
+  await db.replaceLeaderboardDaily('u1', [{ day: '2026-06-01', tokens: 100, cost: 0.5 }])
+  const app = await createApp({ db })
+  const found = (await app.inject({ method: 'GET', url: '/api/leaderboard/alice/daily' })).json()
+  assert.equal(found.length, 1)
+  assert.equal(found[0].tokens, 100)
+  const missing = await app.inject({ method: 'GET', url: '/api/leaderboard/ghost/daily' })
+  assert.equal(missing.statusCode, 200)
+  assert.deepEqual(missing.json(), [])
+})
+
+test('DELETE /api/leaderboard/me removes the caller entry', async () => {
+  const db = makeLeaderboardDb([
+    { userId: '00000000-0000-4000-8000-000000000001', handle: 'alice', totalTokens: 1, totalCostUsd: 0, activeDays: 1, updatedAt: 1 },
+  ])
+  const app = await createApp({ db })
+  const res = await app.inject({ method: 'DELETE', url: '/api/leaderboard/me', headers: authHeader('alice@corp.local') })
+  assert.equal(res.statusCode, 204)
+  assert.equal(db._entries.has('00000000-0000-4000-8000-000000000001'), false)
+})
+
+test('POST submit stores per-model breakdown and GET :handle/models returns it sorted', async () => {
+  const db = makeLeaderboardDb()
+  const app = await createApp({ db })
+  const res = await app.inject({
+    method: 'POST', url: '/api/leaderboard/submit',
+    ...submitPayload('alice', {
+      models: [
+        { model: 'claude-haiku-4-5', provider: 'anthropic', tokens: 100, cost: 0.1, eventCount: 5 },
+        { model: 'claude-opus-4-7', provider: 'anthropic', tokens: 900, cost: 2.0, eventCount: 12 },
+      ],
+    }),
+  })
+  assert.equal(res.statusCode, 200)
+  const list = (await app.inject({ method: 'GET', url: '/api/leaderboard/alice/models' })).json()
+  assert.deepEqual(list.map((m) => m.model), ['claude-opus-4-7', 'claude-haiku-4-5'])
+  assert.equal(list[0].tokens, 900)
+})
+
+test('POST submit rejects invalid model entry', async () => {
+  const app = await createApp({ db: makeLeaderboardDb() })
+  const res = await app.inject({
+    method: 'POST', url: '/api/leaderboard/submit',
+    ...submitPayload('alice', { models: [{ model: '', tokens: 1, cost: 0, eventCount: 0 }] }),
+  })
+  assert.equal(res.statusCode, 400)
+})
+
+test('GET /api/leaderboard?days=7 ranks only recent daily activity', async () => {
+  const db = makeLeaderboardDb([
+    { userId: 'u1', handle: 'recent', totalTokens: 0, totalCostUsd: 0, activeDays: 0, updatedAt: 1 },
+    { userId: 'u2', handle: 'stale', totalTokens: 0, totalCostUsd: 0, activeDays: 0, updatedAt: 2 },
+  ])
+  const fmt = (offsetDays) => {
+    const d = new Date()
+    d.setDate(d.getDate() - offsetDays)
+    return d.toISOString().slice(0, 10)
+  }
+  await db.replaceLeaderboardDaily('u1', [{ day: fmt(2), tokens: 500, cost: 1 }])
+  await db.replaceLeaderboardDaily('u2', [{ day: fmt(40), tokens: 9999, cost: 5 }])
+  const app = await createApp({ db })
+
+  const res = await app.inject({ method: 'GET', url: '/api/leaderboard?sort=tokens&days=7' })
+  assert.equal(res.statusCode, 200)
+  const body = res.json()
+  assert.deepEqual(body.entries.map((e) => e.handle), ['recent'])
+  assert.equal(body.entries[0].totalTokens, 500)
+  assert.equal(body.aggregates.userCount, 1)
+})

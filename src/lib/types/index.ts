@@ -27,6 +27,16 @@ export type {
   TranscriptEntry,
 } from "./token-analytics";
 
+export type {
+  LeaderboardSort,
+  LeaderboardEntry,
+  LeaderboardAggregates,
+  LeaderboardListResponse,
+  LeaderboardDaily,
+  LeaderboardModel,
+  SubmitResult,
+} from "./leaderboard";
+
 export type { DailyActivity, StatsCache, Achievement, UserXP } from "./stats";
 export type { MemoryFile, ProjectInfo } from "./memory";
 export type { InstructionFile } from "./instructions";

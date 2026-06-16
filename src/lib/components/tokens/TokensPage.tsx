@@ -22,6 +22,7 @@ import {
   OverviewTokensPageSkeleton,
 } from "./components/TokensPageSkeleton";
 import TokenImportProgress from "./components/TokenImportProgress";
+import LeaderboardPanel from "$lib/components/leaderboard/LeaderboardPanel";
 import { Coins, RefreshCw } from "lucide-react";
 import {
   cacheReadRatio,
@@ -34,7 +35,7 @@ import {
   useTokenImportStatus,
 } from "./hooks/useTokenQueries";
 
-type Tab = "overview" | "daily" | "models";
+type Tab = "overview" | "daily" | "models" | "leaderboard";
 type DatePreset = "all" | "today" | "days7" | "days30" | "days90";
 
 const DATE_PRESETS: { key: DatePreset; days: number | null }[] = [
@@ -49,12 +50,15 @@ const TABS: { key: Tab; i18nKey: string }[] = [
   { key: "overview", i18nKey: "tokens.tabs.overview" },
   { key: "daily", i18nKey: "tokens.tabs.daily" },
   { key: "models", i18nKey: "tokens.tabs.models" },
+  { key: "leaderboard", i18nKey: "tokens.tabs.leaderboard" },
 ];
 
 const DATE_LABEL_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 function parseTab(value: string | null): Tab | null {
-  return value === "overview" || value === "daily" || value === "models" ? value : null;
+  return value === "overview" || value === "daily" || value === "models" || value === "leaderboard"
+    ? value
+    : null;
 }
 
 function parseDate(value: string | null): string | null {
@@ -220,6 +224,7 @@ export default function TokensPage() {
               ))}
             </div>
 
+            {activeTab !== "leaderboard" && (
             <div className="flex flex-wrap items-center gap-1.5">
               {DATE_PRESETS.map((preset) => {
                 const isDaily = activeTab === "daily";
@@ -253,12 +258,17 @@ export default function TokensPage() {
                 );
               })}
             </div>
+            )}
           </div>
         }
       />
 
       <PageBody>
         <div className="space-y-4">
+            {activeTab === "leaderboard" ? (
+              <LeaderboardPanel locale={locale} />
+            ) : (
+            <>
             {queryError && (
               <ErrorNotice title={t(locale, "tokens.queryFailed")} detail={String(queryError)} />
             )}
@@ -332,6 +342,8 @@ export default function TokensPage() {
 
               </>
             ) : null}
+            </>
+            )}
 
         </div>
       </PageBody>

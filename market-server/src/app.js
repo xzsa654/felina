@@ -95,6 +95,28 @@ function badRequest(reply, message) {
   return reply.code(400).send({ error: message })
 }
 
+const HANDLE_PATTERN = /^[A-Za-z0-9_-]{2,32}$/
+const DAY_PATTERN = /^\d{4}-\d{2}-\d{2}$/
+const LEADERBOARD_SORTS = new Set(['tokens', 'cost', 'active_days'])
+const LEADERBOARD_WINDOWS = new Set([7, 30, 60, 90])
+const MAX_DAILY_ENTRIES = 800
+const MAX_MODEL_ENTRIES = 200
+
+function isNonNegativeFinite(value) {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0
+}
+
+function userFromBearer(auth, header) {
+  if (typeof header === 'string' && header.startsWith('Bearer ')) {
+    try {
+      return auth.verifyToken(header.slice(7))
+    } catch {
+      return null
+    }
+  }
+  return null
+}
+
 export async function createApp({ db = defaultDb, storage = defaultStorage, auth = defaultAuth, randomUuid = randomUUID } = {}) {
   const fastify = Fastify({ logger: { level: process.env.LOG_LEVEL || 'info' } })
 
@@ -378,6 +400,151 @@ export async function createApp({ db = defaultDb, storage = defaultStorage, auth
       }
     }
 
+    return reply.code(204).send()
+  })
+
+  const submitRateLimit = {
+    rateLimit: {
+      max: parseInt(process.env.RATE_LIMIT_LEADERBOARD_SUBMIT_MAX, 10) || 10,
+      timeWindow: `${parseInt(process.env.RATE_LIMIT_LEADERBOARD_SUBMIT_WINDOW, 10) || 60} minutes`,
+    },
+  }
+
+  fastify.post('/api/leaderboard/submit', { onRequest: auth.requireAuth, config: submitRateLimit }, async (request, reply) => {
+    const { handle, summary, daily, models } = request.body ?? {}
+
+    if (typeof handle !== 'string' || !HANDLE_PATTERN.test(handle)) {
+      return badRequest(reply, 'invalid handle')
+    }
+    if (typeof summary !== 'object' || summary === null) {
+      return badRequest(reply, 'summary is required')
+    }
+    const tokenFields = [
+      'inputTokens', 'outputTokens', 'cacheReadTokens', 'cacheWriteTokens', 'reasoningTokens',
+    ]
+    for (const field of [...tokenFields, 'totalCostUsd', 'eventCount']) {
+      if (!isNonNegativeFinite(summary[field])) {
+        return badRequest(reply, `invalid summary.${field}`)
+      }
+    }
+    if (summary.topModel != null && typeof summary.topModel !== 'string') {
+      return badRequest(reply, 'invalid summary.topModel')
+    }
+    if (!Array.isArray(daily) || daily.length > MAX_DAILY_ENTRIES) {
+      return badRequest(reply, 'invalid daily series')
+    }
+    for (const row of daily) {
+      if (typeof row !== 'object' || row === null
+        || typeof row.day !== 'string' || !DAY_PATTERN.test(row.day)
+        || !isNonNegativeFinite(row.tokens) || !isNonNegativeFinite(row.cost)) {
+        return badRequest(reply, 'invalid daily entry')
+      }
+    }
+
+    const modelList = models ?? []
+    if (!Array.isArray(modelList) || modelList.length > MAX_MODEL_ENTRIES) {
+      return badRequest(reply, 'invalid models list')
+    }
+    for (const row of modelList) {
+      if (typeof row !== 'object' || row === null
+        || typeof row.model !== 'string' || row.model.trim() === ''
+        || (row.provider != null && typeof row.provider !== 'string')
+        || !isNonNegativeFinite(row.tokens) || !isNonNegativeFinite(row.cost)
+        || !isNonNegativeFinite(row.eventCount)) {
+        return badRequest(reply, 'invalid model entry')
+      }
+    }
+
+    const totalTokens = tokenFields.reduce((sum, field) => sum + summary[field], 0)
+    const activeDays = daily.filter((row) => row.tokens > 0).length
+
+    let saved
+    try {
+      saved = await db.upsertLeaderboardEntry({
+        userId: request.user.sub,
+        handle,
+        totalTokens,
+        inputTokens: summary.inputTokens,
+        outputTokens: summary.outputTokens,
+        cacheReadTokens: summary.cacheReadTokens,
+        cacheWriteTokens: summary.cacheWriteTokens,
+        reasoningTokens: summary.reasoningTokens,
+        totalCostUsd: summary.totalCostUsd,
+        eventCount: summary.eventCount,
+        activeDays,
+        topModel: summary.topModel ?? null,
+      })
+    } catch (err) {
+      if (err.code === '23505') {
+        return reply.code(409).send({ error: 'handle already taken' })
+      }
+      throw err
+    }
+
+    await db.replaceLeaderboardDaily(request.user.sub, daily.map((row) => ({
+      day: row.day,
+      tokens: row.tokens,
+      cost: row.cost,
+    })))
+
+    await db.replaceLeaderboardModels(request.user.sub, modelList.map((row) => ({
+      model: row.model,
+      provider: row.provider ?? null,
+      tokens: row.tokens,
+      cost: row.cost,
+      eventCount: row.eventCount,
+    })))
+
+    const rank = await db.getEntryRank(request.user.sub, 'tokens')
+    return { rank, submitCount: saved.submitCount }
+  })
+
+  fastify.get('/api/leaderboard', async (request) => {
+    const sortParam = request.query?.sort
+    const sort = LEADERBOARD_SORTS.has(sortParam) ? sortParam : 'tokens'
+    const limit = Math.min(Math.max(parseInt(request.query?.limit, 10) || 50, 1), 200)
+    const offset = Math.max(parseInt(request.query?.offset, 10) || 0, 0)
+    const days = parseInt(request.query?.days, 10)
+    const windowed = LEADERBOARD_WINDOWS.has(days)
+
+    const [entries, aggregates] = windowed
+      ? await Promise.all([
+          db.listLeaderboardWindowed({ sort, days, limit, offset }),
+          db.getLeaderboardAggregatesWindowed(days),
+        ])
+      : await Promise.all([
+          db.listLeaderboard({ sort, limit, offset }),
+          db.getLeaderboardAggregates(),
+        ])
+    const caller = userFromBearer(auth, request.headers.authorization)
+
+    return {
+      entries: entries.map(({ userId, ...entry }) => ({
+        ...entry,
+        isMe: caller != null && userId === caller.sub,
+      })),
+      aggregates,
+    }
+  })
+
+  fastify.get('/api/leaderboard/:handle/daily', async (request, reply) => {
+    const { handle } = request.params
+    if (typeof handle !== 'string' || !HANDLE_PATTERN.test(handle)) {
+      return badRequest(reply, 'invalid handle')
+    }
+    return db.getLeaderboardDailyByHandle(handle)
+  })
+
+  fastify.get('/api/leaderboard/:handle/models', async (request, reply) => {
+    const { handle } = request.params
+    if (typeof handle !== 'string' || !HANDLE_PATTERN.test(handle)) {
+      return badRequest(reply, 'invalid handle')
+    }
+    return db.getLeaderboardModelsByHandle(handle)
+  })
+
+  fastify.delete('/api/leaderboard/me', { onRequest: auth.requireAuth }, async (request, reply) => {
+    await db.deleteLeaderboardEntry(request.user.sub)
     return reply.code(204).send()
   })
 

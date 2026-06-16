@@ -1,5 +1,10 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
+  LeaderboardSort,
+  LeaderboardListResponse,
+  LeaderboardDaily,
+  LeaderboardModel,
+  SubmitResult,
   StatsCache,
   ProjectInfo,
   MemoryFile,
@@ -421,6 +426,26 @@ export const api = {
       invoke<{ email: string } | null>("get_hub_auth_status"),
     logout: () => invoke<void>("logout_hub_account"),
     getAccessToken: () => invoke<string | null>("read_hub_access_token"),
+  },
+
+  leaderboard: {
+    submit: (handle: string) =>
+      invoke<SubmitResult>("submit_leaderboard_entry", { handle }),
+    list: (sort?: LeaderboardSort, days?: number | null, limit?: number, offset?: number) =>
+      invoke<LeaderboardListResponse>("get_leaderboard", {
+        sort,
+        days: days ?? undefined,
+        limit,
+        offset,
+      }),
+    graph: (handle: string) =>
+      invoke<LeaderboardDaily[]>("get_leaderboard_graph", { handle }),
+    models: (handle: string) =>
+      invoke<LeaderboardModel[]>("get_leaderboard_models", { handle }),
+    remove: () => invoke<void>("remove_leaderboard_entry"),
+    getHandle: () => invoke<string | null>("get_leaderboard_handle"),
+    setHandle: (handle: string) =>
+      invoke<void>("set_leaderboard_handle", { handle }),
   },
 } as const;
 
