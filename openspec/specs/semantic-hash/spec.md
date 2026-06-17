@@ -8,7 +8,7 @@ TBD - created by archiving change 'semantic-hash-refactor'. Update Purpose after
 
 ### Requirement: Semantic Normalization
 
-Before calculating the hash of a skill for drift detection or synchronization tracking, the system SHALL normalize the content to ensure that semantically identical files produce identical hashes. The system SHALL parse the YAML frontmatter, sort its keys alphabetically, and serialize it back, then append the `trim()`med body content.
+Before calculating the hash of a skill for drift detection or synchronization tracking, the system SHALL normalize the content to ensure that semantically identical files produce identical hashes. The system SHALL first normalize all line endings by replacing `\r\n` and standalone `\r` with `\n`. The system SHALL then parse the YAML frontmatter, sort its keys alphabetically, and serialize it back, then append the `trim()`med body content.
 
 #### Scenario: Normalizing identical meaning with different formatting
 
@@ -18,31 +18,27 @@ Before calculating the hash of a skill for drift detection or synchronization tr
 - **WHEN** the system calculates their semantic hash
 - **THEN** both files SHALL produce the identical SHA-256 hash output
 
+#### Scenario: CRLF and LF produce identical hash
+
+- **GIVEN** a SKILL.md file with LF line endings
+- **AND** an identical file where all line endings are CRLF
+- **WHEN** the system calculates their semantic hash
+- **THEN** both files SHALL produce the identical SHA-256 hash output
+
+##### Example: CRLF body normalization
+
+| Body content (hex representation) | Expected hash input |
+| --------------------------------- | ------------------- |
+| `line1\r\nline2\r\n` | `line1\nline2` (after trim) |
+| `line1\nline2\n` | `line1\nline2` (after trim) |
+| `line1\rline2\r` | `line1\nline2` (after trim) |
+
 
 <!-- @trace
-source: semantic-hash-refactor
-updated: 2026-05-28
+source: fix-crlf-false-drift
+updated: 2026-06-17
 code:
-  - src-tauri/src/tokens/tokscale.rs
-  - src/lib/components/instructions/InstructionsPage.tsx
-  - src/lib/components/tokens/TokensPage.tsx
   - src-tauri/src/commands/fan_out/mod.rs
-  - src/lib/i18n/locales/zh-TW.ts
-  - src/lib/i18n/locales/en.ts
-  - src/lib/components/tokens/components/ContributionGraph.tsx
-  - .knowledge/knowledge-base/platform.md
-  - src-tauri/src/tokens/aggregator.rs
-  - src/lib/components/skills/SkillEditor.tsx
-  - src/lib/components/shared/MarkdownPreview.tsx
-  - src-tauri/src/commands/tokens.rs
-  - src-tauri/src/tokens/parsers/codex_cli.rs
-  - src/lib/components/tokens/components/AgentQuotaPanel.tsx
-  - src/lib/components/tokens/components/TokensPageSkeleton.tsx
-  - src-tauri/src/tokens/storage.rs
-  - src/lib/components/memory/MemoryPage.tsx
-  - src/lib/components/tokens/components/TimeBucketTable.tsx
-  - src/lib/components/skills/TargetEditor.tsx
-  - .knowledge/_catalog.json
 -->
 
 ---

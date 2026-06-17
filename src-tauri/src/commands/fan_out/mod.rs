@@ -193,8 +193,13 @@ fn collect_sibling_hashes(
                 .unwrap_or(&path)
                 .to_string_lossy()
                 .replace('\\', "/");
-            if let Ok(content) = fs::read(&path) {
-                let hash = sha256_hex_bytes(&content);
+            if let Ok(raw) = fs::read(&path) {
+                let data = if let Ok(text) = std::str::from_utf8(&raw) {
+                    normalize_line_endings(text).into_bytes()
+                } else {
+                    raw
+                };
+                let hash = sha256_hex_bytes(&data);
                 map.insert(rel, hash);
             }
         }
@@ -533,9 +538,14 @@ pub(crate) fn directory_hash(skill_dir: &Path) -> Option<String> {
     Some(sha256_hex(&combined))
 }
 
+fn normalize_line_endings(s: &str) -> String {
+    s.replace("\r\n", "\n").replace('\r', "\n")
+}
+
 fn normalize_skill_content(content: &str) -> String {
-    let Some((fm_raw, body)) = split_frontmatter(content) else {
-        return content.trim().to_string();
+    let normalized = normalize_line_endings(content);
+    let Some((fm_raw, body)) = split_frontmatter(&normalized) else {
+        return normalized.trim().to_string();
     };
 
     let sorted_fm = match serde_yaml::from_str::<serde_yaml::Value>(fm_raw) {
@@ -4595,5 +4605,92 @@ mod tests {
             matches!(status, DriftStatus::ForkedEdited),
             "forked target with agent-side edits should be ForkedEdited, got: {status:?}"
         );
+    }
+
+    #[test]
+    fn test_semantic_hash_crlf_vs_lf() {
+        let lf = "---\nname: test\n---\n# Hello\n\nWorld\n";
+        let crlf = "---\r\nname: test\r\n---\r\n# Hello\r\n\r\nWorld\r\n";
+        let mixed = "---\nname: test\r\n---\n# Hello\r\n\nWorld\n";
+        let bare_cr = "---\rname: test\r---\r# Hello\r\rWorld\r";
+
+        let hash_lf = semantic_hash(lf);
+        let hash_crlf = semantic_hash(crlf);
+        let hash_mixed = semantic_hash(mixed);
+        let hash_bare_cr = semantic_hash(bare_cr);
+
+        assert_eq!(hash_lf, hash_crlf, "CRLF and LF should produce identical hash");
+        assert_eq!(hash_lf, hash_mixed, "mixed line endings should produce identical hash");
+        assert_eq!(hash_lf, hash_bare_cr, "bare CR should produce identical hash");
+    }
+
+    #[test]
+    fn test_sibling_hash_crlf_normalization() {
+        let tmp = std::env::temp_dir().join(format!(
+            "felina-sibling-crlf-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .subsec_nanos()
+        ));
+        fs::create_dir_all(&tmp).unwrap();
+
+        // SKILL.md required but excluded from sibling hashes
+        fs::write(tmp.join("SKILL.md"), "---\nname: test\n---\n# Body\n").unwrap();
+
+        // LF version dir
+        let lf_dir = tmp.join("lf");
+        fs::create_dir_all(&lf_dir).unwrap();
+        fs::write(lf_dir.join("SKILL.md"), "stub").unwrap();
+        fs::write(lf_dir.join("helper.sh"), "#!/bin/sh\necho hi\n").unwrap();
+
+        // CRLF version dir
+        let crlf_dir = tmp.join("crlf");
+        fs::create_dir_all(&crlf_dir).unwrap();
+        fs::write(crlf_dir.join("SKILL.md"), "stub").unwrap();
+        fs::write(crlf_dir.join("helper.sh"), "#!/bin/sh\r\necho hi\r\n").unwrap();
+
+        let lf_hashes = compute_sibling_hashes(&lf_dir);
+        let crlf_hashes = compute_sibling_hashes(&crlf_dir);
+
+        assert_eq!(
+            lf_hashes.get("helper.sh"),
+            crlf_hashes.get("helper.sh"),
+            "text sibling CRLF/LF should produce identical hash"
+        );
+
+        // Binary content: raw bytes with 0x0D 0x0A should NOT be normalized
+        let bin_dir_a = tmp.join("bin_a");
+        fs::create_dir_all(&bin_dir_a).unwrap();
+        fs::write(bin_dir_a.join("SKILL.md"), "stub").unwrap();
+        fs::write(bin_dir_a.join("icon.bin"), &[0x89, 0x50, 0x0D, 0x0A, 0x1A, 0x0A]).unwrap();
+
+        let bin_dir_b = tmp.join("bin_b");
+        fs::create_dir_all(&bin_dir_b).unwrap();
+        fs::write(bin_dir_b.join("SKILL.md"), "stub").unwrap();
+        fs::write(bin_dir_b.join("icon.bin"), &[0x89, 0x50, 0x0D, 0x0A, 0x1A, 0x0A]).unwrap();
+
+        let hash_a = compute_sibling_hashes(&bin_dir_a);
+        let hash_b = compute_sibling_hashes(&bin_dir_b);
+        assert_eq!(
+            hash_a.get("icon.bin"),
+            hash_b.get("icon.bin"),
+            "binary sibling should produce identical hash from identical bytes"
+        );
+
+        // Binary with different bytes should differ
+        let bin_dir_c = tmp.join("bin_c");
+        fs::create_dir_all(&bin_dir_c).unwrap();
+        fs::write(bin_dir_c.join("SKILL.md"), "stub").unwrap();
+        fs::write(bin_dir_c.join("icon.bin"), &[0x89, 0x50, 0x0A, 0x0A, 0x1A, 0x0A]).unwrap();
+        let hash_c = compute_sibling_hashes(&bin_dir_c);
+        assert_ne!(
+            hash_a.get("icon.bin"),
+            hash_c.get("icon.bin"),
+            "binary with different bytes should produce different hash"
+        );
+
+        let _ = fs::remove_dir_all(&tmp);
     }
 }
