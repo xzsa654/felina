@@ -203,6 +203,14 @@ pub fn run() {
             commands::hub_auth::get_hub_auth_status,
             commands::hub_auth::logout_hub_account,
             commands::hub_auth::read_hub_access_token,
+            // Leaderboard
+            commands::leaderboard::submit_leaderboard_entry,
+            commands::leaderboard::get_leaderboard,
+            commands::leaderboard::get_leaderboard_graph,
+            commands::leaderboard::get_leaderboard_models,
+            commands::leaderboard::remove_leaderboard_entry,
+            commands::leaderboard::get_leaderboard_handle,
+            commands::leaderboard::set_leaderboard_handle,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

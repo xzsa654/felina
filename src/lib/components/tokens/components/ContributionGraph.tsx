@@ -82,14 +82,37 @@ export default function ContributionGraph({
   selectedDate,
   getDayHref,
   onSelectDate,
+  transparent = false,
+  transparentTone = "dark",
+  surfaceClassName,
+  levels,
 }: {
   data: TokenBucket[];
   locale: Locale;
   selectedDate?: string | null;
   getDayHref?: (date: string) => string;
   onSelectDate?: (date: string) => void;
+  transparent?: boolean;
+  transparentTone?: "light" | "dark";
+  surfaceClassName?: string;
+  levels?: readonly string[];
 }) {
   const [tooltip, setTooltip] = useState<TooltipInfo | null>(null);
+  // Cell intensity palette (0=empty … 4=high). Caller can override to match a theme.
+  const LEVELS = levels ?? LEVEL_BG;
+  // Transparent variant sits over a Prism backdrop. "dark" tone = light text on
+  // dark glass; "light" tone = dark text on a bright frosted card (for rank #1).
+  // surfaceClassName lets the caller match the surrounding cards exactly.
+  const onLight = transparent && transparentTone === "light";
+  const surface =
+    surfaceClassName ??
+    (!transparent
+      ? "bg-bg-secondary border border-border"
+      : onLight
+        ? "bg-white/70 border border-black/10 backdrop-blur-md"
+        : "bg-white/5 border border-white/10 backdrop-blur-md");
+  const titleC = !transparent ? "text-text-secondary" : onLight ? "text-neutral-700" : "text-white/80";
+  const mutedC = !transparent ? "text-text-muted" : onLight ? "text-neutral-500" : "text-white/60";
 
   const { weeks, maxTokens, monthLabels, stats } = useMemo(() => {
     const dated = data.filter((b) => /^\d{4}-\d{2}-\d{2}/.test(b.label));
@@ -159,11 +182,11 @@ export default function ContributionGraph({
 
   if (weeks.length === 0) {
     return (
-      <div className="bg-bg-secondary border border-border rounded-lg p-5">
-        <h3 className="text-sm font-medium text-text-secondary mb-3">
+      <div className={`${surface} rounded-lg p-5`}>
+        <h3 className={`text-sm font-medium mb-3 ${titleC}`}>
           {t(locale, "tokens.daily.contributionTitle" as never)}
         </h3>
-        <div className="flex items-center justify-center h-24 text-sm text-text-muted">
+        <div className={`flex items-center justify-center h-24 text-sm ${mutedC}`}>
           {t(locale, "tokens.daily.noData" as never)}
         </div>
       </div>
@@ -172,29 +195,29 @@ export default function ContributionGraph({
 
   // ── Render ───────────────────────────────────────────────────────────────
   return (
-    <div className="bg-bg-secondary border border-border rounded-lg p-5 select-none">
+    <div className={`${surface} rounded-lg p-5 select-none`}>
       {/* Header */}
       <div className="flex items-start justify-between mb-4">
         <div>
-          <h3 className="text-sm font-medium text-text-secondary">
+          <h3 className={`text-sm font-medium ${titleC}`}>
             {t(locale, "tokens.daily.contributionTitle" as never)}
           </h3>
           {stats && (
-            <p className="text-xs text-text-muted mt-0.5">
+            <p className={`text-xs mt-0.5 ${mutedC}`}>
               {stats.activeDays} {t(locale, "tokens.daily.activeDays" as never)}
             </p>
           )}
         </div>
         {/* Legend */}
         <div className="flex items-center gap-1 mt-0.5">
-          <span className="text-[10px] text-text-muted mr-0.5">{t(locale, "common.less")}</span>
+          <span className={`text-[10px] mr-0.5 ${mutedC}`}>{t(locale, "common.less")}</span>
           {([0, 1, 2, 3, 4] as const).map((level) => (
             <div
               key={level}
-              className={`w-3 h-3 rounded-sm ${LEVEL_BG[level]}`}
+              className={`w-3 h-3 rounded-sm ${LEVELS[level]}`}
             />
           ))}
-          <span className="text-[10px] text-text-muted ml-0.5">{t(locale, "common.more")}</span>
+          <span className={`text-[10px] ml-0.5 ${mutedC}`}>{t(locale, "common.more")}</span>
         </div>
       </div>
 
@@ -208,7 +231,7 @@ export default function ContributionGraph({
               return (
                 <div key={i} className="w-4 h-4 flex items-center justify-end">
                   {labelIdx >= 0 && (
-                    <span className="text-[10px] leading-none text-text-muted">
+                    <span className={`text-[10px] leading-none ${mutedC}`}>
                       {dayLabels[labelIdx]}
                     </span>
                   )}
@@ -226,7 +249,7 @@ export default function ContributionGraph({
                 return (
                   <div key={wi} className="w-4 relative">
                     {label && (
-                      <span className="absolute left-0 top-0 text-[10px] leading-none text-text-muted whitespace-nowrap font-medium">
+                      <span className={`absolute left-0 top-0 text-[10px] leading-none whitespace-nowrap font-medium ${mutedC}`}>
                         {label.label}
                       </span>
                     )}
@@ -252,7 +275,7 @@ export default function ContributionGraph({
                         href={getDayHref?.(cell.key) ?? `?tab=daily&date=${cell.key}`}
                         className={[
                           "block w-4 h-4 rounded cursor-pointer transition-all duration-75",
-                          LEVEL_BG[level],
+                          LEVELS[level],
                           "hover:opacity-90 hover:scale-110 focus:outline-none focus:ring-1 focus:ring-accent",
                           isToday ? "ring-1 ring-white/50 ring-offset-1 ring-offset-bg-secondary" : "",
                           isSelected ? "ring-2 ring-accent ring-offset-1 ring-offset-bg-secondary" : "",
