@@ -115,3 +115,22 @@ Windows / git / toolchain platform-specific gotchas for Felina.
 - 內文 role 不可信：marked content block type "text" 會讓 inferred role 變 assistant，prefix 判斷要用來源宣告的 `item.role`。
 **Keywords:** claude code, transcript, jsonl, sidechain, isMeta, system-reminder, command-name, bash-input, slash command, channel, conversation, background, codex, reasoning
 **Related:** openspec/specs/history-page/spec.md（channel 分類 requirement）
+
+---
+
+## Semantic hash 與 sibling hash 必須 normalize 行尾
+**ID:** kb-platform-crlf-semantic-hash
+**Date:** 2026-06-17
+**Updated:** 2026-06-17
+**Status:** active
+**Confidence:** confirmed
+**Source:** fix-crlf-false-drift change，commit `4aac982`
+**Context:** Windows git autocrlf 將 fan-out 產出的 LF 檔案轉為 CRLF，semantic hash 比對不一致造成 false drift，但 diff 顯示為空（`similar::TextDiff::from_lines` 的 `str::lines()` 天然 strip `\r`）。
+**Applies when:** 任何對檔案內容做 hash 比對用於判斷 drift/change 的場景，尤其是跨平台（Windows autocrlf + macOS/Linux LF）環境。
+**Lesson:**
+- `normalize_skill_content` 的 `body.trim()` 不處理行內 `\r`，必須在 hash 前先統一行尾
+- `compute_sibling_hashes` 用 raw bytes hash，文字檔也會受 CRLF 影響；修正方式：UTF-8 可解析 → normalize 行尾再 hash，binary → 維持 raw bytes
+- 修正後既有 `pushed_hash` 不需 migration：push 時的內容本來就是 LF（Rust `format!` 產出），normalize 後 agent-side CRLF 回到 LF 得到相同 hash
+- `build_diff_hunks` 不需修改：`TextDiff::from_lines` 天然處理 `\r\n`
+**Keywords:** crlf, lf, line endings, semantic hash, sibling hash, drift, false positive, normalize, autocrlf, windows, cross-platform
+**Related:** kb-git-windows-crlf-stat-false-modified, openspec/specs/semantic-hash/spec.md, openspec/specs/drift-detection/spec.md
