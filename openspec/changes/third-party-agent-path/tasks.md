@@ -37,7 +37,7 @@
 
 ## 8. 驗證
 
-- [ ] 8.1 執行 `cargo test --lib` 於 `src-tauri/`，確認所有既有測試 + 新增測試全數通過。驗證：exit code 0，無 failure
-- [ ] 8.2 執行 `npm run check`，確認 TypeScript 無 error。驗證：exit code 0
+- [x] 8.1 執行 `cargo test --lib` 於 `src-tauri/`，確認所有既有測試 + 新增測試全數通過。驗證：exit code 0，無 failure
+- [x] 8.2 執行 `npm run check`，確認 TypeScript 無 error。驗證：exit code 0
 - [ ] 8.3 執行 `npm run tauri dev` 手動驗證完整流程：(1) Settings 頁面顯示 3 built-in + 可新增 custom (2) 新增 custom agent "test-agent" 含 label 和 icon (3) 在任一 skill 的 Add Target 選擇 "test-agent" 並 push，確認磁碟產出 SKILL.md (4) 回 Settings 刪除 "test-agent"，確認 target 被清除 (5) 確認 built-in agents 無 🗑 按鈕。驗證：以上 5 步驟皆通過
 - [ ] 8.4 執行 `/felina-ui-guidelines` 評估本 change 的 UI 改動。驗證：輸出命中的 guideline 與 deviation 清單
