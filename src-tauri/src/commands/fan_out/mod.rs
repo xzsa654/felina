@@ -26,6 +26,7 @@ use std::path::{Path, PathBuf};
 pub mod anthropic;
 pub mod codex;
 pub mod gemini;
+pub mod generic;
 
 fn try_snapshot(skill_name: &str) -> Option<String> {
     match super::snapshot::commit_skill_changes(skill_name) {
@@ -352,7 +353,7 @@ pub trait FanOutRenderer {
     /// renderer-driven dispatch; current dispatch in [`skill_sync_one`]
     /// already knows the agent from the canonical `agents` field.
     #[allow(dead_code)]
-    fn agent_id(&self) -> AgentId;
+    fn agent_id(&self) -> &'static str;
 
     /// Resolve the target directory for the given scope using the
     /// caller-supplied `AgentPathPair`. `global` is an absolute or
@@ -373,20 +374,17 @@ pub trait FanOutRenderer {
 /// Look up the path pair for an agent from a config snapshot.
 fn pair_for<'a>(
     cfg: &'a super::agent_paths::AgentPathsConfig,
-    agent: AgentId,
-) -> &'a super::agent_paths::AgentPathPair {
-    match agent {
-        AgentId::Anthropic => &cfg.anthropic,
-        AgentId::Codex => &cfg.codex,
-        AgentId::Gemini => &cfg.gemini,
-    }
+    agent: &str,
+) -> Option<&'a super::agent_paths::AgentPathPair> {
+    cfg.pair_for(agent)
 }
 
-fn renderer_for(agent: AgentId) -> Box<dyn FanOutRenderer> {
+fn renderer_for(agent: &str) -> Box<dyn FanOutRenderer> {
     match agent {
-        AgentId::Anthropic => Box::new(anthropic::AnthropicRenderer),
-        AgentId::Codex => Box::new(codex::CodexRenderer),
-        AgentId::Gemini => Box::new(gemini::GeminiRenderer),
+        "anthropic" => Box::new(anthropic::AnthropicRenderer),
+        "codex" => Box::new(codex::CodexRenderer),
+        "gemini" => Box::new(gemini::GeminiRenderer),
+        _ => Box::new(generic::GenericRenderer),
     }
 }
 
@@ -432,14 +430,14 @@ pub fn skill_sync_one(name: String) -> Result<Vec<SyncResult>, String> {
             continue;
         }
 
-        let renderer = renderer_for(target.agent);
-        let pair = pair_for(&cfg, target.agent);
+        let renderer = renderer_for(&target.agent);
+        let Some(pair) = pair_for(&cfg, &target.agent) else { continue; };
         let target_dir =
             match renderer.resolve_target_dir(target.scope, target.project.as_deref(), pair) {
                 Ok(d) => d,
                 Err(e) => {
                     results.push(SyncResult {
-                        agent: target.agent,
+                        agent: target.agent.clone(),
                         scope: target.scope,
                         target_path: String::new(),
                         success: false,
@@ -475,7 +473,7 @@ pub fn skill_sync_one(name: String) -> Result<Vec<SyncResult>, String> {
                 );
                 written_keys.push(key);
                 results.push(SyncResult {
-                    agent: target.agent,
+                    agent: target.agent.clone(),
                     scope: target.scope,
                     target_path: normalize_display_path(&target_skill_dir.to_string_lossy()),
                     success: true,
@@ -627,7 +625,7 @@ pub fn skill_sync_all() -> Result<Vec<SyncResult>, String> {
                     // single result tagged to the first agent so the UI has
                     // somewhere to render the error. Scope is Global because
                     // canonical now lives there exclusively.
-                    let agent = skill.agents.first().copied().unwrap_or(AgentId::Anthropic);
+                    let agent = skill.agents.first().cloned().unwrap_or_else(|| "anthropic".to_string());
                     out.push(SyncResult {
                         agent,
                         scope: SkillScope::Global,
@@ -938,7 +936,7 @@ fn write_target(
         Ok(cfg) => cfg,
         Err(e) => {
             return Err(SyncResult {
-                agent: target.agent,
+                agent: target.agent.clone(),
                 scope: target.scope,
                 target_path: String::new(),
                 success: false,
@@ -947,14 +945,21 @@ fn write_target(
             });
         }
     };
-    let renderer = renderer_for(target.agent);
-    let pair = pair_for(&cfg, target.agent);
+    let renderer = renderer_for(&target.agent);
+    let pair = pair_for(&cfg, &target.agent).ok_or_else(|| SyncResult {
+        agent: target.agent.clone(),
+        scope: target.scope,
+        target_path: String::new(),
+        success: false,
+        error: Some(format!("unknown agent: {}", target.agent)),
+        at: attempted_at.to_string(),
+    })?;
     let target_dir =
         match renderer.resolve_target_dir(target.scope, target.project.as_deref(), pair) {
             Ok(path) => path,
             Err(e) => {
                 return Err(SyncResult {
-                    agent: target.agent,
+                    agent: target.agent.clone(),
                     scope: target.scope,
                     target_path: String::new(),
                     success: false,
@@ -986,7 +991,7 @@ fn write_target(
                 },
             );
             Ok(SyncResult {
-                agent: target.agent,
+                agent: target.agent.clone(),
                 scope: target.scope,
                 target_path: normalize_display_path(&target_skill_dir.to_string_lossy()),
                 success: true,
@@ -995,7 +1000,7 @@ fn write_target(
             })
         }
         Err(e) => Err(SyncResult {
-            agent: target.agent,
+            agent: target.agent.clone(),
             scope: target.scope,
             target_path: normalize_display_path(&target_skill_dir.to_string_lossy()),
             success: false,
@@ -1012,7 +1017,7 @@ fn commit_result_from_item(
     attempted_at: &str,
 ) -> SyncResult {
     SyncResult {
-        agent: item.agent,
+        agent: item.agent.clone(),
         scope: item.scope,
         target_path: item.skill_dir.clone(),
         success,
@@ -1048,8 +1053,8 @@ fn build_preview_for_skill(
     let mut items = Vec::new();
     for target in &meta.targets {
         let key = target_key(target);
-        let renderer = renderer_for(target.agent);
-        let pair = pair_for(&cfg, target.agent);
+        let renderer = renderer_for(&target.agent);
+        let Some(pair) = pair_for(&cfg, &target.agent) else { continue; };
 
         let target_dir =
             match renderer.resolve_target_dir(target.scope, target.project.as_deref(), pair) {
@@ -1058,7 +1063,7 @@ fn build_preview_for_skill(
                     items.push(SkillSyncPreviewItem {
                         skill_name: skill.name.clone(),
                         target_key: key,
-                        agent: target.agent,
+                        agent: target.agent.clone(),
                         scope: target.scope,
                         project: target.project.clone(),
                         target_dir: String::new(),
@@ -1084,7 +1089,7 @@ fn build_preview_for_skill(
             items.push(SkillSyncPreviewItem {
                 skill_name: skill.name.clone(),
                 target_key: key,
-                agent: target.agent,
+                agent: target.agent.clone(),
                 scope: target.scope,
                 project: target.project.clone(),
                 target_dir: normalize_display_path(&target_dir.to_string_lossy()),
@@ -1099,13 +1104,13 @@ fn build_preview_for_skill(
             continue;
         }
 
-        let rendered_hash = match rendered_skill_md_hash(skill, target.agent, canonical_skill_dir) {
+        let rendered_hash = match rendered_skill_md_hash(skill, &target.agent, canonical_skill_dir) {
             Ok(hash) => hash,
             Err(error) => {
                 items.push(SkillSyncPreviewItem {
                     skill_name: skill.name.clone(),
                     target_key: key,
-                    agent: target.agent,
+                    agent: target.agent.clone(),
                     scope: target.scope,
                     project: target.project.clone(),
                     target_dir: normalize_display_path(&target_dir.to_string_lossy()),
@@ -1166,7 +1171,7 @@ fn build_preview_for_skill(
         items.push(SkillSyncPreviewItem {
             skill_name: skill.name.clone(),
             target_key: key,
-            agent: target.agent,
+            agent: target.agent.clone(),
             scope: target.scope,
             project: target.project.clone(),
             target_dir: normalize_display_path(&target_dir.to_string_lossy()),
@@ -1211,7 +1216,7 @@ fn build_preview_for_skill(
 
 fn rendered_skill_md_hash(
     skill: &CanonicalSkill,
-    agent: AgentId,
+    agent: &str,
     canonical_skill_dir: &Path,
 ) -> Result<String, String> {
     let render_root = std::env::temp_dir().join(format!(
@@ -1225,7 +1230,7 @@ fn rendered_skill_md_hash(
     ));
     fs::create_dir_all(&render_root)
         .map_err(|e| format!("failed to create preview temp dir: {e}"))?;
-    let renderer = renderer_for(agent);
+    let renderer = renderer_for(&agent);
     let render_result = renderer.render(skill, &render_root);
     let target_skill_dir = render_root.join(&skill.name);
     let final_result = match render_result {
@@ -1283,7 +1288,8 @@ pub fn skill_target_dir_resolve(
     project: Option<String>,
 ) -> Result<TargetDirInfo, String> {
     let cfg = super::agent_paths::agent_paths_get()?;
-    let pair = pair_for(&cfg, agent);
+    let pair = pair_for(&cfg, &agent)
+        .ok_or_else(|| format!("unknown agent: {agent}"))?;
     let target_dir = resolve_pair(scope, project.as_deref(), pair)?;
     let dir = target_dir.join(&skill_name);
     let exists = dir.is_dir();
@@ -1325,8 +1331,8 @@ pub fn skill_drift_scan() -> Result<std::collections::BTreeMap<String, std::coll
 
             if matches!(target.mode, TargetMode::Forked) {
                 let canonical_skill_md = canonical_skills_dir().join(&canonical_id).join("SKILL.md");
-                let renderer = renderer_for(target.agent);
-                let pair = pair_for(&cfg, target.agent);
+                let renderer = renderer_for(&target.agent);
+                let Some(pair) = pair_for(&cfg, &target.agent) else { continue; };
                 let target_dir =
                     match renderer.resolve_target_dir(target.scope, target.project.as_deref(), pair) {
                         Ok(d) => d,
@@ -1349,8 +1355,8 @@ pub fn skill_drift_scan() -> Result<std::collections::BTreeMap<String, std::coll
             let pushed_hash = last_sync_entry.map(|e| e.pushed_hash.clone());
             let last_sync_at = last_sync_entry.map(|e| e.at.clone());
 
-            let renderer = renderer_for(target.agent);
-            let pair = pair_for(&cfg, target.agent);
+            let renderer = renderer_for(&target.agent);
+            let Some(pair) = pair_for(&cfg, &target.agent) else { continue; };
             let target_dir =
                 match renderer.resolve_target_dir(target.scope, target.project.as_deref(), pair) {
                     Ok(d) => d,
@@ -1587,7 +1593,8 @@ pub fn skill_pull_preview(canonical_id: String, target_key: String) -> Result<Pu
         .clone();
 
     let cfg = super::agent_paths::agent_paths_get()?;
-    let pair = pair_for(&cfg, tgt.agent);
+    let pair = pair_for(&cfg, &tgt.agent)
+        .ok_or_else(|| format!("unknown agent: {}", tgt.agent))?;
     let target_dir = resolve_pair(tgt.scope, tgt.project.as_deref(), pair)?;
     let agent_side = target_dir.join(&canonical_id).join("SKILL.md");
 
@@ -1712,7 +1719,8 @@ pub fn skill_pull_from_target(
         .clone();
 
     let cfg = super::agent_paths::agent_paths_get()?;
-    let pair = pair_for(&cfg, tgt.agent);
+    let pair = pair_for(&cfg, &tgt.agent)
+        .ok_or_else(|| format!("unknown agent: {}", tgt.agent))?;
     let target_dir = resolve_pair(tgt.scope, tgt.project.as_deref(), pair)?;
     let agent_skill_dir = target_dir.join(&canonical_id);
     let agent_side = agent_skill_dir.join("SKILL.md");
@@ -2007,7 +2015,8 @@ pub fn skill_fork_read_agent_content(
     }
 
     let cfg = super::agent_paths::agent_paths_get()?;
-    let pair = pair_for(&cfg, tgt.agent);
+    let pair = pair_for(&cfg, &tgt.agent)
+        .ok_or_else(|| format!("unknown agent: {}", tgt.agent))?;
     let target_dir = resolve_pair(tgt.scope, tgt.project.as_deref(), pair)?;
     let agent_side = target_dir.join(&canonical_id).join("SKILL.md");
 
@@ -2046,7 +2055,8 @@ pub fn skill_fork_diff_preview(
     }
 
     let cfg = super::agent_paths::agent_paths_get()?;
-    let pair = pair_for(&cfg, tgt.agent);
+    let pair = pair_for(&cfg, &tgt.agent)
+        .ok_or_else(|| format!("unknown agent: {}", tgt.agent))?;
     let target_dir = resolve_pair(tgt.scope, tgt.project.as_deref(), pair)?;
     let agent_side = target_dir.join(&canonical_id).join("SKILL.md");
 
@@ -2452,21 +2462,21 @@ mod tests {
                 version: 2,
                 targets: vec![
                     SkillTarget {
-                        agent: AgentId::Anthropic,
+                        agent: "anthropic".to_string(),
                         scope: SkillScope::Project,
                         project: Some(project.clone()),
                         enabled: true,
                         mode: TargetMode::Manual,
                     },
                     SkillTarget {
-                        agent: AgentId::Codex,
+                        agent: "codex".to_string(),
                         scope: SkillScope::Project,
                         project: Some(project.clone()),
                         enabled: true,
                         mode: TargetMode::Manual,
                     },
                     SkillTarget {
-                        agent: AgentId::Gemini,
+                        agent: "gemini".to_string(),
                         scope: SkillScope::Project,
                         project: Some(project.clone()),
                         enabled: true,
@@ -2575,7 +2585,7 @@ mod tests {
 
         // Only anthropic should produce a SyncResult.
         assert_eq!(results.len(), 1, "expected one result, got {results:#?}");
-        assert_eq!(results[0].agent, AgentId::Anthropic);
+        assert_eq!(results[0].agent, "anthropic".to_string());
         assert!(
             results[0].success,
             "anthropic push failed: {:?}",
@@ -2632,14 +2642,14 @@ mod tests {
                 version: 2,
                 targets: vec![
                     SkillTarget {
-                        agent: AgentId::Anthropic,
+                        agent: "anthropic".to_string(),
                         scope: SkillScope::Project,
                         project: Some(project.clone()),
                         enabled: true,
                         mode: TargetMode::Manual,
                     },
                     SkillTarget {
-                        agent: AgentId::Gemini,
+                        agent: "gemini".to_string(),
                         scope: SkillScope::Project,
                         project: Some(project.clone()),
                         enabled: true,
@@ -2761,7 +2771,7 @@ mod tests {
             &SyncMetaV2 {
                 version: 2,
                 targets: vec![SkillTarget {
-                    agent: AgentId::Anthropic,
+                    agent: "anthropic".to_string(),
                     scope: SkillScope::Project,
                     project: Some(project),
                     enabled: true,
@@ -2817,7 +2827,7 @@ mod tests {
             &SyncMetaV2 {
                 version: 2,
                 targets: vec![SkillTarget {
-                    agent: AgentId::Anthropic,
+                    agent: "anthropic".to_string(),
                     scope: SkillScope::Project,
                     project: Some(project.clone()),
                     enabled: true,
@@ -2865,7 +2875,7 @@ mod tests {
         // Before any push the destination does not exist.
         let before = skill_target_dir_resolve(
             "smoke-nested".into(),
-            AgentId::Anthropic,
+            "anthropic".to_string(),
             SkillScope::Project,
             Some(project.clone()),
         )
@@ -2885,7 +2895,7 @@ mod tests {
         fs::create_dir_all(&dest).unwrap();
         let after = skill_target_dir_resolve(
             "smoke-nested".into(),
-            AgentId::Anthropic,
+            "anthropic".to_string(),
             SkillScope::Project,
             Some(project),
         )
@@ -2904,7 +2914,7 @@ mod tests {
 
         let info = skill_target_dir_resolve(
             "smoke-nested".into(),
-            AgentId::Anthropic,
+            "anthropic".to_string(),
             SkillScope::Project,
             Some(project),
         )
@@ -2925,14 +2935,14 @@ mod tests {
         let canonical_skill_dir = tmp.join(".felina").join("skills").join("preview-skill");
         let project = tmp.to_string_lossy().to_string();
         let anthropic = SkillTarget {
-            agent: AgentId::Anthropic,
+            agent: "anthropic".to_string(),
             scope: SkillScope::Project,
             project: Some(project.clone()),
             enabled: true,
             mode: TargetMode::Manual,
         };
         let codex = SkillTarget {
-            agent: AgentId::Codex,
+            agent: "codex".to_string(),
             scope: SkillScope::Project,
             project: Some(project.clone()),
             enabled: true,
@@ -2945,7 +2955,7 @@ mod tests {
         fs::create_dir_all(&project2_root).unwrap();
         let project2 = project2_root.to_string_lossy().to_string();
         let gemini = SkillTarget {
-            agent: AgentId::Gemini,
+            agent: "gemini".to_string(),
             scope: SkillScope::Project,
             project: Some(project2.clone()),
             enabled: true,
@@ -3025,14 +3035,14 @@ mod tests {
         let canonical_skill_dir = tmp.join(".felina").join("skills").join("commit-skill");
         let project = tmp.to_string_lossy().to_string();
         let anthropic = SkillTarget {
-            agent: AgentId::Anthropic,
+            agent: "anthropic".to_string(),
             scope: SkillScope::Project,
             project: Some(project.clone()),
             enabled: true,
             mode: TargetMode::Manual,
         };
         let gemini = SkillTarget {
-            agent: AgentId::Gemini,
+            agent: "gemini".to_string(),
             scope: SkillScope::Project,
             project: Some(project.clone()),
             enabled: true,
@@ -3108,7 +3118,7 @@ mod tests {
 
         let anth_result = committed
             .iter()
-            .find(|r| r.agent == AgentId::Anthropic)
+            .find(|r| r.agent == "anthropic".to_string())
             .expect("anthropic result");
         assert!(anth_result.success, "{committed:#?}");
         assert!(
@@ -3131,7 +3141,7 @@ mod tests {
         let gemini_after = meta
             .targets
             .iter()
-            .find(|t| t.agent == AgentId::Gemini)
+            .find(|t| t.agent == "gemini".to_string())
             .expect("gemini target survives");
         assert_eq!(gemini_after.mode, TargetMode::Detached);
         assert!(
@@ -3149,7 +3159,7 @@ mod tests {
         let canonical_skill_dir = tmp.join(".felina").join("skills").join("mig-skill");
         let project = tmp.to_string_lossy().to_string();
         let target = SkillTarget {
-            agent: AgentId::Anthropic,
+            agent: "anthropic".to_string(),
             scope: SkillScope::Project,
             project: Some(project.clone()),
             enabled: true,
@@ -3283,21 +3293,21 @@ mod tests {
                 version: 2,
                 targets: vec![
                     SkillTarget {
-                        agent: AgentId::Anthropic,
+                        agent: "anthropic".to_string(),
                         scope: SkillScope::Project,
                         project: Some(project.clone()),
                         enabled: true,
                         mode: TargetMode::Manual,
                     },
                     SkillTarget {
-                        agent: AgentId::Codex,
+                        agent: "codex".to_string(),
                         scope: SkillScope::Project,
                         project: Some(project.clone()),
                         enabled: true,
                         mode: TargetMode::Manual,
                     },
                     SkillTarget {
-                        agent: AgentId::Gemini,
+                        agent: "gemini".to_string(),
                         scope: SkillScope::Project,
                         project: Some(project.clone()),
                         enabled: true,
@@ -3345,7 +3355,7 @@ mod tests {
             &SyncMetaV2 {
                 version: 2,
                 targets: vec![SkillTarget {
-                    agent: AgentId::Anthropic,
+                    agent: "anthropic".to_string(),
                     scope: SkillScope::Project,
                     project: Some(project.clone()),
                     enabled: true,
@@ -3375,7 +3385,7 @@ mod tests {
             &SyncMetaV2 {
                 version: 2,
                 targets: vec![SkillTarget {
-                    agent: AgentId::Anthropic,
+                    agent: "anthropic".to_string(),
                     scope: SkillScope::Project,
                     project: Some(project.clone()),
                     enabled: true,
@@ -3432,7 +3442,7 @@ mod tests {
             &SyncMetaV2 {
                 version: 2,
                 targets: vec![SkillTarget {
-                    agent: AgentId::Anthropic,
+                    agent: "anthropic".to_string(),
                     scope: SkillScope::Project,
                     project: Some(project.clone()),
                     enabled: true,
@@ -3464,7 +3474,7 @@ mod tests {
             &SyncMetaV2 {
                 version: 2,
                 targets: vec![SkillTarget {
-                    agent: AgentId::Anthropic,
+                    agent: "anthropic".to_string(),
                     scope: SkillScope::Project,
                     project: Some(project.clone()),
                     enabled: true,
@@ -3483,7 +3493,7 @@ mod tests {
             &SyncMetaV2 {
                 version: 2,
                 targets: vec![SkillTarget {
-                    agent: AgentId::Anthropic,
+                    agent: "anthropic".to_string(),
                     scope: SkillScope::Project,
                     project: Some(project.clone()),
                     enabled: true,
@@ -3522,7 +3532,7 @@ mod tests {
             &SyncMetaV2 {
                 version: 2,
                 targets: vec![SkillTarget {
-                    agent: AgentId::Anthropic,
+                    agent: "anthropic".to_string(),
                     scope: SkillScope::Project,
                     project: Some(project.clone()),
                     enabled: true,
@@ -3545,7 +3555,7 @@ mod tests {
             &SyncMetaV2 {
                 version: 2,
                 targets: vec![SkillTarget {
-                    agent: AgentId::Gemini,
+                    agent: "gemini".to_string(),
                     scope: SkillScope::Project,
                     project: Some(project.clone()),
                     enabled: true,
@@ -3649,7 +3659,7 @@ mod tests {
             &SyncMetaV2 {
                 version: 2,
                 targets: vec![SkillTarget {
-                    agent: AgentId::Anthropic,
+                    agent: "anthropic".to_string(),
                     scope: SkillScope::Project,
                     project: Some(project.clone()),
                     enabled: true,
@@ -3708,7 +3718,7 @@ mod tests {
             &SyncMetaV2 {
                 version: 2,
                 targets: vec![SkillTarget {
-                    agent: AgentId::Anthropic,
+                    agent: "anthropic".to_string(),
                     scope: SkillScope::Project,
                     project: Some(project.clone()),
                     enabled: true,
@@ -3756,7 +3766,7 @@ mod tests {
 
         // Manually set up a legacy sidecar (sibling_hashes = None)
         let target = SkillTarget {
-            agent: AgentId::Anthropic,
+            agent: "anthropic".to_string(),
             scope: SkillScope::Project,
             project: Some(project.clone()),
             enabled: true,
@@ -3818,7 +3828,7 @@ mod tests {
             &SyncMetaV2 {
                 version: 2,
                 targets: vec![SkillTarget {
-                    agent: AgentId::Anthropic,
+                    agent: "anthropic".to_string(),
                     scope: SkillScope::Project,
                     project: Some(project.clone()),
                     enabled: true,
@@ -3852,7 +3862,7 @@ mod tests {
 
         // Push with no siblings to establish empty baseline
         let target = SkillTarget {
-            agent: AgentId::Anthropic,
+            agent: "anthropic".to_string(),
             scope: SkillScope::Project,
             project: Some(project.clone()),
             enabled: true,
@@ -4092,7 +4102,7 @@ mod tests {
         let canonical_skill_dir = tmp.join(".felina").join("skills").join("noop-skill");
         let project = tmp.to_string_lossy().to_string();
         let target = SkillTarget {
-            agent: AgentId::Anthropic,
+            agent: "anthropic".to_string(),
             scope: SkillScope::Project,
             project: Some(project.clone()),
             enabled: true,
@@ -4168,7 +4178,7 @@ mod tests {
         let canonical_skill_dir = tmp.join(".felina").join("skills").join("noop-diff-skill");
         let project = tmp.to_string_lossy().to_string();
         let target = SkillTarget {
-            agent: AgentId::Anthropic,
+            agent: "anthropic".to_string(),
             scope: SkillScope::Project,
             project: Some(project.clone()),
             enabled: true,
@@ -4245,7 +4255,7 @@ mod tests {
             make_canonical(name, &["anthropic"]);
             let canonical_skill_dir = tmp.join(".felina").join("skills").join(name);
             let target = SkillTarget {
-                agent: AgentId::Anthropic,
+                agent: "anthropic".to_string(),
                 scope: SkillScope::Project,
                 project: Some(project.clone()),
                 enabled: true,
@@ -4317,7 +4327,7 @@ mod tests {
         let canonical_hash = semantic_hash(&canonical_raw);
 
         let target = SkillTarget {
-            agent: AgentId::Anthropic,
+            agent: "anthropic".to_string(),
             scope: SkillScope::Project,
             project: Some(project.clone()),
             enabled: true,
@@ -4376,7 +4386,7 @@ mod tests {
         let project = tmp.to_string_lossy().to_string();
         let canonical_skill_dir = tmp.join(".felina").join("skills").join("fork-reject");
         let target = SkillTarget {
-            agent: AgentId::Anthropic,
+            agent: "anthropic".to_string(),
             scope: SkillScope::Project,
             project: Some(project),
             enabled: true,
@@ -4408,7 +4418,7 @@ mod tests {
         let project = tmp.to_string_lossy().to_string();
         let canonical_skill_dir = tmp.join(".felina").join("skills").join("fork-missing");
         let target = SkillTarget {
-            agent: AgentId::Anthropic,
+            agent: "anthropic".to_string(),
             scope: SkillScope::Project,
             project: Some(project),
             enabled: true,
@@ -4510,7 +4520,7 @@ mod tests {
         let project = tmp.to_string_lossy().to_string();
         let canonical_skill_dir = tmp.join(".felina").join("skills").join("fork-nobase");
         let target = SkillTarget {
-            agent: AgentId::Anthropic,
+            agent: "anthropic".to_string(),
             scope: SkillScope::Project,
             project: Some(project),
             enabled: true,
@@ -4560,7 +4570,7 @@ mod tests {
         let project = tmp.to_string_lossy().to_string();
         let canonical_skill_dir = tmp.join(".felina").join("skills").join("skip-forked");
         let target = SkillTarget {
-            agent: AgentId::Anthropic,
+            agent: "anthropic".to_string(),
             scope: SkillScope::Project,
             project: Some(project),
             enabled: true,

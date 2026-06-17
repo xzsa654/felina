@@ -7,14 +7,14 @@
 
 use super::{prepare_skill_subdir, resolve_pair, FanOutRenderer};
 use crate::commands::agent_paths::AgentPathPair;
-use crate::commands::canonical_skills::{AgentId, CanonicalSkill, SkillScope};
+use crate::commands::canonical_skills::{CanonicalSkill, SkillScope};
 use std::path::{Path, PathBuf};
 
 pub struct GeminiRenderer;
 
 impl FanOutRenderer for GeminiRenderer {
-    fn agent_id(&self) -> AgentId {
-        AgentId::Gemini
+    fn agent_id(&self) -> &'static str {
+        "gemini"
     }
 
     fn resolve_target_dir(
@@ -82,7 +82,7 @@ mod tests {
             canonical_id: "demo".into(),
             name: "demo".into(),
             description: "Demo".into(),
-            agents: vec![AgentId::Gemini],
+            agents: vec!["gemini".to_string()],
             frontmatter_extras: serde_yaml::Value::Mapping(serde_yaml::Mapping::new()),
             body: "body\n".into(),
             dirty: false,

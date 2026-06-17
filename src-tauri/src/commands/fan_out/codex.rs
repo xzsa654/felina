@@ -10,15 +10,15 @@
 
 use super::{prepare_skill_subdir, resolve_pair, FanOutRenderer};
 use crate::commands::agent_paths::AgentPathPair;
-use crate::commands::canonical_skills::{AgentId, CanonicalSkill, SkillScope};
+use crate::commands::canonical_skills::{CanonicalSkill, SkillScope};
 use std::fs;
 use std::path::{Path, PathBuf};
 
 pub struct CodexRenderer;
 
 impl FanOutRenderer for CodexRenderer {
-    fn agent_id(&self) -> AgentId {
-        AgentId::Codex
+    fn agent_id(&self) -> &'static str {
+        "codex"
     }
 
     fn resolve_target_dir(
@@ -109,7 +109,7 @@ mod tests {
             canonical_id: "demo".into(),
             name: "demo".into(),
             description: "Demo skill".into(),
-            agents: vec![AgentId::Codex],
+            agents: vec!["codex".to_string()],
             frontmatter_extras: serde_yaml::Value::Mapping(serde_yaml::Mapping::new()),
             body: "body".into(),
             dirty: false,
@@ -170,7 +170,7 @@ mod tests {
             canonical_id: "bare".into(),
             name: "bare".into(),
             description: "bare".into(),
-            agents: vec![AgentId::Codex],
+            agents: vec!["codex".to_string()],
             frontmatter_extras: serde_yaml::Value::Mapping(serde_yaml::Mapping::new()),
             body: "x".into(),
             dirty: false,

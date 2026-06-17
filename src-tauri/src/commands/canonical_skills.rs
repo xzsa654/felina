@@ -18,15 +18,11 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// Agent ids supported by the multi-agent skills foundation.
-/// Wire format is lowercase: `"anthropic" | "codex" | "gemini"`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum AgentId {
-    Anthropic,
-    Codex,
-    Gemini,
-}
+/// Agent identity — open string type so users can add custom agents.
+/// Built-in values: `"anthropic"`, `"codex"`, `"gemini"`.
+pub type AgentId = String;
+
+pub const BUILTIN_AGENTS: &[&str] = &["anthropic", "codex", "gemini"];
 
 /// Push-destination discriminator for `SkillTarget`.
 ///
@@ -215,14 +211,8 @@ fn take_required_agents(map: &mut serde_yaml::Mapping) -> Result<Vec<AgentId>, S
                 ));
             }
         };
-        let id = match s.as_str() {
-            "anthropic" => AgentId::Anthropic,
-            "codex" => AgentId::Codex,
-            "gemini" => AgentId::Gemini,
-            unknown => return Err(format!("unknown agent id: {unknown}")),
-        };
-        if !out.contains(&id) {
-            out.push(id);
+        if !out.contains(&s) {
+            out.push(s);
         }
     }
     Ok(out)
@@ -412,12 +402,8 @@ impl Default for SyncMetaV2 {
 
 const SYNC_META_FILENAME: &str = ".felina-sync-meta.json";
 
-fn agent_str(a: AgentId) -> &'static str {
-    match a {
-        AgentId::Anthropic => "anthropic",
-        AgentId::Codex => "codex",
-        AgentId::Gemini => "gemini",
-    }
+fn agent_str(a: &AgentId) -> &str {
+    a.as_str()
 }
 
 /// Stable per-target identifier for keying `SyncMetaV2.last_sync`.
@@ -425,10 +411,10 @@ fn agent_str(a: AgentId) -> &'static str {
 /// for global scope).
 pub fn target_key(t: &SkillTarget) -> String {
     match t.scope {
-        SkillScope::Global => format!("{}:global", agent_str(t.agent)),
+        SkillScope::Global => format!("{}:global", agent_str(&t.agent)),
         SkillScope::Project => format!(
             "{}:project:{}",
-            agent_str(t.agent),
+            agent_str(&t.agent),
             t.project.as_deref().unwrap_or(""),
         ),
     }
@@ -444,8 +430,8 @@ fn backfill_from_skill(skill: &CanonicalSkill, dirty: bool) -> SyncMetaV2 {
     let targets = skill
         .agents
         .iter()
-        .map(|&agent| SkillTarget {
-            agent,
+        .map(|agent| SkillTarget {
+            agent: agent.clone(),
             scope: SkillScope::Global,
             project: None,
             enabled: true,
@@ -1074,11 +1060,8 @@ pub fn skill_target_read_content(skill_name: String, target_key: String) -> Resu
 
 fn resolve_target_skill_dir(skill_name: &str, target: &SkillTarget) -> Result<PathBuf, String> {
     let cfg = super::agent_paths::agent_paths_get()?;
-    let pair = match target.agent {
-        AgentId::Anthropic => &cfg.anthropic,
-        AgentId::Codex => &cfg.codex,
-        AgentId::Gemini => &cfg.gemini,
-    };
+    let pair = cfg.pair_for(&target.agent)
+        .ok_or_else(|| format!("unknown agent: {}", target.agent))?;
     super::fan_out::resolve_pair(target.scope, target.project.as_deref(), pair)
         .map(|root| root.join(skill_name))
 }
@@ -1302,11 +1285,7 @@ fn resolve_current_target_skill_dirs(
         if !target.enabled || !matches!(target.mode, TargetMode::Auto | TargetMode::Manual) {
             continue;
         }
-        let pair = match target.agent {
-            AgentId::Anthropic => &cfg.anthropic,
-            AgentId::Codex => &cfg.codex,
-            AgentId::Gemini => &cfg.gemini,
-        };
+        let Some(pair) = cfg.pair_for(&target.agent) else { continue; };
         if let Ok(root) =
             super::fan_out::resolve_pair(target.scope, target.project.as_deref(), pair)
         {
@@ -1445,7 +1424,7 @@ Hello.\n";
         let s = parse_skill_md(SAMPLE).unwrap();
         assert_eq!(s.name, "search-helper");
         assert_eq!(s.description, "Search the web");
-        assert_eq!(s.agents, vec![AgentId::Anthropic, AgentId::Gemini]);
+        assert_eq!(s.agents, vec!["anthropic".to_string(), "gemini".to_string()]);
         assert!(s.body.starts_with("# Body"));
         assert!(!s.dirty);
         assert!(s.last_synced.is_none());
@@ -1593,21 +1572,21 @@ Hello.\n";
     fn parse_skill_md_with_agents_unchanged() {
         let raw = "---\nname: x\ndescription: y\nagents:\n  - anthropic\n  - gemini\n---\nbody\n";
         let s = parse_skill_md(raw).unwrap();
-        assert_eq!(s.agents, vec![AgentId::Anthropic, AgentId::Gemini]);
+        assert_eq!(s.agents, vec!["anthropic".to_string(), "gemini".to_string()]);
     }
 
     #[test]
-    fn rejects_unknown_agent() {
-        let bad = "---\nname: x\ndescription: y\nagents:\n  - bogus\n---\nbody\n";
-        let err = parse_skill_md(bad).unwrap_err();
-        assert!(err.contains("bogus"), "err was: {err}");
+    fn accepts_custom_agent() {
+        let raw = "---\nname: x\ndescription: y\nagents:\n  - aider\n---\nbody\n";
+        let s = parse_skill_md(raw).unwrap();
+        assert_eq!(s.agents, vec!["aider".to_string()]);
     }
 
     #[test]
     fn handles_crlf_frontmatter() {
         let crlf = "---\r\nname: x\r\ndescription: y\r\nagents:\r\n  - codex\r\n---\r\nbody\r\n";
         let s = parse_skill_md(crlf).unwrap();
-        assert_eq!(s.agents, vec![AgentId::Codex]);
+        assert_eq!(s.agents, vec!["codex".to_string()]);
         assert_eq!(s.body.trim_end(), "body");
     }
 
@@ -1827,7 +1806,7 @@ Hello.\n";
         assert_eq!(skill.canonical_id, "foo");
         assert_eq!(skill.name, "foo");
         assert_eq!(skill.description, "Foo helper");
-        assert_eq!(skill.agents, vec![AgentId::Anthropic]);
+        assert_eq!(skill.agents, vec!["anthropic".to_string()]);
         assert!(skill.body.contains("Foo body"));
         // `effort` is classified into agent_fields.anthropic.
         let anth = skill.agent_fields.get("anthropic").unwrap().as_mapping().unwrap();
@@ -1943,7 +1922,7 @@ Hello.\n";
         canonical_skills_write_raw("fixme".into(), fixed.into()).expect("raw write fixed");
         let after = canonical_skills_read("fixme".into()).expect("structured read after repair");
         assert_eq!(after.description, "repaired");
-        assert_eq!(after.agents, vec![AgentId::Anthropic]);
+        assert_eq!(after.agents, vec!["anthropic".to_string()]);
     }
 
     // ---------------------------------------------------------------------
@@ -1997,14 +1976,14 @@ Hello.\n";
             version: 2,
             targets: vec![
                 SkillTarget {
-                    agent: AgentId::Anthropic,
+                    agent: "anthropic".to_string(),
                     scope: SkillScope::Project,
                     project: Some("C:/proj".into()),
                     enabled: true,
                     mode: TargetMode::Manual,
                 },
                 SkillTarget {
-                    agent: AgentId::Codex,
+                    agent: "codex".to_string(),
                     scope: SkillScope::Project,
                     project: Some("C:/proj".into()),
                     enabled: true,
@@ -2023,7 +2002,7 @@ Hello.\n";
         assert!(on_disk.contains("\"version\": 2"), "JSON: {on_disk}");
 
         // Read back via the v2 reader (no v1 sidecar → not a backfill).
-        let skill = skill_with_agents("foo", vec![AgentId::Anthropic, AgentId::Codex]);
+        let skill = skill_with_agents("foo", vec!["anthropic".to_string(), "codex".to_string()]);
         let (round, legacy) = read_sync_meta_v2(&skill_dir, &skill);
         assert_eq!(round.version, 2);
         assert_eq!(round.targets.len(), 2);
@@ -2056,7 +2035,7 @@ Hello.\n";
         )
         .unwrap();
 
-        let skill = skill_with_agents("legacy", vec![AgentId::Anthropic, AgentId::Codex]);
+        let skill = skill_with_agents("legacy", vec!["anthropic".to_string(), "codex".to_string()]);
         let (meta, legacy) = read_sync_meta_v2(&skill_dir, &skill);
 
         assert_eq!(meta.version, 2);
@@ -2071,9 +2050,9 @@ Hello.\n";
         // scope-model-simplification, so backfill defaults to scope=Global +
         // project=None; users add project targets through the editor.
         assert_eq!(meta.targets.len(), 2, "two backfilled targets");
-        let agents: Vec<AgentId> = meta.targets.iter().map(|t| t.agent).collect();
-        assert!(agents.contains(&AgentId::Anthropic));
-        assert!(agents.contains(&AgentId::Codex));
+        let agents: Vec<AgentId> = meta.targets.iter().map(|t| t.agent.clone()).collect();
+        assert!(agents.contains(&"anthropic".to_string()));
+        assert!(agents.contains(&"codex".to_string()));
         for t in &meta.targets {
             assert_eq!(t.scope, SkillScope::Global);
             assert!(t.project.is_none());
@@ -2107,7 +2086,7 @@ Hello.\n";
             &SyncMetaV2 {
                 version: 2,
                 targets: vec![SkillTarget {
-                    agent: AgentId::Gemini,
+                    agent: "gemini".to_string(),
                     scope: SkillScope::Global,
                     project: None,
                     enabled: true,
@@ -2124,11 +2103,11 @@ Hello.\n";
         mark_sync_meta_dirty(&skill_dir);
 
         // Read back: dirty=true, but targets and last_sync survive.
-        let skill = skill_with_agents("preserve", vec![AgentId::Gemini]);
+        let skill = skill_with_agents("preserve", vec!["gemini".to_string()]);
         let (meta, _legacy) = read_sync_meta_v2(&skill_dir, &skill);
         assert!(meta.dirty, "mark_sync_meta_dirty must flip dirty=true");
         assert_eq!(meta.targets.len(), 1, "targets must survive mark_dirty");
-        assert_eq!(meta.targets[0].agent, AgentId::Gemini);
+        assert_eq!(meta.targets[0].agent, "gemini".to_string());
         assert_eq!(
             meta.last_sync
                 .get("gemini:global")
@@ -2180,7 +2159,7 @@ Hello.\n";
             &SyncMetaV2 {
                 version: 2,
                 targets: vec![SkillTarget {
-                    agent: AgentId::Anthropic,
+                    agent: "anthropic".to_string(),
                     scope: SkillScope::Global,
                     project: None,
                     enabled: true,
@@ -2219,7 +2198,7 @@ Hello.\n";
             "targets must NOT regenerate from agents; got: {:?}",
             meta.targets,
         );
-        assert_eq!(meta.targets[0].agent, AgentId::Anthropic);
+        assert_eq!(meta.targets[0].agent, "anthropic".to_string());
         // lastSync for anthropic preserved.
         assert!(meta.last_sync.contains_key("anthropic:global"));
         // Dirty flipped because canonical was edited.
@@ -2246,7 +2225,7 @@ Hello.\n";
         .unwrap();
 
         // Skill has agents=[anthropic, codex] in frontmatter.
-        let skill = skill_with_agents("empty-v2", vec![AgentId::Anthropic, AgentId::Codex]);
+        let skill = skill_with_agents("empty-v2", vec!["anthropic".to_string(), "codex".to_string()]);
         let (meta, legacy) = read_sync_meta_v2(&skill_dir, &skill);
 
         assert_eq!(meta.version, 2);
@@ -2299,14 +2278,14 @@ Hello.\n";
         );
 
         let t_anth = SkillTarget {
-            agent: AgentId::Anthropic,
+            agent: "anthropic".to_string(),
             scope: SkillScope::Global,
             project: None,
             enabled: true,
             mode: TargetMode::Manual,
         };
         let t_codex = SkillTarget {
-            agent: AgentId::Codex,
+            agent: "codex".to_string(),
             scope: SkillScope::Global,
             project: None,
             enabled: true,
@@ -2349,7 +2328,7 @@ Hello.\n";
         let raw = fs::read_to_string(skill_dir.join(SYNC_META_FILENAME)).unwrap();
         let meta: SyncMetaV2 = serde_json::from_str(&raw).unwrap();
         assert_eq!(meta.targets.len(), 1);
-        assert_eq!(meta.targets[0].agent, AgentId::Anthropic);
+        assert_eq!(meta.targets[0].agent, "anthropic".to_string());
         assert!(meta.last_sync.contains_key(&target_key(&t_anth)));
         assert!(!meta.last_sync.contains_key(&target_key(&t_codex)));
         // Remaining anthropic target has a last_sync entry → not dirty.
@@ -2385,7 +2364,7 @@ Hello.\n";
         skill_targets_set(
             "no-auto-del".into(),
             vec![SkillTarget {
-                agent: AgentId::Anthropic,
+                agent: "anthropic".to_string(),
                 scope: SkillScope::Project,
                 project: Some(tmp.to_string_lossy().to_string()),
                 enabled: true,
@@ -2541,7 +2520,7 @@ Hello.\n";
         .unwrap();
 
         let target = SkillTarget {
-            agent: AgentId::Codex,
+            agent: "codex".to_string(),
             scope: SkillScope::Project,
             project: Some(project.clone()),
             enabled: false,
@@ -2591,7 +2570,7 @@ Hello.\n";
         .unwrap();
 
         let target = SkillTarget {
-            agent: AgentId::Codex,
+            agent: "codex".to_string(),
             scope: SkillScope::Project,
             project: Some(project),
             enabled: false,
@@ -2663,7 +2642,7 @@ Hello.\n";
         // Add a target so subsequent edits become pushable.
         let skill_dir = tmp.join(".felina").join("skills").join("fresh");
         let target = SkillTarget {
-            agent: AgentId::Anthropic,
+            agent: "anthropic".to_string(),
             scope: SkillScope::Global,
             project: None,
             enabled: true,
@@ -2818,7 +2797,7 @@ Hello.\n";
         );
 
         let target = SkillTarget {
-            agent: AgentId::Anthropic,
+            agent: "anthropic".to_string(),
             scope: SkillScope::Global,
             project: None,
             enabled: true,
@@ -2833,7 +2812,7 @@ Hello.\n";
             fs::read_to_string(skills_root.join("folder-id").join(SYNC_META_FILENAME)).unwrap();
         let meta: SyncMetaV2 = serde_json::from_str(&raw).unwrap();
         assert_eq!(meta.targets.len(), 1);
-        assert_eq!(meta.targets[0].agent, AgentId::Anthropic);
+        assert_eq!(meta.targets[0].agent, "anthropic".to_string());
 
         // The parsed frontmatter name is NOT a valid lookup key.
         assert!(
@@ -2868,28 +2847,28 @@ Hello.\n";
                 name.into(),
                 vec![
                     SkillTarget {
-                        agent: AgentId::Anthropic,
+                        agent: "anthropic".to_string(),
                         scope: SkillScope::Project,
                         project: Some(project.clone()),
                         enabled: true,
                         mode: TargetMode::Manual,
                     },
                     SkillTarget {
-                        agent: AgentId::Codex,
+                        agent: "codex".to_string(),
                         scope: SkillScope::Project,
                         project: Some(project.clone()),
                         enabled: true,
                         mode: TargetMode::Manual,
                     },
                     SkillTarget {
-                        agent: AgentId::Gemini,
+                        agent: "gemini".to_string(),
                         scope: SkillScope::Project,
                         project: Some(disabled_project.to_string_lossy().to_string()),
                         enabled: false,
                         mode: TargetMode::Manual,
                     },
                     SkillTarget {
-                        agent: AgentId::Anthropic,
+                        agent: "anthropic".to_string(),
                         scope: SkillScope::Project,
                         project: Some(detached_project.to_string_lossy().to_string()),
                         enabled: true,
@@ -3018,28 +2997,28 @@ Hello.\n";
             name.into(),
             vec![
                 SkillTarget {
-                    agent: AgentId::Anthropic,
+                    agent: "anthropic".to_string(),
                     scope: SkillScope::Project,
                     project: Some(project.clone()),
                     enabled: true,
                     mode: TargetMode::Auto,
                 },
                 SkillTarget {
-                    agent: AgentId::Codex,
+                    agent: "codex".to_string(),
                     scope: SkillScope::Project,
                     project: Some(disabled_project.to_string_lossy().to_string()),
                     enabled: false,
                     mode: TargetMode::Auto,
                 },
                 SkillTarget {
-                    agent: AgentId::Gemini,
+                    agent: "gemini".to_string(),
                     scope: SkillScope::Project,
                     project: Some(detached_project.to_string_lossy().to_string()),
                     enabled: true,
                     mode: TargetMode::Detached,
                 },
                 SkillTarget {
-                    agent: AgentId::Anthropic,
+                    agent: "anthropic".to_string(),
                     scope: SkillScope::Project,
                     project: Some(forked_project.to_string_lossy().to_string()),
                     enabled: true,
@@ -3118,14 +3097,14 @@ Hello.\n";
 
         let project = tmp.to_string_lossy().to_string();
         let anthropic = SkillTarget {
-            agent: AgentId::Anthropic,
+            agent: "anthropic".to_string(),
             scope: SkillScope::Project,
             project: Some(project.clone()),
             enabled: true,
             mode: TargetMode::Manual,
         };
         let gemini = SkillTarget {
-            agent: AgentId::Gemini,
+            agent: "gemini".to_string(),
             scope: SkillScope::Project,
             project: Some(project.clone()),
             enabled: true,
@@ -3138,7 +3117,7 @@ Hello.\n";
         let codex_project_root = tmp.join("codex-project");
         fs::create_dir_all(&codex_project_root).unwrap();
         let codex = SkillTarget {
-            agent: AgentId::Codex,
+            agent: "codex".to_string(),
             scope: SkillScope::Project,
             project: Some(codex_project_root.to_string_lossy().to_string()),
             enabled: true,
@@ -3246,7 +3225,7 @@ Hello.\n";
         fs::create_dir_all(&unexpected_dir).unwrap();
         fs::write(unexpected_dir.join("SKILL.md"), "unexpected").unwrap();
         let unexpected = SkillTarget {
-            agent: AgentId::Anthropic,
+            agent: "anthropic".to_string(),
             scope: SkillScope::Project,
             project: Some(unexpected_project.to_string_lossy().to_string()),
             enabled: true,
@@ -3325,7 +3304,7 @@ Hello.\n";
         .unwrap();
 
         let target = SkillTarget {
-            agent: AgentId::Anthropic,
+            agent: "anthropic".to_string(),
             scope: SkillScope::Project,
             project: Some(old_project.to_string_lossy().to_string()),
             enabled: true,
@@ -3479,7 +3458,7 @@ Hello.\n";
         write_skill(&skills_root, "my-skill", skill_body);
 
         let target = SkillTarget {
-            agent: AgentId::Anthropic,
+            agent: "anthropic".to_string(),
             scope: SkillScope::Global,
             project: None,
             enabled: true,
@@ -3532,7 +3511,7 @@ Hello.\n";
 
         // Start with no sync-meta at all.
         let forked_target = SkillTarget {
-            agent: AgentId::Anthropic,
+            agent: "anthropic".to_string(),
             scope: SkillScope::Global,
             project: None,
             enabled: true,
