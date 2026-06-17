@@ -20,8 +20,8 @@
 
 ## 5. Frontend — Types 與 Commands
 
-- [ ] [P] 5.1 將 `src/lib/types/skills.ts` 的 `AgentId` 從 union literal 改為 `string`。更新 `src/lib/types/index.ts` 若有 re-export。對應 spec「Open Agent Identity」。驗證：`npm run check` 通過
-- [ ] [P] 5.2 在 `src/lib/tauri/commands.ts` 新增 `agentPathRemovalPreview(agentKey)` 和 `agentPathRemove(agentKey)` wrapper。新增 `RemovalPreview` 和 `RemoveResult` 型別。驗證：`npm run check` 通過
+- [x] [P] 5.1 將 `src/lib/types/skills.ts` 的 `AgentId` 從 union literal 改為 `string`。更新 `src/lib/types/index.ts` 若有 re-export。對應 spec「Open Agent Identity」。驗證：`npm run check` 通過
+- [x] [P] 5.2 在 `src/lib/tauri/commands.ts` 新增 `agentPathRemovalPreview(agentKey)` 和 `agentPathRemove(agentKey)` wrapper。新增 `RemovalPreview` 和 `RemoveResult` 型別。驗證：`npm run check` 通過
 
 ## 6. Frontend — Settings UI
 

@@ -23,6 +23,8 @@ import type {
   ImportCandidate,
   ImportSelection,
   AgentPathsConfig,
+  RemovalPreview,
+  RemoveResult,
   KnownProject,
   SkillTarget,
   RenameResult,
@@ -263,6 +265,10 @@ export const api = {
     get: () => invoke<AgentPathsConfig>("agent_paths_get"),
     set: (config: AgentPathsConfig) =>
       invoke<void>("agent_paths_set", { config }),
+    removalPreview: (agentKey: string) =>
+      invoke<RemovalPreview>("agent_path_removal_preview", { agentKey }),
+    remove: (agentKey: string) =>
+      invoke<RemoveResult>("agent_path_remove", { agentKey }),
   },
 
   agents: {

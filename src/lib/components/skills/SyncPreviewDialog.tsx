@@ -199,7 +199,8 @@ function TargetCell({
   item: SkillSyncPreviewItem;
   locale: "en" | "zh-TW";
 }) {
-  const agentName = t(locale, `skills.syncPreview.agentNames.${item.agent}`);
+  const AGENT_NAME_MAP: Record<string, string> = { anthropic: "Claude", codex: "Codex", gemini: "Antigravity" };
+  const agentName = AGENT_NAME_MAP[item.agent] ?? item.agent;
   const projectBasename = item.project ? basename(item.project) : null;
   const primaryLabel =
     item.scope === "project" && projectBasename
