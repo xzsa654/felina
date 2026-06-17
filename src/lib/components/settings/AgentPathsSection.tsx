@@ -1,11 +1,13 @@
 import { useEffect, useState } from "react";
-import { AlertTriangle, ChevronDown, ChevronRight, FolderTree, RefreshCw, RotateCcw, Save } from "lucide-react";
+import { AlertTriangle, ChevronDown, ChevronRight, FolderTree, Plus, RefreshCw, RotateCcw, Save, Trash2 } from "lucide-react";
 import { api } from "$lib/tauri/commands";
 import { t } from "$lib/i18n";
 import { useLocaleStore } from "$lib/stores/locale";
 import { useProjectContextStore } from "$lib/stores/project-context";
 import type { AgentId, AgentPathPair, AgentPathsConfig, SkillScope } from "$lib/types";
 import Modal from "$lib/components/shared/Modal";
+import AddAgentPathDialog from "./AddAgentPathDialog";
+import RemoveAgentPathDialog from "./RemoveAgentPathDialog";
 
 const BUILTIN_AGENTS = ["anthropic", "codex", "gemini"] as const;
 
@@ -55,6 +57,8 @@ export default function AgentPathsSection() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<{ title: string; detail: string } | null>(null);
   const [info, setInfo] = useState<string | null>(null);
+  const [addDialogOpen, setAddDialogOpen] = useState(false);
+  const [removeTarget, setRemoveTarget] = useState<string | null>(null);
 
   async function reload() {
     try {
@@ -158,20 +162,32 @@ export default function AgentPathsSection() {
             </div>
           )}
 
-          {sortedAgentKeys(config).map((agent) => (
-            <AgentPathRow
-              key={agent}
-              agent={agent}
-              pair={config.agents[agent]}
-              isBuiltin={BUILTIN_AGENTS.includes(agent as typeof BUILTIN_AGENTS[number])}
-              globalCount={counts.global[agent] ?? 0}
-              projectCount={counts.project[agent] ?? 0}
-              onChange={(pair) => setConfig({
-                ...config,
-                agents: { ...config.agents, [agent]: pair },
-              })}
-            />
-          ))}
+          {sortedAgentKeys(config).map((agent) => {
+            const isBuiltin = BUILTIN_AGENTS.includes(agent as typeof BUILTIN_AGENTS[number]);
+            return (
+              <AgentPathRow
+                key={agent}
+                agent={agent}
+                pair={config.agents[agent]}
+                isBuiltin={isBuiltin}
+                globalCount={counts.global[agent] ?? 0}
+                projectCount={counts.project[agent] ?? 0}
+                onChange={(pair) => setConfig({
+                  ...config,
+                  agents: { ...config.agents, [agent]: pair },
+                })}
+                onDelete={isBuiltin ? undefined : () => setRemoveTarget(agent)}
+              />
+            );
+          })}
+
+          <button
+            type="button"
+            onClick={() => setAddDialogOpen(true)}
+            className="inline-flex items-center gap-1 text-xs px-3 py-1.5 rounded border border-dashed border-border text-text-secondary hover:text-text-primary hover:border-accent w-full justify-center"
+          >
+            <Plus size={14} /> {t(locale, "felinaSettings.agentPaths.addButton")}
+          </button>
 
           <div className="flex items-center gap-2 justify-end">
             <button
@@ -237,6 +253,30 @@ export default function AgentPathsSection() {
             </div>
         </div>
       </Modal>
+      <AddAgentPathDialog
+        open={addDialogOpen}
+        existingKeys={config ? Object.keys(config.agents) : []}
+        onAdd={(key, global, projectRelative, label, icon) => {
+          if (!config) return;
+          const newPair: AgentPathPair = { global, projectRelative, label, icon };
+          const updated: AgentPathsConfig = {
+            agents: { ...config.agents, [key]: newPair },
+          };
+          setConfig(updated);
+          setAddDialogOpen(false);
+        }}
+        onClose={() => setAddDialogOpen(false)}
+      />
+
+      <RemoveAgentPathDialog
+        open={removeTarget !== null}
+        agentKey={removeTarget ?? ""}
+        onRemoved={() => {
+          setRemoveTarget(null);
+          void reload();
+        }}
+        onClose={() => setRemoveTarget(null)}
+      />
     </section>
   );
 }
@@ -255,16 +295,27 @@ interface RowProps {
   globalCount: number;
   projectCount: number;
   onChange: (pair: AgentPathPair) => void;
+  onDelete?: () => void;
 }
 
-function AgentPathRow({ agent, pair, isBuiltin: _isBuiltin, globalCount, projectCount, onChange }: RowProps) {
+function AgentPathRow({ agent, pair, isBuiltin, globalCount, projectCount, onChange, onDelete }: RowProps) {
   return (
     <div className="rounded border border-border p-3 flex flex-col gap-2">
       <div className="flex items-center justify-between gap-3">
         <div>
           <div className="text-sm font-medium">{pair.label ?? AGENT_LABELS[agent] ?? agent}</div>
-          <div className="text-xs text-text-secondary">{AGENT_HINTS[agent] ?? ""}</div>
+          <div className="text-xs text-text-secondary">{AGENT_HINTS[agent] ?? (isBuiltin ? "" : agent)}</div>
         </div>
+        {!isBuiltin && onDelete && (
+          <button
+            type="button"
+            onClick={onDelete}
+            className="text-text-tertiary hover:text-danger p-1 rounded"
+            title="Remove"
+          >
+            <Trash2 size={14} />
+          </button>
+        )}
       </div>
       <PathInput
         scope="global"

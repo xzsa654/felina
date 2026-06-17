@@ -25,15 +25,15 @@
 
 ## 6. Frontend — Settings UI
 
-- [ ] 6.1 重構 `AgentPathsSection` 從固定三列改為動態清單：從 `agentPaths` config 的 entries 產生列表，built-in 在前（固定順序）、custom 在後（alphabetical）。Custom entries 顯示 🗑 按鈕，built-in 不顯示。新增「+ Add Agent Path」按鈕。對應 spec「Agent Paths Settings Section」。驗證：`npm run check` 通過 + `npm run tauri dev` 手動確認 Settings 頁面正確渲染
-- [ ] 6.2 新增 `AddAgentPathDialog` 元件：表單含 agent key（kebab-case 驗證 + 重複檢查）、global path、project relative path、optional label、optional icon（file picker）。送出後呼叫 `agent_paths_set` 更新 config。i18n key 加入 `en.ts` 和 `zh-TW.ts`。對應 spec「Adding a custom agent path」和「Rejecting duplicate agent key」。驗證：`npm run check` 通過
-- [ ] 6.3 新增 `RemoveAgentPathDialog` 元件：接收 agent key，呼叫 `agentPathRemovalPreview` 顯示影響清單，確認後呼叫 `agentPathRemove`。i18n key 加入 `en.ts` 和 `zh-TW.ts`。對應 spec「Deleting a custom agent path」。驗證：`npm run check` 通過
+- [x] 6.1 重構 `AgentPathsSection` 從固定三列改為動態清單：從 `agentPaths` config 的 entries 產生列表，built-in 在前（固定順序）、custom 在後（alphabetical）。Custom entries 顯示 🗑 按鈕，built-in 不顯示。新增「+ Add Agent Path」按鈕。對應 spec「Agent Paths Settings Section」。驗證：`npm run check` 通過 + `npm run tauri dev` 手動確認 Settings 頁面正確渲染
+- [x] 6.2 新增 `AddAgentPathDialog` 元件：表單含 agent key（kebab-case 驗證 + 重複檢查）、global path、project relative path、optional label、optional icon（file picker）。送出後呼叫 `agent_paths_set` 更新 config。i18n key 加入 `en.ts` 和 `zh-TW.ts`。對應 spec「Adding a custom agent path」和「Rejecting duplicate agent key」。驗證：`npm run check` 通過
+- [x] 6.3 新增 `RemoveAgentPathDialog` 元件：接收 agent key，呼叫 `agentPathRemovalPreview` 顯示影響清單，確認後呼叫 `agentPathRemove`。i18n key 加入 `en.ts` 和 `zh-TW.ts`。對應 spec「Deleting a custom agent path」。驗證：`npm run check` 通過
 
 ## 7. Frontend — Target UI 與 Icon
 
-- [ ] [P] 7.1 更新 `AddTargetDialog` 的 agent dropdown：從 `agentPaths` config keys 動態產生，不再使用 hardcoded 陣列。對應 spec「Add Target dialog lists all configured agents」。驗證：`npm run check` 通過
-- [ ] [P] 7.2 更新 `TargetChips` 的 `AgentIcon` 元件：icon 優先從 `agentPaths[agent].icon` 讀取（透過 `convertFileSrc` 轉 URL），其次 hardcoded `AGENT_ICON` map，再次 label 文字，最後 agent key capitalized。對應 spec「Custom Agent Icon Display」。驗證：`npm run check` 通過
-- [ ] [P] 7.3 更新 `AgentFieldsEditor` 的 `agentLabels` 從 hardcoded 改為動態讀取 config 的 label。驗證：`npm run check` 通過
+- [x] [P] 7.1 更新 `AddTargetDialog` 的 agent dropdown：從 `agentPaths` config keys 動態產生，不再使用 hardcoded 陣列。對應 spec「Add Target dialog lists all configured agents」。驗證：`npm run check` 通過
+- [x] [P] 7.2 更新 `TargetChips` 的 `AgentIcon` 元件：icon 優先從 `agentPaths[agent].icon` 讀取（透過 `convertFileSrc` 轉 URL），其次 hardcoded `AGENT_ICON` map，再次 label 文字，最後 agent key capitalized。對應 spec「Custom Agent Icon Display」。驗證：`npm run check` 通過
+- [x] [P] 7.3 更新 `AgentFieldsEditor` 的 `agentLabels` 從 hardcoded 改為動態讀取 config 的 label。驗證：`npm run check` 通過
 
 ## 8. 驗證
 
