@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, type ReactNode } from "react";
 import { RefreshCw } from "lucide-react";
-import type { AnthropicRateLimits, CodexRateLimits, GeminiRateLimits, QuotaSnapshot } from "$lib/types";
+import type { AnthropicRateLimits, CodexRateLimits, QuotaSnapshot } from "$lib/types";
 import type { Locale } from "$lib/i18n";
 import { TokenUsageSkeleton } from "./TokensPageSkeleton";
 import {
@@ -115,24 +115,6 @@ function CodexCard({ limits }: { limits: CodexRateLimits }) {
   );
 }
 
-function GeminiCard({ limits }: { limits: GeminiRateLimits }) {
-  return (
-    <div className="space-y-4">
-      <p className="text-sm font-semibold text-text-primary">Gemini CLI</p>
-      {limits.primary_pct != null && (
-        <div className="space-y-1.5">
-          <div className="flex items-baseline justify-between">
-            <span className="text-xs text-text-secondary">配額</span>
-            <span className="text-xs font-semibold text-text-primary">{limits.primary_pct.toFixed(0)}%</span>
-          </div>
-          <p className="text-xs text-text-muted">{formatReset(limits.primary_reset)}</p>
-          <ProgressBar pct={limits.primary_pct} />
-        </div>
-      )}
-      {!limits.available && <p className="text-[10px] text-text-muted italic">Gemini CLI 未安裝</p>}
-    </div>
-  );
-}
 
 // ── QuotaContent ──────────────────────────────────────────────────────────────
 // Keyed on ttlSeconds so TanStack Query re-initialises its internal timers
@@ -241,10 +223,9 @@ export default function AgentQuotaPanel({ locale: _locale }: { locale: Locale })
             </div>
           </div>
 
-          <div className="grid sm:grid-cols-3 gap-6">
+          <div className="grid sm:grid-cols-2 gap-6">
             <ClaudeCard limits={snapshot.anthropic_limits} />
             <div className="pl-6 border-l border-border"><CodexCard limits={snapshot.codex_limits} /></div>
-            <div className="pl-6 border-l border-border"><GeminiCard limits={snapshot.gemini_limits} /></div>
           </div>
         </div>
       )}

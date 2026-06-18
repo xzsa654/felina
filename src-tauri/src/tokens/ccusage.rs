@@ -45,7 +45,7 @@ struct OauthEntry {
     access_token: String,
 }
 
-fn read_claude_oauth_token() -> Result<String, String> {
+pub(crate) fn read_claude_oauth_token() -> Result<String, String> {
     // Try macOS Keychain first
     if cfg!(target_os = "macos") {
         let out = Command::new("security")
@@ -204,6 +204,20 @@ struct CodexAuth {
 struct CodexTokens {
     access_token: Option<String>,
     account_id: Option<String>,
+}
+
+/// Read the Codex `access_token` and `account_id` from `~/.codex/auth.json`.
+/// Shared by the usage-limits fetch and the quota-window message sender.
+pub(crate) fn read_codex_auth() -> Result<(String, String), String> {
+    let home = dirs::home_dir().ok_or("Cannot determine home directory")?;
+    let auth_path = home.join(".codex").join("auth.json");
+    let raw = std::fs::read_to_string(&auth_path)
+        .map_err(|_| "~/.codex/auth.json not found".to_string())?;
+    let auth: CodexAuth = serde_json::from_str(&raw).map_err(|e| format!("auth parse: {e}"))?;
+    let tokens = auth.tokens.ok_or("No tokens in auth.json")?;
+    let access_token = tokens.access_token.ok_or("No access_token")?;
+    let account_id = tokens.account_id.unwrap_or_default();
+    Ok((access_token, account_id))
 }
 
 pub fn fetch_codex_rate_limits() -> CodexRateLimits {
@@ -371,133 +385,12 @@ fn chrono_simple(secs: u64) -> String {
     format!("{:04}-{:02}-{:02}T{:02}:{:02}:{:02}", y, m, d, h, min, sec)
 }
 
-// ── Gemini rate limits ────────────────────────────────────────────────────────
-
-#[derive(Serialize, Clone, Debug, Default)]
-pub struct GeminiRateLimits {
-    pub primary_pct: Option<f64>,
-    pub primary_reset: Option<String>,
-    pub available: bool,
-    pub error: Option<String>,
-}
-
-#[derive(Deserialize)]
-struct GeminiQuotaResponse {
-    rate_limit: Option<GeminiRateLimit>,
-}
-
-#[derive(Deserialize)]
-struct GeminiRateLimit {
-    buckets: Option<Vec<GeminiBucket>>,
-}
-
-#[derive(Deserialize)]
-struct GeminiBucket {
-    used_percent: Option<f64>,
-    resets_at: Option<String>,
-}
-
-#[derive(Deserialize)]
-struct GeminiOauthCreds {
-    access_token: Option<String>,
-}
-
-pub fn fetch_gemini_rate_limits() -> GeminiRateLimits {
-    let home = dirs::home_dir().unwrap_or_default();
-    let creds_path = home.join(".gemini").join("oauth_creds.json");
-
-    let creds_raw = match std::fs::read_to_string(&creds_path) {
-        Ok(s) => s,
-        Err(_) => {
-            return GeminiRateLimits {
-                error: Some("Gemini CLI not installed".into()),
-                ..Default::default()
-            }
-        }
-    };
-
-    let creds: GeminiOauthCreds = match serde_json::from_str(&creds_raw) {
-        Ok(c) => c,
-        Err(e) => {
-            return GeminiRateLimits {
-                error: Some(format!("creds parse: {}", e)),
-                ..Default::default()
-            }
-        }
-    };
-
-    let token = match creds.access_token {
-        Some(t) => t,
-        None => {
-            return GeminiRateLimits {
-                error: Some("No access_token in oauth_creds.json".into()),
-                ..Default::default()
-            }
-        }
-    };
-
-    let client = reqwest::blocking::Client::builder()
-        .timeout(Duration::from_secs(8))
-        .build();
-    let client = match client {
-        Ok(c) => c,
-        Err(e) => {
-            return GeminiRateLimits {
-                error: Some(format!("HTTP client error: {}", e)),
-                ..Default::default()
-            }
-        }
-    };
-
-    let out = client
-        .get("https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota")
-        .header("Authorization", format!("Bearer {}", token))
-        .header("Content-Type", "application/json")
-        .send();
-
-    match out {
-        Ok(resp) => {
-            let http_status = resp.status().as_u16();
-            let body = resp.text().unwrap_or_default();
-            if !(200..300).contains(&http_status) {
-                return GeminiRateLimits {
-                    error: Some(format!("HTTP {}", http_status)),
-                    ..Default::default()
-                };
-            }
-            match serde_json::from_str::<GeminiQuotaResponse>(&body) {
-                Ok(resp) => {
-                    let first_bucket = resp
-                        .rate_limit
-                        .and_then(|rl| rl.buckets)
-                        .and_then(|b| b.into_iter().next());
-                    GeminiRateLimits {
-                        primary_pct: first_bucket.as_ref().and_then(|b| b.used_percent),
-                        primary_reset: first_bucket.and_then(|b| b.resets_at),
-                        available: true,
-                        error: None,
-                    }
-                }
-                Err(e) => GeminiRateLimits {
-                    error: Some(format!("parse: {}", e)),
-                    ..Default::default()
-                },
-            }
-        }
-        Err(e) => GeminiRateLimits {
-            error: Some(format!("HTTP request failed: {}", e)),
-            ..Default::default()
-        },
-    }
-}
-
 // ── Combined snapshot ─────────────────────────────────────────────────────────
 
 #[derive(Serialize, Clone, Debug)]
 pub struct QuotaSnapshot {
     pub anthropic_limits: AnthropicRateLimits,
     pub codex_limits: CodexRateLimits,
-    pub gemini_limits: GeminiRateLimits,
     pub fetched_at: String,
     pub expires_at: String,
     pub next_refresh_at: String,
@@ -546,7 +439,6 @@ fn quota_has_429(snapshot: &QuotaSnapshot) -> bool {
     [
         snapshot.anthropic_limits.error.as_deref(),
         snapshot.codex_limits.error.as_deref(),
-        snapshot.gemini_limits.error.as_deref(),
     ]
     .into_iter()
     .flatten()
@@ -567,15 +459,12 @@ fn quota_cache_ttl() -> Duration {
 }
 
 pub fn fetch_quota_snapshot() -> QuotaSnapshot {
-    let ((anthropic_limits, codex_limits), gemini_limits) = rayon::join(
-        || rayon::join(fetch_anthropic_rate_limits, fetch_codex_rate_limits),
-        fetch_gemini_rate_limits,
-    );
+    let (anthropic_limits, codex_limits) =
+        rayon::join(fetch_anthropic_rate_limits, fetch_codex_rate_limits);
     let now = SystemTime::now();
     QuotaSnapshot {
         anthropic_limits,
         codex_limits,
-        gemini_limits,
         fetched_at: system_time_iso(now),
         expires_at: system_time_iso(now),
         next_refresh_at: system_time_iso(now),

@@ -299,6 +299,20 @@ export const api = {
     setQuotaTtl: (seconds: number) => invoke<void>("set_felina_quota_ttl", { seconds }),
   },
 
+  quotaScheduler: {
+    get: () =>
+      invoke<import("$lib/types").QuotaScheduleState>("get_quota_window_schedules"),
+    set: (
+      agent: import("$lib/types").SchedulerAgent,
+      enabled: boolean,
+      time: string,
+      message: string,
+    ) =>
+      invoke<void>("set_quota_window_schedule", { agent, enabled, time, message }),
+    triggerNow: (agent: import("$lib/types").SchedulerAgent) =>
+      invoke<import("$lib/types").QuotaTriggerResult>("trigger_quota_window_now", { agent }),
+  },
+
   tokenAnalytics: {
     get: (params: {
       granularity: string;

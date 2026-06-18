@@ -80,10 +80,6 @@ impl TokenAggregator {
             Some(s) => s.to_string(),
             None => self.default_analytics_source(&granularity)?,
         };
-        eprintln!(
-            "tokens: build_analytics granularity={:?} source_override={:?} resolved_source={}",
-            granularity, source_override, active_source
-        );
 
         let conn = self
             .storage
@@ -1137,19 +1133,9 @@ impl TokenAggregator {
             .active_source()
             .map_err(|e| format!("active_source error: {}", e))?;
         match granularity {
-            TimeGranularity::Hourly => {
-                eprintln!(
-                    "tokens: default analytics source {:?} -> active_source {}",
-                    granularity, active
-                );
-                Ok(active)
-            }
+            TimeGranularity::Hourly => Ok(active),
             TimeGranularity::Daily | TimeGranularity::Weekly | TimeGranularity::Monthly => {
                 if active == SOURCE_FELINA_PARSER {
-                    eprintln!(
-                        "tokens: default analytics source {:?} -> active_source {} (explicit rollback honored)",
-                        granularity, active
-                    );
                     return Ok(active);
                 }
                 let tokscale_count = self
@@ -1157,16 +1143,8 @@ impl TokenAggregator {
                     .count_events_for_source(SOURCE_TOKSCALE_EXPORT)
                     .unwrap_or(0);
                 if tokscale_count > 0 {
-                    eprintln!(
-                        "tokens: default analytics source {:?} -> {} ({} events)",
-                        granularity, SOURCE_TOKSCALE_EXPORT, tokscale_count
-                    );
                     Ok(SOURCE_TOKSCALE_EXPORT.to_string())
                 } else {
-                    eprintln!(
-                        "tokens: default analytics source {:?} -> active_source {} (tokscale_export missing)",
-                        granularity, active
-                    );
                     Ok(active)
                 }
             }

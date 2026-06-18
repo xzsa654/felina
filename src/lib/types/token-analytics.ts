@@ -190,22 +190,38 @@ export interface CodexRateLimits {
   error: string | null;
 }
 
-export interface GeminiRateLimits {
-  primary_pct: number | null;
-  primary_reset: string | null;
-  available: boolean;
-  error: string | null;
-}
-
 export interface QuotaSnapshot {
   anthropic_limits: AnthropicRateLimits;
   codex_limits: CodexRateLimits;
-  gemini_limits: GeminiRateLimits;
   fetched_at: string;
   expires_at: string;
   next_refresh_at: string;
   stale: boolean;
 }
+
+export interface QuotaScheduleConfig {
+  enabled: boolean;
+  time: string;
+  message: string;
+}
+
+export interface QuotaTriggerResult {
+  agent: string;
+  attempted_at: string;
+  success: boolean;
+  error: string | null;
+}
+
+export interface QuotaScheduleState {
+  claude: QuotaScheduleConfig;
+  codex: QuotaScheduleConfig;
+  results: {
+    claude: QuotaTriggerResult | null;
+    codex: QuotaTriggerResult | null;
+  };
+}
+
+export type SchedulerAgent = "claude" | "codex";
 
 export interface RefreshResult {
   agents_scanned: number;

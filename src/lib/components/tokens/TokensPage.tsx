@@ -13,6 +13,7 @@ import CacheEfficiencyCard from "./components/CacheEfficiencyCard";
 import TopSessionsCard from "./components/TopSessionsCard";
 import CostBudgetCard from "./components/CostBudgetCard";
 import AgentQuotaPanel from "./components/AgentQuotaPanel";
+import QuotaWindowSchedulerPanel from "./components/QuotaWindowSchedulerPanel";
 import TimeBucketTable from "./components/TimeBucketTable";
 import DailySummaryCards from "./components/DailySummaryCards";
 import ContributionGraph from "./components/ContributionGraph";
@@ -292,6 +293,7 @@ export default function TokensPage() {
                         <TokenCostTimeSeries data={analyticsDaily?.time_series ?? []} locale={locale} />
                       </div>
                     )}
+                    <QuotaWindowSchedulerPanel locale={locale} />
                   </div>
                 )}
 

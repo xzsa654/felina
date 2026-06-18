@@ -2,7 +2,12 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { listen } from "@tauri-apps/api/event";
 import { useEffect, useRef, useState } from "react";
 import { api } from "$lib/tauri/commands";
-import type { QuotaSnapshot, ScanProgress } from "$lib/types";
+import type {
+  QuotaSnapshot,
+  QuotaScheduleState,
+  ScanProgress,
+  SchedulerAgent,
+} from "$lib/types";
 
 // ── Query key factory ──────────────────────────────────────────────────────────
 
@@ -36,6 +41,7 @@ export const tokenKeys = {
     ] as const,
   quota: ["tokenAnalytics", "quota"] as const,
   quotaTtl: ["felinaSettings", "quotaTtl"] as const,
+  quotaSchedules: ["felinaSettings", "quotaSchedules"] as const,
   importStatus: ["tokenAnalytics", "importStatus"] as const,
 };
 
@@ -64,7 +70,6 @@ function mergeQuotaSnapshot(
     stale: fresh.stale,
     anthropic_limits: hasNewClaude ? fresh.anthropic_limits : prev.anthropic_limits,
     codex_limits: hasNewCodex ? fresh.codex_limits : prev.codex_limits,
-    gemini_limits: fresh.gemini_limits.available ? fresh.gemini_limits : prev.gemini_limits,
   };
 }
 
@@ -243,6 +248,45 @@ export function useAgentQuotaSnapshot(ttlSeconds: number) {
       const merged = mergeQuotaSnapshot(prev, data);
       mergedRef.current = merged;
       return merged;
+    },
+  });
+}
+
+// ── Quota-window scheduler ───────────────────────────────────────────────────
+
+export function useQuotaSchedules() {
+  return useQuery<QuotaScheduleState>({
+    queryKey: tokenKeys.quotaSchedules,
+    queryFn: () => api.quotaScheduler.get(),
+    staleTime: 30_000,
+    // Poll so a background auto-fire surfaces in the panel without a manual refresh.
+    refetchInterval: 30_000,
+  });
+}
+
+export function useSetQuotaSchedule() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (vars: {
+      agent: SchedulerAgent;
+      enabled: boolean;
+      time: string;
+      message: string;
+    }) => api.quotaScheduler.set(vars.agent, vars.enabled, vars.time, vars.message),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: tokenKeys.quotaSchedules });
+    },
+  });
+}
+
+export function useTriggerQuotaNow() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (agent: SchedulerAgent) => api.quotaScheduler.triggerNow(agent),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: tokenKeys.quotaSchedules });
     },
   });
 }

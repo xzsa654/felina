@@ -9,6 +9,7 @@ mod stats;
 
 pub mod felina_settings;
 pub mod maintenance;
+pub mod quota_scheduler;
 pub mod memory;
 pub mod projects;
 pub mod skills;

@@ -1,3 +1,4 @@
+pub mod agent_message;
 pub mod aggregator;
 pub mod ccusage;
 pub mod parsers;

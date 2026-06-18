@@ -39,7 +39,26 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(crate::commands::tokens::TokenState::new().expect("failed to init token state"))
+        .manage(std::sync::Arc::new(
+            crate::commands::quota_scheduler::SchedulerState::default(),
+        ))
         .setup(|app| {
+            // Quota-window scheduler: tick every minute while the app runs.
+            // Fires once immediately so a schedule whose time already passed
+            // today triggers shortly after launch. Uses a plain OS thread so
+            // the blocking HTTP send never stalls the async runtime.
+            {
+                use tauri::Manager;
+                let scheduler = app
+                    .state::<std::sync::Arc<crate::commands::quota_scheduler::SchedulerState>>()
+                    .inner()
+                    .clone();
+                std::thread::spawn(move || loop {
+                    crate::commands::quota_scheduler::run_tick(&scheduler);
+                    std::thread::sleep(std::time::Duration::from_secs(60));
+                });
+            }
+
             // Build tray menu
             let show = MenuItemBuilder::with_id("show", "Show Felina").build(app)?;
             let quit = MenuItemBuilder::with_id("quit", "Quit").build(app)?;
@@ -158,6 +177,10 @@ pub fn run() {
             // Settings → Felina internal (quota TTL).
             commands::felina_settings::get_felina_quota_ttl,
             commands::felina_settings::set_felina_quota_ttl,
+            // Quota-window scheduler.
+            commands::quota_scheduler::get_quota_window_schedules,
+            commands::quota_scheduler::set_quota_window_schedule,
+            commands::quota_scheduler::trigger_quota_window_now,
             // Known Projects.
             commands::known_projects::known_projects_list,
             commands::known_projects::known_projects_saved_list,
