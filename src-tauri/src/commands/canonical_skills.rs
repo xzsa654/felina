@@ -338,6 +338,10 @@ pub enum TargetMode {
     Forked,
 }
 
+pub fn has_pushable_target(targets: &[SkillTarget]) -> bool {
+    targets.iter().any(|t| t.enabled && matches!(t.mode, TargetMode::Auto | TargetMode::Manual))
+}
+
 /// A single fan-out target entry in the per-skill target list.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -1019,14 +1023,15 @@ pub fn skill_target_repoint(
     meta.targets[index] = updated.clone();
     meta.last_sync.remove(&old_key);
     meta.last_sync.remove(&new_key);
-    meta.dirty = true;
+    let pushable = has_pushable_target(&meta.targets);
+    meta.dirty = pushable;
     write_sync_meta_v2(&skill_dir, &meta)?;
 
     Ok(SkillTargetRepointResult {
         old_target_key: old_key,
         new_target_key: new_key,
         target: updated,
-        dirty: true,
+        dirty: pushable,
     })
 }
 
@@ -1193,7 +1198,7 @@ pub fn canonical_skill_rename(old_name: String, new_name: String) -> Result<Rena
     }
 
     let mut updated_meta = meta.clone();
-    updated_meta.dirty = true;
+    updated_meta.dirty = has_pushable_target(&updated_meta.targets);
     updated_meta.last_sync.clear();
     let _ = write_sync_meta_v2(&new_dir, &updated_meta);
 
@@ -2415,7 +2420,7 @@ Hello.\n";
 
         let meta_raw = fs::read_to_string(new_dir.join(".felina-sync-meta.json")).unwrap();
         let meta: SyncMetaV2 = serde_json::from_str(&meta_raw).unwrap();
-        assert!(meta.dirty);
+        assert!(!meta.dirty, "no pushable targets → dirty should be false");
         assert!(meta.last_sync.is_empty());
     }
 
@@ -3527,5 +3532,69 @@ Hello.\n";
         assert_eq!(entry.pushed_hash, expected_hash);
         assert_eq!(entry.base_snapshot.as_ref().unwrap(), &expected_hash);
         assert!(!entry.at.is_empty());
+    }
+
+    #[test]
+    fn test_dirty_not_set_for_forked_only() {
+        let targets = vec![
+            SkillTarget {
+                agent: "anthropic".into(),
+                scope: SkillScope::Global,
+                project: None,
+                enabled: true,
+                mode: TargetMode::Forked,
+            },
+        ];
+        assert!(!has_pushable_target(&targets));
+
+        let targets_detached = vec![
+            SkillTarget {
+                agent: "codex".into(),
+                scope: SkillScope::Global,
+                project: None,
+                enabled: true,
+                mode: TargetMode::Detached,
+            },
+            SkillTarget {
+                agent: "anthropic".into(),
+                scope: SkillScope::Global,
+                project: None,
+                enabled: true,
+                mode: TargetMode::Forked,
+            },
+        ];
+        assert!(!has_pushable_target(&targets_detached));
+    }
+
+    #[test]
+    fn test_dirty_set_for_mixed_targets() {
+        let targets = vec![
+            SkillTarget {
+                agent: "anthropic".into(),
+                scope: SkillScope::Global,
+                project: None,
+                enabled: true,
+                mode: TargetMode::Auto,
+            },
+            SkillTarget {
+                agent: "codex".into(),
+                scope: SkillScope::Global,
+                project: None,
+                enabled: true,
+                mode: TargetMode::Forked,
+            },
+        ];
+        assert!(has_pushable_target(&targets));
+
+        let manual_only = vec![
+            SkillTarget {
+                agent: "gemini".into(),
+                scope: SkillScope::Global,
+                project: None,
+                enabled: true,
+                mode: TargetMode::Manual,
+            },
+        ];
+        assert!(has_pushable_target(&manual_only));
     }
 }
