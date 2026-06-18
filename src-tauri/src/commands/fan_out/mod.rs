@@ -654,8 +654,8 @@ pub fn skill_sync_all() -> Result<Vec<SyncResult>, String> {
 
 #[tauri::command]
 pub fn skill_sync_preview(name: String) -> Result<SkillSyncPreview, String> {
-    let (skill, canonical_skill_dir, meta) = load_skill_for_fan_out(&name)?;
-    build_preview_for_skill(&skill, &canonical_skill_dir, &meta)
+    let (skill, canonical_skill_dir, mut meta) = load_skill_for_fan_out(&name)?;
+    build_preview_for_skill(&skill, &canonical_skill_dir, &mut meta)
 }
 
 #[tauri::command]
@@ -688,7 +688,7 @@ pub fn skill_sync_all_preview() -> Result<SkillSyncAllPreview, String> {
 #[tauri::command]
 pub fn skill_sync_commit(request: SkillSyncCommitRequest) -> Result<Vec<SyncResult>, String> {
     let (skill, canonical_skill_dir, mut meta) = load_skill_for_fan_out(&request.skill_name)?;
-    let preview = build_preview_for_skill(&skill, &canonical_skill_dir, &meta)?;
+    let preview = build_preview_for_skill(&skill, &canonical_skill_dir, &mut meta)?;
     let resolutions: std::collections::BTreeMap<String, SkillSyncDriftResolution> = request
         .resolutions
         .into_iter()
@@ -1058,7 +1058,7 @@ fn load_skill_for_fan_out(
 fn build_preview_for_skill(
     skill: &CanonicalSkill,
     canonical_skill_dir: &Path,
-    meta: &super::canonical_skills::SyncMetaV2,
+    meta: &mut super::canonical_skills::SyncMetaV2,
 ) -> Result<SkillSyncPreview, String> {
     let cfg = super::agent_paths::agent_paths_get()?;
     let mut items = Vec::new();
@@ -1200,6 +1200,26 @@ fn build_preview_for_skill(
     let mut summary = SkillSyncPreviewSummary::default();
     for item in &items {
         count_operation(&mut summary, item.operation);
+    }
+
+    // Problem B self-heal: a skill flagged dirty whose every preview item
+    // resolves to NoOp or Skipped (no Create/Overwrite/BlockedDrift/
+    // OverwriteUnknown) is effectively in sync — the rendered outputs already
+    // match what was pushed. The frontend skips the commit path when there is
+    // nothing to write, so the stale dirty flag would otherwise never clear.
+    // Recover it here and persist. Leave dirty untouched when a pending write
+    // exists, and never act on a skill with no targets at all.
+    if meta.dirty
+        && !items.is_empty()
+        && items.iter().all(|item| {
+            matches!(
+                item.operation,
+                SkillSyncPreviewOperation::NoOp | SkillSyncPreviewOperation::Skipped
+            )
+        })
+    {
+        meta.dirty = false;
+        let _ = write_sync_meta_v2(canonical_skill_dir, meta);
     }
 
     // Compute orphan siblings: files in ANY target's previous baseline that
@@ -4825,6 +4845,156 @@ mod tests {
             ),
             DriftStatus::Drifted,
             "agent-added sibling not in canonical should be detected as drift"
+        );
+    }
+
+    // Problem B: a skill stuck dirty=true whose preview resolves to only
+    // NoOp/Skipped items is effectively in sync — preview must self-heal the
+    // stale flag so the user can clear it without a commit path that the
+    // frontend never invokes when there is nothing to write.
+    #[test]
+    fn preview_clears_stuck_dirty_when_all_noop_or_skipped() {
+        let tmp = smoke_tempdir("preview-heal-noop");
+        let _g = override_felina_home(&tmp);
+        make_canonical("heal-noop", &["anthropic", "codex"]);
+
+        let canonical_skill_dir = tmp.join(".felina").join("skills").join("heal-noop");
+        let project = tmp.to_string_lossy().to_string();
+        // anthropic Manual (pushable → NoOp after push), codex Forked (Skipped).
+        write_sync_meta_v2(
+            &canonical_skill_dir,
+            &SyncMetaV2 {
+                version: 2,
+                targets: vec![
+                    SkillTarget {
+                        agent: "anthropic".to_string(),
+                        scope: SkillScope::Project,
+                        project: Some(project.clone()),
+                        enabled: true,
+                        mode: TargetMode::Manual,
+                    },
+                    SkillTarget {
+                        agent: "codex".to_string(),
+                        scope: SkillScope::Project,
+                        project: Some(project.clone()),
+                        enabled: true,
+                        mode: TargetMode::Forked,
+                    },
+                ],
+                last_sync: std::collections::BTreeMap::new(),
+                dirty: true,
+                directory_hash: None,
+            },
+        )
+        .unwrap();
+
+        // Push: writes the Manual target + records last_sync; the Forked target
+        // is skipped. The next preview therefore yields NoOp + Skipped only.
+        let results = skill_sync_one("heal-noop".into()).expect("sync");
+        assert!(results.iter().all(|r| r.success), "{results:#?}");
+
+        // Re-flag dirty to simulate a skill stuck dirty despite being in sync.
+        let mut meta =
+            crate::commands::canonical_skills::read_sync_meta_v2_no_backfill(&canonical_skill_dir);
+        meta.dirty = true;
+        write_sync_meta_v2(&canonical_skill_dir, &meta).unwrap();
+
+        let preview = skill_sync_preview("heal-noop".into()).expect("preview");
+        assert!(
+            preview.items.iter().all(|i| matches!(
+                i.operation,
+                SkillSyncPreviewOperation::NoOp | SkillSyncPreviewOperation::Skipped
+            )),
+            "expected all NoOp/Skipped, got {:#?}",
+            preview.items
+        );
+
+        let after =
+            crate::commands::canonical_skills::read_sync_meta_v2_no_backfill(&canonical_skill_dir);
+        assert!(
+            !after.dirty,
+            "preview should self-heal stuck dirty to false when nothing to sync"
+        );
+    }
+
+    // Problem B regression guard: when the preview contains a pending write
+    // (here, an Overwrite because the canonical was edited after the last push),
+    // preview must NOT clear dirty — the skill genuinely has unsynced content.
+    #[test]
+    fn preview_keeps_dirty_when_pending_write_exists() {
+        let tmp = smoke_tempdir("preview-heal-pending");
+        let _g = override_felina_home(&tmp);
+        make_canonical("heal-pending", &["anthropic"]);
+
+        let canonical_skill_dir = tmp.join(".felina").join("skills").join("heal-pending");
+        let project = tmp.to_string_lossy().to_string();
+        write_sync_meta_v2(
+            &canonical_skill_dir,
+            &SyncMetaV2 {
+                version: 2,
+                targets: vec![SkillTarget {
+                    agent: "anthropic".to_string(),
+                    scope: SkillScope::Project,
+                    project: Some(project.clone()),
+                    enabled: true,
+                    mode: TargetMode::Manual,
+                }],
+                last_sync: std::collections::BTreeMap::new(),
+                dirty: true,
+                directory_hash: None,
+            },
+        )
+        .unwrap();
+
+        // Push to establish last_sync + the on-disk target copy.
+        let results = skill_sync_one("heal-pending".into()).expect("sync");
+        assert!(results.iter().all(|r| r.success), "{results:#?}");
+
+        // Edit the canonical so rendered output now differs from the pushed
+        // copy → preview yields Overwrite (a pending write).
+        let mut fm = serde_yaml::Mapping::new();
+        fm.insert(
+            serde_yaml::Value::String("name".into()),
+            serde_yaml::Value::String("heal-pending".into()),
+        );
+        fm.insert(
+            serde_yaml::Value::String("description".into()),
+            serde_yaml::Value::String("heal-pending description".into()),
+        );
+        fm.insert(
+            serde_yaml::Value::String("agents".into()),
+            serde_yaml::Value::Sequence(vec![serde_yaml::Value::String("anthropic".into())]),
+        );
+        canonical_skills_write(
+            "heal-pending".into(),
+            serde_yaml::Value::Mapping(fm),
+            "# heal-pending\n\nEDITED body — now differs from the pushed copy.\n".into(),
+            None,
+        )
+        .expect("edit canonical");
+
+        // Simulate stuck dirty (canonical_skills_write already flips it, but be
+        // explicit so the test does not depend on that side effect).
+        let mut meta =
+            crate::commands::canonical_skills::read_sync_meta_v2_no_backfill(&canonical_skill_dir);
+        meta.dirty = true;
+        write_sync_meta_v2(&canonical_skill_dir, &meta).unwrap();
+
+        let preview = skill_sync_preview("heal-pending".into()).expect("preview");
+        assert!(
+            preview
+                .items
+                .iter()
+                .any(|i| matches!(i.operation, SkillSyncPreviewOperation::Overwrite)),
+            "expected an Overwrite item, got {:#?}",
+            preview.items
+        );
+
+        let after =
+            crate::commands::canonical_skills::read_sync_meta_v2_no_backfill(&canonical_skill_dir);
+        assert!(
+            after.dirty,
+            "preview must NOT clear dirty when a pending write exists"
         );
     }
 }

@@ -54,6 +54,9 @@ export default function PendingPushBar() {
           try {
             const next = await api.skillSync.previewAll();
             setPreview(next.skills);
+            // Preview may self-heal a stale dirty flag (all items NoOp/Skipped)
+            // on disk; reload so the badge/bar reflects the cleared state.
+            await loadEntries();
           } finally {
             setPushing(false);
           }
