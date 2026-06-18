@@ -238,3 +238,142 @@ code:
   - src/lib/types/index.ts
   - src/lib/components/skills/SkillImportWizard.tsx
 -->
+
+---
+### Requirement: Batch Drift Scan Handles Stale Sibling Baselines
+
+The batch drift scan SHALL compare sibling file hashes across the recorded last-sync baseline, the current canonical skill directory, and the current agent-side skill directory when evaluating sibling drift for Auto and Manual targets. If the current canonical sibling hashes and current agent-side sibling hashes are identical, the scan SHALL NOT report sibling drift solely because the recorded baseline differs.
+
+#### Scenario: Canonical and agent siblings match with stale recorded baseline
+
+- **GIVEN** a skill target has recorded sibling hashes from an older push
+- **AND** the canonical skill directory contains sibling file `scripts/tool.py` with hash `H2`
+- **AND** the agent-side skill directory contains sibling file `scripts/tool.py` with hash `H2`
+- **AND** the recorded baseline contains sibling file `scripts/tool.py` with hash `H1`
+- **WHEN** the batch drift scan evaluates the target
+- **THEN** the target SHALL NOT be reported as `Drifted` due to `scripts/tool.py`
+
+##### Example: stale baseline table
+
+| File | Recorded baseline | Canonical current | Agent-side current | Expected scan result |
+| ---- | ----------------- | ----------------- | ------------------ | -------------------- |
+| `scripts/tool.py` | `H1` | `H2` | `H2` | not `Drifted` |
+
+#### Scenario: Agent-side sibling still drifts when it differs from canonical
+
+- **GIVEN** a skill target has recorded sibling hashes from the last successful push
+- **AND** the canonical skill directory contains sibling file `references/guide.md` with hash `H1`
+- **AND** the agent-side skill directory contains sibling file `references/guide.md` with hash `H2`
+- **WHEN** the batch drift scan evaluates the target
+- **THEN** the target SHALL be reported as `Drifted`
+
+#### Scenario: Agent-side sibling addition still drifts when canonical lacks the file
+
+- **GIVEN** a skill target has recorded sibling hashes from the last successful push
+- **AND** the canonical skill directory does not contain sibling file `notes/local.md`
+- **AND** the agent-side skill directory contains sibling file `notes/local.md`
+- **WHEN** the batch drift scan evaluates the target
+- **THEN** the target SHALL be reported as `Drifted`
+
+<!-- @trace
+source: fix-stale-sibling-baseline-drift
+updated: 2026-06-18
+code:
+  - src/lib/i18n/locales/zh-TW.ts
+  - src/lib/components/tokens/components/AgentQuotaPanel.tsx
+  - src/lib/components/tokens/components/QuotaWindowSchedulerPanel.tsx
+  - src-tauri/src/tokens/aggregator.rs
+  - src/lib/types/index.ts
+  - src-tauri/src/commands/fan_out/mod.rs
+  - src-tauri/src/lib.rs
+  - src/lib/i18n/locales/en.ts
+  - src-tauri/src/commands/quota_scheduler.rs
+  - src-tauri/src/tokens/agent_message.rs
+  - src/lib/components/tokens/hooks/useTokenQueries.ts
+  - src-tauri/src/commands/mod.rs
+  - src/lib/components/tokens/TokensPage.tsx
+  - src/lib/tauri/commands.ts
+  - src-tauri/src/commands/felina_settings.rs
+  - src/lib/types/token-analytics.ts
+  - src-tauri/src/tokens/mod.rs
+  - src-tauri/Cargo.toml
+  - src-tauri/src/tokens/ccusage.rs
+-->
+
+---
+### Requirement: Dirty Flag Excludes Forked-Only Skills
+
+The system SHALL NOT set the dirty flag to true on a canonical skill when all enabled targets are in Forked or Detached mode. The dirty flag SHALL only be set to true when at least one enabled target is in Auto or Manual mode.
+
+#### Scenario: Forked-only skill canonical edit does not set dirty
+
+- **GIVEN** a canonical skill with one enabled target in Forked mode and no Auto or Manual targets
+- **WHEN** the user modifies the canonical skill content (e.g., via target repoint or rename)
+- **THEN** the system SHALL NOT set dirty to true on the sync metadata
+
+##### Example: forked-only dirty table
+
+| Enabled Targets | Modes | Canonical modified | Expected dirty |
+| --- | --- | --- | --- |
+| 1 | Forked | yes | false |
+| 2 | Forked, Detached | yes | false |
+| 2 | Auto, Forked | yes | true |
+| 1 | Auto | yes | true |
+| 1 | Manual | yes | true |
+
+#### Scenario: Mixed targets still set dirty when pushable exists
+
+- **GIVEN** a canonical skill with two enabled targets: one Auto and one Forked
+- **WHEN** the user modifies the canonical skill content
+- **THEN** the system SHALL set dirty to true because an Auto target exists
+
+
+<!-- @trace
+source: fix-forked-only-dirty-stuck
+updated: 2026-06-18
+code:
+  - src-tauri/src/commands/canonical_skills.rs
+  - src-tauri/src/commands/fan_out/mod.rs
+  - src/lib/components/skills/SkillsPage.tsx
+  - src/lib/components/skills/PendingPushBar.tsx
+-->
+
+---
+### Requirement: Push Preview Clears Stale Dirty When Nothing To Sync
+
+When generating a push preview for a canonical skill whose dirty flag is currently true, the system SHALL clear the dirty flag to false and persist the sync metadata if every preview item resolves to a no-op or skipped operation (no Create, Overwrite, BlockedDrift, or OverwriteUnknown item). If any preview item is a pending write operation (Create, Overwrite, BlockedDrift, or OverwriteUnknown), the system SHALL leave the dirty flag unchanged.
+
+This recovers skills that are effectively in sync but whose dirty flag was left stuck because the frontend does not invoke the commit path when the preview contains nothing to write.
+
+#### Scenario: Unchanged-manual plus forked preview clears stuck dirty
+
+- **GIVEN** a canonical skill with dirty currently true and two enabled targets: one Manual whose rendered output matches the already-pushed content (NoOp) and one Forked (Skipped)
+- **WHEN** the system generates the push preview for that skill
+- **THEN** the system SHALL set dirty to false and persist the sync metadata
+
+#### Scenario: Pending write in preview leaves dirty unchanged
+
+- **GIVEN** a canonical skill with dirty currently true and one enabled Manual target whose rendered output differs from the already-pushed content (Overwrite)
+- **WHEN** the system generates the push preview for that skill
+- **THEN** the system SHALL leave dirty as true because a pending write operation exists
+
+##### Example: preview dirty-recovery table
+
+| Dirty before | Item operations | Expected dirty after preview |
+| --- | --- | --- |
+| true | NoOp, Skipped | false |
+| true | Skipped | false |
+| true | NoOp | false |
+| true | Overwrite | true |
+| true | NoOp, Overwrite | true |
+| false | NoOp, Skipped | false |
+
+<!-- @trace
+source: fix-forked-only-dirty-stuck
+updated: 2026-06-18
+code:
+  - src-tauri/src/commands/canonical_skills.rs
+  - src-tauri/src/commands/fan_out/mod.rs
+  - src/lib/components/skills/SkillsPage.tsx
+  - src/lib/components/skills/PendingPushBar.tsx
+-->

@@ -84,6 +84,7 @@ pub fn check_drift(
     pushed_hash: Option<&str>,
     last_sync_at: Option<&str>,
     sibling_hashes: &Option<std::collections::BTreeMap<String, String>>,
+    canonical_sibling_hashes: Option<&std::collections::BTreeMap<String, String>>,
 ) -> DriftStatus {
     let Some(pushed) = pushed_hash else {
         return DriftStatus::NoPushHistory;
@@ -120,7 +121,17 @@ pub fn check_drift(
     // Sibling drift check (skip if no recorded hashes — legacy meta)
     let agent_skill_dir = agent_side_path.parent().unwrap_or(Path::new(""));
     if check_sibling_drift(agent_skill_dir, sibling_hashes) {
-        return DriftStatus::Drifted;
+        // Three-way: if canonical siblings == agent-side siblings, stale baseline is not real drift
+        if let Some(canonical) = canonical_sibling_hashes {
+            let agent_current = compute_sibling_hashes(agent_skill_dir);
+            if &agent_current == canonical {
+                // Canonical and agent match — stale baseline, not real drift
+            } else {
+                return DriftStatus::Drifted;
+            }
+        } else {
+            return DriftStatus::Drifted;
+        }
     }
 
     DriftStatus::Synced
@@ -643,8 +654,8 @@ pub fn skill_sync_all() -> Result<Vec<SyncResult>, String> {
 
 #[tauri::command]
 pub fn skill_sync_preview(name: String) -> Result<SkillSyncPreview, String> {
-    let (skill, canonical_skill_dir, meta) = load_skill_for_fan_out(&name)?;
-    build_preview_for_skill(&skill, &canonical_skill_dir, &meta)
+    let (skill, canonical_skill_dir, mut meta) = load_skill_for_fan_out(&name)?;
+    build_preview_for_skill(&skill, &canonical_skill_dir, &mut meta)
 }
 
 #[tauri::command]
@@ -677,7 +688,7 @@ pub fn skill_sync_all_preview() -> Result<SkillSyncAllPreview, String> {
 #[tauri::command]
 pub fn skill_sync_commit(request: SkillSyncCommitRequest) -> Result<Vec<SyncResult>, String> {
     let (skill, canonical_skill_dir, mut meta) = load_skill_for_fan_out(&request.skill_name)?;
-    let preview = build_preview_for_skill(&skill, &canonical_skill_dir, &meta)?;
+    let preview = build_preview_for_skill(&skill, &canonical_skill_dir, &mut meta)?;
     let resolutions: std::collections::BTreeMap<String, SkillSyncDriftResolution> = request
         .resolutions
         .into_iter()
@@ -1047,7 +1058,7 @@ fn load_skill_for_fan_out(
 fn build_preview_for_skill(
     skill: &CanonicalSkill,
     canonical_skill_dir: &Path,
-    meta: &super::canonical_skills::SyncMetaV2,
+    meta: &mut super::canonical_skills::SyncMetaV2,
 ) -> Result<SkillSyncPreview, String> {
     let cfg = super::agent_paths::agent_paths_get()?;
     let mut items = Vec::new();
@@ -1130,7 +1141,8 @@ fn build_preview_for_skill(
         let last_sync_at = last_sync_entry.map(|e| e.at.as_str());
         let sibling_hashes_ref = last_sync_entry
             .and_then(|e| e.sibling_hashes.clone());
-        let drift = check_drift(&skill_md_path, last_sync_hash.as_deref(), last_sync_at, &sibling_hashes_ref);
+        let canonical_siblings = compute_sibling_hashes(canonical_skill_dir);
+        let drift = check_drift(&skill_md_path, last_sync_hash.as_deref(), last_sync_at, &sibling_hashes_ref, Some(&canonical_siblings));
         let current_hash = if skill_md_path.is_file() {
             let current = fs::read_to_string(&skill_md_path).map_err(|e| {
                 format!(
@@ -1188,6 +1200,26 @@ fn build_preview_for_skill(
     let mut summary = SkillSyncPreviewSummary::default();
     for item in &items {
         count_operation(&mut summary, item.operation);
+    }
+
+    // Problem B self-heal: a skill flagged dirty whose every preview item
+    // resolves to NoOp or Skipped (no Create/Overwrite/BlockedDrift/
+    // OverwriteUnknown) is effectively in sync — the rendered outputs already
+    // match what was pushed. The frontend skips the commit path when there is
+    // nothing to write, so the stale dirty flag would otherwise never clear.
+    // Recover it here and persist. Leave dirty untouched when a pending write
+    // exists, and never act on a skill with no targets at all.
+    if meta.dirty
+        && !items.is_empty()
+        && items.iter().all(|item| {
+            matches!(
+                item.operation,
+                SkillSyncPreviewOperation::NoOp | SkillSyncPreviewOperation::Skipped
+            )
+        })
+    {
+        meta.dirty = false;
+        let _ = write_sync_meta_v2(canonical_skill_dir, meta);
     }
 
     // Compute orphan siblings: files in ANY target's previous baseline that
@@ -1309,7 +1341,7 @@ pub fn skill_drift_scan() -> Result<std::collections::BTreeMap<String, std::coll
 
     // Collect (skill_name, target_key, agent_side_path, pushed_hash, last_sync_at)
     // for targets that need checking. Disabled/detached targets are skipped per spec.
-    let mut checks: Vec<(String, String, PathBuf, Option<String>, Option<String>, Option<std::collections::BTreeMap<String, String>>)> = Vec::new();
+    let mut checks: Vec<(String, String, PathBuf, Option<String>, Option<String>, Option<std::collections::BTreeMap<String, String>>, std::collections::BTreeMap<String, String>)> = Vec::new();
 
     for entry in entries {
         let super::canonical_skills::SkillListEntry::Ok {
@@ -1365,6 +1397,7 @@ pub fn skill_drift_scan() -> Result<std::collections::BTreeMap<String, std::coll
             let skill_md_path = target_dir.join(&canonical_id).join("SKILL.md");
             let sib_hashes = last_sync_entry
                 .and_then(|e| e.sibling_hashes.clone());
+            let canonical_sibs = compute_sibling_hashes(&canonical_skill_dir);
             checks.push((
                 canonical_id.clone(),
                 key,
@@ -1372,6 +1405,7 @@ pub fn skill_drift_scan() -> Result<std::collections::BTreeMap<String, std::coll
                 pushed_hash,
                 last_sync_at,
                 sib_hashes,
+                canonical_sibs,
             ));
         }
     }
@@ -1380,8 +1414,8 @@ pub fn skill_drift_scan() -> Result<std::collections::BTreeMap<String, std::coll
     use rayon::prelude::*;
     let statuses: Vec<(String, String, DriftStatus)> = checks
         .into_par_iter()
-        .map(|(skill_name, tkey, path, pushed, at, sib_hashes)| {
-            let status = check_drift(&path, pushed.as_deref(), at.as_deref(), &sib_hashes);
+        .map(|(skill_name, tkey, path, pushed, at, sib_hashes, canonical_sibs)| {
+            let status = check_drift(&path, pushed.as_deref(), at.as_deref(), &sib_hashes, Some(&canonical_sibs));
             (skill_name, tkey, status)
         })
         .collect();
@@ -2153,7 +2187,7 @@ mod tests {
         let path = tmp.join("SKILL.md");
         fs::write(&path, content).unwrap();
         let hash = semantic_hash(content);
-        assert_eq!(check_drift(&path, Some(&hash), None, &Default::default()), DriftStatus::Synced);
+        assert_eq!(check_drift(&path, Some(&hash), None, &Default::default(), None), DriftStatus::Synced);
         let _ = fs::remove_dir_all(&tmp);
     }
 
@@ -2171,7 +2205,7 @@ mod tests {
         let path = tmp.join("SKILL.md");
         fs::write(&path, "---\nname: changed\n---\n# New body\n").unwrap();
         let old_hash = semantic_hash("---\nname: original\n---\n# Old body\n");
-        assert_eq!(check_drift(&path, Some(&old_hash), None, &Default::default()), DriftStatus::Drifted);
+        assert_eq!(check_drift(&path, Some(&old_hash), None, &Default::default(), None), DriftStatus::Drifted);
         let _ = fs::remove_dir_all(&tmp);
     }
 
@@ -2179,7 +2213,7 @@ mod tests {
     fn check_drift_returns_missing_when_file_does_not_exist() {
         let path = std::env::temp_dir().join("felina-drift-nonexistent-SKILL.md");
         assert_eq!(
-            check_drift(&path, Some("somehash"), None, &Default::default()),
+            check_drift(&path, Some("somehash"), None, &Default::default(), None),
             DriftStatus::Missing
         );
     }
@@ -2187,7 +2221,7 @@ mod tests {
     #[test]
     fn check_drift_returns_no_push_history_when_no_hash() {
         let path = std::env::temp_dir().join("felina-drift-nopush-SKILL.md");
-        assert_eq!(check_drift(&path, None, None, &Default::default()), DriftStatus::NoPushHistory);
+        assert_eq!(check_drift(&path, None, None, &Default::default(), None), DriftStatus::NoPushHistory);
     }
 
     #[test]
@@ -2210,7 +2244,7 @@ mod tests {
         // Use a far-future push timestamp so file mtime is definitely ≤.
         let future_at = "2099-01-01T00:00:00Z";
         assert_eq!(
-            check_drift(&path, Some(&wrong_hash), Some(future_at), &Default::default()),
+            check_drift(&path, Some(&wrong_hash), Some(future_at), &Default::default(), None),
             DriftStatus::Synced,
             "mtime fast-path should return Synced without hash computation"
         );
@@ -2233,7 +2267,7 @@ mod tests {
         // Modify sibling
         fs::write(&script, "print('modified')").unwrap();
         assert_eq!(
-            check_drift(&skill_md, Some(&pushed_hash), None, &sib),
+            check_drift(&skill_md, Some(&pushed_hash), None, &sib, None),
             DriftStatus::Drifted,
         );
     }
@@ -2254,7 +2288,7 @@ mod tests {
         // Delete sibling
         fs::remove_file(&script).unwrap();
         assert_eq!(
-            check_drift(&skill_md, Some(&pushed_hash), None, &sib),
+            check_drift(&skill_md, Some(&pushed_hash), None, &sib, None),
             DriftStatus::Drifted,
         );
     }
@@ -2275,7 +2309,7 @@ mod tests {
         // Agent adds a file after push → drifted
         fs::write(skill_dir.join("new.txt"), "surprise").unwrap();
         assert_eq!(
-            check_drift(&skill_md, Some(&pushed_hash), None, &sib),
+            check_drift(&skill_md, Some(&pushed_hash), None, &sib, None),
             DriftStatus::Drifted,
         );
     }
@@ -2295,7 +2329,7 @@ mod tests {
         // Agent adds extra file → drifted
         fs::write(skill_dir.join("extra.txt"), "extra").unwrap();
         assert_eq!(
-            check_drift(&skill_md, Some(&pushed_hash), None, &sib),
+            check_drift(&skill_md, Some(&pushed_hash), None, &sib, None),
             DriftStatus::Drifted,
         );
     }
@@ -2312,7 +2346,7 @@ mod tests {
         let pushed_hash = semantic_hash("---\nname: my-skill\n---\n# Body\n");
         // None = legacy meta, no siblingHashes field → skip comparison
         assert_eq!(
-            check_drift(&skill_md, Some(&pushed_hash), None, &None),
+            check_drift(&skill_md, Some(&pushed_hash), None, &None, None),
             DriftStatus::Synced,
         );
     }
@@ -4702,5 +4736,265 @@ mod tests {
         );
 
         let _ = fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn stale_baseline_no_drift_when_canonical_matches_agent() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let canonical_dir = tmp.path().join("canonical");
+        let agent_dir = tmp.path().join("agent");
+        fs::create_dir_all(&canonical_dir).unwrap();
+        fs::create_dir_all(&agent_dir).unwrap();
+
+        let body = "---\nname: my-skill\n---\n# Body\n";
+        fs::write(canonical_dir.join("SKILL.md"), body).unwrap();
+        fs::write(agent_dir.join("SKILL.md"), body).unwrap();
+
+        // Both canonical and agent have same sibling content (H2)
+        fs::write(canonical_dir.join("scripts/tool.py"), "v2 content").unwrap_or_else(|_| {});
+        fs::create_dir_all(canonical_dir.join("scripts")).unwrap();
+        fs::write(canonical_dir.join("scripts/tool.py"), "v2 content").unwrap();
+        fs::create_dir_all(agent_dir.join("scripts")).unwrap();
+        fs::write(agent_dir.join("scripts/tool.py"), "v2 content").unwrap();
+
+        let canonical_sibs = compute_sibling_hashes(&canonical_dir);
+        let agent_sibs = compute_sibling_hashes(&agent_dir);
+        assert_eq!(canonical_sibs, agent_sibs, "canonical and agent siblings should match");
+
+        // Recorded baseline has old hash (H1) — stale
+        let mut stale_baseline = std::collections::BTreeMap::new();
+        stale_baseline.insert("scripts/tool.py".to_string(), "old_hash_H1".to_string());
+
+        let pushed_hash = semantic_hash(body);
+        // With three-way comparison, this should NOT be Drifted
+        assert_eq!(
+            check_drift(
+                &agent_dir.join("SKILL.md"),
+                Some(&pushed_hash),
+                None,
+                &Some(stale_baseline),
+                Some(&canonical_sibs),
+            ),
+            DriftStatus::Synced,
+            "stale baseline should not cause drift when canonical == agent siblings"
+        );
+    }
+
+    #[test]
+    fn real_agent_drift_still_detected_with_canonical() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let canonical_dir = tmp.path().join("canonical");
+        let agent_dir = tmp.path().join("agent");
+        fs::create_dir_all(&canonical_dir).unwrap();
+        fs::create_dir_all(&agent_dir).unwrap();
+
+        let body = "---\nname: my-skill\n---\n# Body\n";
+        fs::write(canonical_dir.join("SKILL.md"), body).unwrap();
+        fs::write(agent_dir.join("SKILL.md"), body).unwrap();
+
+        // Canonical has H1, agent has H2 — real drift
+        fs::create_dir_all(canonical_dir.join("references")).unwrap();
+        fs::write(canonical_dir.join("references/guide.md"), "canonical content").unwrap();
+        fs::create_dir_all(agent_dir.join("references")).unwrap();
+        fs::write(agent_dir.join("references/guide.md"), "modified by agent").unwrap();
+
+        let canonical_sibs = compute_sibling_hashes(&canonical_dir);
+        let recorded_baseline = canonical_sibs.clone();
+
+        let pushed_hash = semantic_hash(body);
+        assert_eq!(
+            check_drift(
+                &agent_dir.join("SKILL.md"),
+                Some(&pushed_hash),
+                None,
+                &Some(recorded_baseline),
+                Some(&canonical_sibs),
+            ),
+            DriftStatus::Drifted,
+            "real agent-side modification should still be detected as drift"
+        );
+    }
+
+    #[test]
+    fn agent_added_sibling_not_in_canonical_still_drifts() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let canonical_dir = tmp.path().join("canonical");
+        let agent_dir = tmp.path().join("agent");
+        fs::create_dir_all(&canonical_dir).unwrap();
+        fs::create_dir_all(&agent_dir).unwrap();
+
+        let body = "---\nname: my-skill\n---\n# Body\n";
+        fs::write(canonical_dir.join("SKILL.md"), body).unwrap();
+        fs::write(agent_dir.join("SKILL.md"), body).unwrap();
+
+        // Agent has a file canonical doesn't
+        fs::create_dir_all(agent_dir.join("notes")).unwrap();
+        fs::write(agent_dir.join("notes/local.md"), "local notes").unwrap();
+
+        let canonical_sibs = compute_sibling_hashes(&canonical_dir);
+        let recorded_baseline = canonical_sibs.clone();
+
+        let pushed_hash = semantic_hash(body);
+        assert_eq!(
+            check_drift(
+                &agent_dir.join("SKILL.md"),
+                Some(&pushed_hash),
+                None,
+                &Some(recorded_baseline),
+                Some(&canonical_sibs),
+            ),
+            DriftStatus::Drifted,
+            "agent-added sibling not in canonical should be detected as drift"
+        );
+    }
+
+    // Problem B: a skill stuck dirty=true whose preview resolves to only
+    // NoOp/Skipped items is effectively in sync — preview must self-heal the
+    // stale flag so the user can clear it without a commit path that the
+    // frontend never invokes when there is nothing to write.
+    #[test]
+    fn preview_clears_stuck_dirty_when_all_noop_or_skipped() {
+        let tmp = smoke_tempdir("preview-heal-noop");
+        let _g = override_felina_home(&tmp);
+        make_canonical("heal-noop", &["anthropic", "codex"]);
+
+        let canonical_skill_dir = tmp.join(".felina").join("skills").join("heal-noop");
+        let project = tmp.to_string_lossy().to_string();
+        // anthropic Manual (pushable → NoOp after push), codex Forked (Skipped).
+        write_sync_meta_v2(
+            &canonical_skill_dir,
+            &SyncMetaV2 {
+                version: 2,
+                targets: vec![
+                    SkillTarget {
+                        agent: "anthropic".to_string(),
+                        scope: SkillScope::Project,
+                        project: Some(project.clone()),
+                        enabled: true,
+                        mode: TargetMode::Manual,
+                    },
+                    SkillTarget {
+                        agent: "codex".to_string(),
+                        scope: SkillScope::Project,
+                        project: Some(project.clone()),
+                        enabled: true,
+                        mode: TargetMode::Forked,
+                    },
+                ],
+                last_sync: std::collections::BTreeMap::new(),
+                dirty: true,
+                directory_hash: None,
+            },
+        )
+        .unwrap();
+
+        // Push: writes the Manual target + records last_sync; the Forked target
+        // is skipped. The next preview therefore yields NoOp + Skipped only.
+        let results = skill_sync_one("heal-noop".into()).expect("sync");
+        assert!(results.iter().all(|r| r.success), "{results:#?}");
+
+        // Re-flag dirty to simulate a skill stuck dirty despite being in sync.
+        let mut meta =
+            crate::commands::canonical_skills::read_sync_meta_v2_no_backfill(&canonical_skill_dir);
+        meta.dirty = true;
+        write_sync_meta_v2(&canonical_skill_dir, &meta).unwrap();
+
+        let preview = skill_sync_preview("heal-noop".into()).expect("preview");
+        assert!(
+            preview.items.iter().all(|i| matches!(
+                i.operation,
+                SkillSyncPreviewOperation::NoOp | SkillSyncPreviewOperation::Skipped
+            )),
+            "expected all NoOp/Skipped, got {:#?}",
+            preview.items
+        );
+
+        let after =
+            crate::commands::canonical_skills::read_sync_meta_v2_no_backfill(&canonical_skill_dir);
+        assert!(
+            !after.dirty,
+            "preview should self-heal stuck dirty to false when nothing to sync"
+        );
+    }
+
+    // Problem B regression guard: when the preview contains a pending write
+    // (here, an Overwrite because the canonical was edited after the last push),
+    // preview must NOT clear dirty — the skill genuinely has unsynced content.
+    #[test]
+    fn preview_keeps_dirty_when_pending_write_exists() {
+        let tmp = smoke_tempdir("preview-heal-pending");
+        let _g = override_felina_home(&tmp);
+        make_canonical("heal-pending", &["anthropic"]);
+
+        let canonical_skill_dir = tmp.join(".felina").join("skills").join("heal-pending");
+        let project = tmp.to_string_lossy().to_string();
+        write_sync_meta_v2(
+            &canonical_skill_dir,
+            &SyncMetaV2 {
+                version: 2,
+                targets: vec![SkillTarget {
+                    agent: "anthropic".to_string(),
+                    scope: SkillScope::Project,
+                    project: Some(project.clone()),
+                    enabled: true,
+                    mode: TargetMode::Manual,
+                }],
+                last_sync: std::collections::BTreeMap::new(),
+                dirty: true,
+                directory_hash: None,
+            },
+        )
+        .unwrap();
+
+        // Push to establish last_sync + the on-disk target copy.
+        let results = skill_sync_one("heal-pending".into()).expect("sync");
+        assert!(results.iter().all(|r| r.success), "{results:#?}");
+
+        // Edit the canonical so rendered output now differs from the pushed
+        // copy → preview yields Overwrite (a pending write).
+        let mut fm = serde_yaml::Mapping::new();
+        fm.insert(
+            serde_yaml::Value::String("name".into()),
+            serde_yaml::Value::String("heal-pending".into()),
+        );
+        fm.insert(
+            serde_yaml::Value::String("description".into()),
+            serde_yaml::Value::String("heal-pending description".into()),
+        );
+        fm.insert(
+            serde_yaml::Value::String("agents".into()),
+            serde_yaml::Value::Sequence(vec![serde_yaml::Value::String("anthropic".into())]),
+        );
+        canonical_skills_write(
+            "heal-pending".into(),
+            serde_yaml::Value::Mapping(fm),
+            "# heal-pending\n\nEDITED body — now differs from the pushed copy.\n".into(),
+            None,
+        )
+        .expect("edit canonical");
+
+        // Simulate stuck dirty (canonical_skills_write already flips it, but be
+        // explicit so the test does not depend on that side effect).
+        let mut meta =
+            crate::commands::canonical_skills::read_sync_meta_v2_no_backfill(&canonical_skill_dir);
+        meta.dirty = true;
+        write_sync_meta_v2(&canonical_skill_dir, &meta).unwrap();
+
+        let preview = skill_sync_preview("heal-pending".into()).expect("preview");
+        assert!(
+            preview
+                .items
+                .iter()
+                .any(|i| matches!(i.operation, SkillSyncPreviewOperation::Overwrite)),
+            "expected an Overwrite item, got {:#?}",
+            preview.items
+        );
+
+        let after =
+            crate::commands::canonical_skills::read_sync_meta_v2_no_backfill(&canonical_skill_dir);
+        assert!(
+            after.dirty,
+            "preview must NOT clear dirty when a pending write exists"
+        );
     }
 }

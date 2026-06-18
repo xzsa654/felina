@@ -273,6 +273,9 @@ export default function SkillsPage() {
     try {
       const preview = await api.skillSync.preview(canonicalId);
       setPushPreview(preview);
+      // Preview may self-heal a stale dirty flag on disk (all items NoOp/
+      // Skipped); reload so this skill's dirty badge reflects the cleared state.
+      await loadEntries();
     } catch (e) {
       setPageError({ title: t(locale, "skills.errors.pushPreviewFailed"), detail: String(e) });
     } finally {
