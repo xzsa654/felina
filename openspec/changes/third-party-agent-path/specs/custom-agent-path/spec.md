@@ -31,14 +31,29 @@ The system SHALL allow users to create, edit, and delete custom agent path entri
 - **WHEN** the user submits the Add Agent Path form
 - **THEN** the system SHALL reject the creation with a validation error
 
-#### Scenario: Deleting a custom agent path
+#### Scenario: Deleting a custom agent path (without disk cleanup)
 
 - **GIVEN** a custom agent "aider" exists with targets on 2 skills
 - **WHEN** the user clicks delete on the "aider" entry
-- **THEN** the system SHALL display a confirmation dialog listing 2 affected skills
-- **AND WHEN** the user confirms
+- **THEN** the system SHALL display a confirmation dialog listing 2 affected skills and a "Delete disk files" checkbox (unchecked by default)
+- **AND WHEN** the user confirms without checking the checkbox
 - **THEN** the system SHALL remove the agent entry from config and remove all "aider" targets from all skill sync-meta files
-- **AND** the system SHALL NOT delete any files on disk that were previously pushed to aider paths
+- **AND** the system SHALL NOT delete any files on disk
+
+#### Scenario: Deleting a custom agent path (with disk cleanup)
+
+- **GIVEN** a custom agent "aider" with global path "~/.aider/skills" exists and no other agent shares that global path
+- **WHEN** the user clicks delete, checks "Delete disk files", and confirms
+- **THEN** the system SHALL remove the agent entry from config, remove all targets from sync-meta, and delete the "~/.aider/skills" directory from disk
+- **AND** the system SHALL display a note that project-relative paths need manual cleanup
+
+#### Scenario: Shared global path prevents disk cleanup
+
+- **GIVEN** a custom agent "aider" with global path "~/.shared/skills" exists
+- **AND** another agent "other-tool" also has global path "~/.shared/skills"
+- **WHEN** the user clicks delete on the "aider" entry
+- **THEN** the "Delete disk files" checkbox SHALL be disabled
+- **AND** the system SHALL display a message indicating the path is shared by "other-tool"
 
 #### Scenario: Preventing deletion of built-in agents
 

@@ -16,7 +16,7 @@ Felina 的 agent path 系統目前以 sealed enum `AgentId { Anthropic, Codex, G
 **Non-Goals:**
 - Per-agent 自訂 YAML 欄位映射（`dynamic-agent-field-catalog`）
 - Inline 新增 agent（只在 Settings 操作）
-- 刪除 agent path 時清除磁碟上已 push 的檔案
+- 刪除 agent path 時自動清除 projectRelative 路徑的磁碟檔案（散落各 project，風險高）
 
 ## Decisions
 
@@ -73,19 +73,38 @@ fn renderer_for(agent: &str) -> Box<dyn FanOutRenderer> {
 
 ### D5: agent_path_remove command
 
-新增 Tauri command `agent_path_remove(agent_key: String)`：
+新增 Tauri command `agent_path_remove(agent_key: String, clean_disk: bool)`：
 1. 驗證 agent_key 不在 `BUILTIN_AGENTS` 中（拒絕刪除 built-in）
 2. 掃描 canonical skills dir，對每個 skill 的 sync-meta-v2 移除 `agent == agent_key` 的 targets
 3. 從 `AgentPathsConfig` HashMap 中移除該 key
-4. 回傳 `RemoveResult { skills_affected: u32, targets_removed: u32 }`
+4. 若 `clean_disk == true`：讀取被移除 entry 的 global path，展開 `~` 後刪除整個目錄（`fs::remove_dir_all`）
+5. 回傳 `RemoveResult { skills_affected: u32, targets_removed: u32, disk_deleted: bool }`
+
+磁碟清除只處理 global path。projectRelative 散落在各 project 底下，自動遍歷 known projects 刪除風險高且可能刪到不相關的同名目錄，因此不自動清除——前端在 dialog 中提示使用者手動清除。
+
+### D5b: agent_path_removal_preview 共用路徑偵測
+
+`agent_path_removal_preview(agent_key)` 除了回傳現有的 `skills` 和 `target_count`，新增 `shared_by: Vec<String>` 欄位。邏輯：
+1. 讀取 `AgentPathsConfig`，取得待刪 agent 的 global path
+2. 正規化後（展開 `~`、正斜線、去尾斜線）與其他所有 agent entries 的 global path 比較
+3. 若有其他 agent 的正規化 global path 相同，將其 key 收集到 `shared_by`
+
+前端根據 `shared_by`：
+- 空 → checkbox 可勾選
+- 非空 → checkbox disabled，顯示「此路徑正被 {shared_by} 使用，無法刪除磁碟檔案」
 
 ### D6: 前端刪除確認流程
 
-新增 `RemoveAgentPathDialog`：
-1. 呼叫新 command `agent_path_removal_preview(agent_key)` 取得影響清單（skills + targets 數量和明細）
-2. 顯示確認 dialog：列出受影響的 skills 和 targets，提示磁碟檔案不會被刪除
-3. 確認後呼叫 `agent_path_remove(agent_key)`
-4. 重新載入 agent paths config 和 skills store
+更新 `RemoveAgentPathDialog`：
+1. 呼叫 `agent_path_removal_preview(agent_key)` 取得影響清單（skills + targets 數量 + `shared_by`）
+2. 顯示確認 dialog：列出受影響的 skills 和 targets
+3. 新增「同時刪除磁碟檔案」checkbox（預設不勾）：
+   - `shared_by` 為空 → checkbox 可勾選
+   - `shared_by` 非空 → checkbox disabled，顯示提示「此路徑正被 {agents} 使用，無法刪除」
+4. 若 checkbox 未勾選，補充提示「global path 目錄將保留於磁碟上」
+5. 若有 projectRelative path，補充提示「各 project 下的 {projectRelative} 目錄需手動清除」
+6. 確認後呼叫 `agent_path_remove(agent_key, clean_disk)`
+7. 重新載入 agent paths config 和 skills store
 
 ### D7: icon 處理
 
@@ -99,7 +118,7 @@ fn renderer_for(agent: &str) -> Box<dyn FanOutRenderer> {
 
 - Settings → Agent Paths 顯示所有 agent entries（built-in + custom），按 built-in 在前、custom 在後排序
 - 「+ Add Agent Path」打開 dialog，輸入 agent name（kebab-case，不可重複）、global path、project relative path，optional label 和 icon
-- Custom agent entry 有 🗑 按鈕；點擊後顯示影響清單 dialog，確認後移除 config entry + 所有 skill 的對應 targets
+- Custom agent entry 有 🗑 按鈕；點擊後顯示影響清單 dialog（含「同時刪除磁碟檔案」checkbox），確認後移除 config entry + 所有 skill 的對應 targets；若勾選清除磁碟且 global path 非共用，刪除該目錄
 - Built-in entries 無 🗑 按鈕
 - `AddTargetDialog` 的 agent dropdown 動態列出所有 config keys
 - Push skill 到 custom agent target 時，使用 GenericRenderer 輸出標準 SKILL.md
@@ -111,7 +130,9 @@ fn renderer_for(agent: &str) -> Box<dyn FanOutRenderer> {
 - `AgentPathPair`：`{ global, project_relative, label?, icon? }`
 - `AgentId`：`String`（Rust `type AgentId = String`，TS `type AgentId = string`）
 - `BUILTIN_AGENTS`：`["anthropic", "codex", "gemini"]`（不可刪除的 keys）
-- New commands：`agent_path_remove(agent_key) -> RemoveResult`、`agent_path_removal_preview(agent_key) -> RemovalPreview`
+- `RemovalPreview`：`{ skills: Vec<String>, target_count: u32, shared_by: Vec<String> }`
+- `RemoveResult`：`{ skills_affected: u32, targets_removed: u32, disk_deleted: bool }`
+- New commands：`agent_path_remove(agent_key, clean_disk) -> RemoveResult`、`agent_path_removal_preview(agent_key) -> RemovalPreview`
 
 ### Failure Modes
 
@@ -132,5 +153,5 @@ fn renderer_for(agent: &str) -> Box<dyn FanOutRenderer> {
 
 ### Scope Boundary
 
-- In scope: agent path CRUD、generic renderer、target cleanup on delete、icon display、Settings JSON migration
-- Out of scope: dynamic field catalog、inline agent creation outside Settings、磁碟檔案清除
+- In scope: agent path CRUD、generic renderer、target cleanup on delete、icon display、Settings JSON migration、刪除時 opt-in 清除 global path 磁碟目錄（含共用路徑偵測）
+- Out of scope: dynamic field catalog、inline agent creation outside Settings、自動清除 projectRelative 磁碟檔案

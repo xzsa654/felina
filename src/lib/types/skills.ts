@@ -266,11 +266,13 @@ export interface AgentPathsConfig {
 export interface RemovalPreview {
   skills: string[];
   targetCount: number;
+  sharedBy: string[];
 }
 
 export interface RemoveResult {
   skillsAffected: number;
   targetsRemoved: number;
+  diskDeleted: boolean;
 }
 
 export type TargetMode = "auto" | "manual" | "tracked" | "detached" | "forked";

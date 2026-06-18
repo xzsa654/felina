@@ -35,9 +35,18 @@
 - [x] [P] 7.2 更新 `TargetChips` 的 `AgentIcon` 元件：icon 優先從 `agentPaths[agent].icon` 讀取（透過 `convertFileSrc` 轉 URL），其次 hardcoded `AGENT_ICON` map，再次 label 文字，最後 agent key capitalized。對應 spec「Custom Agent Icon Display」。驗證：`npm run check` 通過
 - [x] [P] 7.3 更新 `AgentFieldsEditor` 的 `agentLabels` 從 hardcoded 改為動態讀取 config 的 label。驗證：`npm run check` 通過
 
-## 8. 驗證
+## 8. Backend — Disk Cleanup on Remove
 
-- [x] 8.1 執行 `cargo test --lib` 於 `src-tauri/`，確認所有既有測試 + 新增測試全數通過。驗證：exit code 0，無 failure
-- [x] 8.2 執行 `npm run check`，確認 TypeScript 無 error。驗證：exit code 0
-- [ ] 8.3 執行 `npm run tauri dev` 手動驗證完整流程：(1) Settings 頁面顯示 3 built-in + 可新增 custom (2) 新增 custom agent "test-agent" 含 label 和 icon (3) 在任一 skill 的 Add Target 選擇 "test-agent" 並 push，確認磁碟產出 SKILL.md (4) 回 Settings 刪除 "test-agent"，確認 target 被清除 (5) 確認 built-in agents 無 🗑 按鈕。驗證：以上 5 步驟皆通過
-- [ ] 8.4 執行 `/felina-ui-guidelines` 評估本 change 的 UI 改動。驗證：輸出命中的 guideline 與 deviation 清單
+- [x] 8.1b 更新 `RemovalPreview` struct 新增 `shared_by: Vec<String>` 欄位。在 `agent_path_removal_preview` 中讀取 `AgentPathsConfig`，取得待刪 agent 的 global path，展開 `~` 並正規化後與所有其他 agent entries 的 global path 比較，將共用者的 key 收集到 `shared_by`。對應 spec「Shared global path prevents disk cleanup」。驗證：新增單元測試 `test_removal_preview_shared_path`，設定兩個 agent 共用 global path 時 `shared_by` 非空；不共用時 `shared_by` 為空
+- [x] 8.2b 更新 `agent_path_remove` 簽名為 `agent_path_remove(agent_key: String, clean_disk: bool)`。更新 `RemoveResult` 新增 `disk_deleted: bool` 欄位。當 `clean_disk == true` 時：在移除 config entry 前讀取該 entry 的 global path，展開 `~` 後呼叫 `fs::remove_dir_all` 刪除整個目錄；若目錄不存在則忽略（`disk_deleted = false`）。前端 command wrapper 同步更新參數。對應 spec「Deleting a custom agent path (with disk cleanup)」。驗證：新增單元測試 `test_agent_path_remove_clean_disk`，斷言 `clean_disk=true` 時目錄被刪除、`clean_disk=false` 時目錄保留
+
+## 9. Frontend — Remove Dialog Disk Cleanup
+
+- [x] 9.1 更新 `RemoveAgentPathDialog`：在確認區域新增「同時刪除磁碟檔案」checkbox（預設不勾選）。當 `preview.sharedBy` 非空時 checkbox disabled 並顯示提示文字「此路徑正被 {sharedBy} 使用，無法刪除磁碟檔案」。當 checkbox 未勾選時顯示提示「global path 目錄將保留於磁碟上」。若該 agent 有 projectRelative path，補充提示「各 project 下的 {path} 目錄需手動清除」。確認時傳 `clean_disk` 參數給 `agentPathRemove`。i18n key 加入 `en.ts` 和 `zh-TW.ts`。對應 spec「Deleting a custom agent path (with/without disk cleanup)」和「Shared global path prevents disk cleanup」。驗證：`npm run check` 通過
+
+## 10. 驗證
+
+- [x] 10.1 執行 `cargo test --lib` 於 `src-tauri/`，確認所有既有測試 + 新增測試全數通過。驗證：exit code 0，無 failure
+- [x] 10.2 執行 `npm run check`，確認 TypeScript 無 error。驗證：exit code 0
+- [x] 10.3 執行 `npm run tauri dev` 手動驗證完整流程：(1) Settings 頁面顯示 3 built-in + 可新增 custom (2) 新增 custom agent "test-agent" 含 label 和 icon (3) 在任一 skill 的 Add Target 選擇 "test-agent" 並 push，確認磁碟產出 SKILL.md (4) 回 Settings 刪除 "test-agent" 並勾選「刪除磁碟檔案」，確認 target 被清除且 global path 目錄被刪除 (5) 確認 built-in agents 無 🗑 按鈕 (6) 新增兩個 agent 共用 global path，刪除其一時確認 checkbox disabled。驗證：以上 6 步驟皆通過
+- [x] 10.4 執行 `/felina-ui-guidelines` 評估本 change 的 UI 改動。驗證：輸出命中的 guideline 與 deviation 清單

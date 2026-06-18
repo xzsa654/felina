@@ -267,8 +267,8 @@ export const api = {
       invoke<void>("agent_paths_set", { config }),
     removalPreview: (agentKey: string) =>
       invoke<RemovalPreview>("agent_path_removal_preview", { agentKey }),
-    remove: (agentKey: string) =>
-      invoke<RemoveResult>("agent_path_remove", { agentKey }),
+    remove: (agentKey: string, cleanDisk: boolean = false) =>
+      invoke<RemoveResult>("agent_path_remove", { agentKey, cleanDisk }),
   },
 
   agents: {

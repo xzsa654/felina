@@ -4,7 +4,7 @@ import { api } from "$lib/tauri/commands";
 import { t } from "$lib/i18n";
 import { useLocaleStore } from "$lib/stores/locale";
 import Modal from "$lib/components/shared/Modal";
-import type { RemovalPreview } from "$lib/types";
+import type { AgentPathsConfig, RemovalPreview } from "$lib/types";
 
 interface Props {
   open: boolean;
@@ -16,20 +16,25 @@ interface Props {
 export default function RemoveAgentPathDialog({ open, agentKey, onRemoved, onClose }: Props) {
   const locale = useLocaleStore((s) => s.locale);
   const [preview, setPreview] = useState<RemovalPreview | null>(null);
+  const [config, setConfig] = useState<AgentPathsConfig | null>(null);
+  const [cleanDisk, setCleanDisk] = useState(false);
   const [removing, setRemoving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open || !agentKey) return;
     setPreview(null);
+    setConfig(null);
+    setCleanDisk(false);
     setError(null);
     api.agentPaths.removalPreview(agentKey).then(setPreview).catch((e) => setError(String(e)));
+    api.agentPaths.get().then(setConfig).catch(() => {});
   }, [open, agentKey]);
 
   async function handleRemove() {
     setRemoving(true);
     try {
-      await api.agentPaths.remove(agentKey);
+      await api.agentPaths.remove(agentKey, cleanDisk);
       onRemoved();
     } catch (e) {
       setError(String(e));
@@ -37,6 +42,9 @@ export default function RemoveAgentPathDialog({ open, agentKey, onRemoved, onClo
       setRemoving(false);
     }
   }
+
+  const pair = config?.agents[agentKey];
+  const isShared = (preview?.sharedBy.length ?? 0) > 0;
 
   const message = preview
     ? preview.targetCount > 0
@@ -66,6 +74,52 @@ export default function RemoveAgentPathDialog({ open, agentKey, onRemoved, onClo
             {error && <p className="text-xs text-danger mt-2">{error}</p>}
           </div>
         </div>
+
+        {preview && pair && (
+          <div className="flex flex-col gap-2 border-t border-border pt-3">
+            <label className={`flex items-center gap-2 text-xs ${isShared ? "opacity-50" : ""}`}>
+              <input
+                type="checkbox"
+                checked={cleanDisk}
+                disabled={isShared}
+                onChange={(e) => setCleanDisk(e.target.checked)}
+                className="rounded"
+              />
+              {t(locale, "felinaSettings.agentPaths.removeCleanDisk")}
+            </label>
+
+            {isShared && (
+              <p className="text-xs text-warning">
+                {t(locale, "felinaSettings.agentPaths.removeSharedPathHint", {
+                  agents: preview.sharedBy.join(", "),
+                })}
+              </p>
+            )}
+
+            {cleanDisk && !isShared && (
+              <p className="text-xs text-text-secondary">
+                {t(locale, "felinaSettings.agentPaths.removeCleanDiskHint", {
+                  path: pair.global,
+                })}
+              </p>
+            )}
+
+            {!cleanDisk && !isShared && (
+              <p className="text-xs text-text-secondary">
+                {t(locale, "felinaSettings.agentPaths.removeDiskRetainHint")}
+              </p>
+            )}
+
+            {pair.projectRelative && (
+              <p className="text-xs text-text-secondary">
+                {t(locale, "felinaSettings.agentPaths.removeProjectHint", {
+                  path: pair.projectRelative,
+                })}
+              </p>
+            )}
+          </div>
+        )}
+
         <div className="flex justify-end gap-2">
           <button
             type="button"

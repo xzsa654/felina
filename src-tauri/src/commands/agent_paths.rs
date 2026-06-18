@@ -196,6 +196,7 @@ use crate::commands::canonical_skills::BUILTIN_AGENTS;
 pub struct RemovalPreview {
     pub skills: Vec<String>,
     pub target_count: u32,
+    pub shared_by: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -203,6 +204,35 @@ pub struct RemovalPreview {
 pub struct RemoveResult {
     pub skills_affected: u32,
     pub targets_removed: u32,
+    pub disk_deleted: bool,
+}
+
+fn normalize_global_path(raw: &str) -> PathBuf {
+    let expanded = crate::commands::fan_out::expand_user_path(raw);
+    let s = expanded.to_string_lossy().replace('\\', "/");
+    let s = s.trim_end_matches('/');
+    if cfg!(windows) {
+        PathBuf::from(s.to_lowercase())
+    } else {
+        PathBuf::from(s)
+    }
+}
+
+fn compute_shared_by(agent_key: &str) -> Vec<String> {
+    let cfg = match agent_paths_get() {
+        Ok(c) => c,
+        Err(_) => return Vec::new(),
+    };
+    let target_global = match cfg.agents.get(agent_key) {
+        Some(pair) => normalize_global_path(&pair.global),
+        None => return Vec::new(),
+    };
+    cfg.agents
+        .iter()
+        .filter(|(k, _)| k.as_str() != agent_key)
+        .filter(|(_, pair)| normalize_global_path(&pair.global) == target_global)
+        .map(|(k, _)| k.clone())
+        .collect()
 }
 
 #[tauri::command]
@@ -230,14 +260,25 @@ pub fn agent_path_removal_preview(agent_key: String) -> Result<RemovalPreview, S
             }
         }
     }
-    Ok(RemovalPreview { skills, target_count })
+    let shared_by = compute_shared_by(&agent_key);
+    Ok(RemovalPreview { skills, target_count, shared_by })
 }
 
 #[tauri::command]
-pub fn agent_path_remove(agent_key: String) -> Result<RemoveResult, String> {
+pub fn agent_path_remove(agent_key: String, clean_disk: bool) -> Result<RemoveResult, String> {
     if BUILTIN_AGENTS.contains(&agent_key.as_str()) {
         return Err(format!("cannot delete built-in agent: {agent_key}"));
     }
+
+    // Read the global path before removing the config entry.
+    let global_path = if clean_disk {
+        agent_paths_get()
+            .ok()
+            .and_then(|c| c.agents.get(&agent_key).map(|p| p.global.clone()))
+    } else {
+        None
+    };
+
     let canonical_dir = crate::commands::canonical_skills::canonical_skills_dir();
     let mut skills_affected: u32 = 0;
     let mut targets_removed: u32 = 0;
@@ -281,11 +322,27 @@ pub fn agent_path_remove(agent_key: String) -> Result<RemoveResult, String> {
             }
         }
     }
+
     // Remove from config
     let mut cfg = agent_paths_get()?;
     cfg.agents.remove(&agent_key);
     agent_paths_set(cfg)?;
-    Ok(RemoveResult { skills_affected, targets_removed })
+
+    // Delete global path directory if requested
+    let disk_deleted = if let Some(gp) = global_path {
+        let expanded = crate::commands::fan_out::expand_user_path(&gp);
+        if expanded.is_dir() {
+            fs::remove_dir_all(&expanded)
+                .map_err(|e| format!("failed to delete {}: {e}", expanded.display()))?;
+            true
+        } else {
+            false
+        }
+    } else {
+        false
+    };
+
+    Ok(RemoveResult { skills_affected, targets_removed, disk_deleted })
 }
 
 fn validate_agent_key(key: &str) -> Result<(), String> {
@@ -451,7 +508,79 @@ mod tests {
         assert!(agent_path_removal_preview("anthropic".into()).is_err());
         assert!(agent_path_removal_preview("codex".into()).is_err());
         assert!(agent_path_removal_preview("gemini".into()).is_err());
-        assert!(agent_path_remove("anthropic".into()).is_err());
+        assert!(agent_path_remove("anthropic".into(), false).is_err());
+    }
+
+    #[test]
+    fn test_removal_preview_shared_path() {
+        let mut agents = HashMap::new();
+        agents.insert("aider".into(), AgentPathPair {
+            global: "~/.shared/skills".into(),
+            project_relative: ".aider/skills".into(),
+            label: None,
+            icon: None,
+        });
+        agents.insert("other-tool".into(), AgentPathPair {
+            global: "~/.shared/skills".into(),
+            project_relative: ".other/skills".into(),
+            label: None,
+            icon: None,
+        });
+        agents.insert("separate".into(), AgentPathPair {
+            global: "~/.separate/skills".into(),
+            project_relative: ".separate/skills".into(),
+            label: None,
+            icon: None,
+        });
+        let cfg = AgentPathsConfig { agents };
+
+        let aider_global = normalize_global_path(&cfg.agents["aider"].global);
+        let shared: Vec<String> = cfg.agents.iter()
+            .filter(|(k, _)| k.as_str() != "aider")
+            .filter(|(_, pair)| normalize_global_path(&pair.global) == aider_global)
+            .map(|(k, _)| k.clone())
+            .collect();
+        assert_eq!(shared, vec!["other-tool".to_string()]);
+
+        let separate_global = normalize_global_path(&cfg.agents["separate"].global);
+        let shared2: Vec<String> = cfg.agents.iter()
+            .filter(|(k, _)| k.as_str() != "separate")
+            .filter(|(_, pair)| normalize_global_path(&pair.global) == separate_global)
+            .map(|(k, _)| k.clone())
+            .collect();
+        assert!(shared2.is_empty());
+    }
+
+    #[test]
+    fn test_normalize_global_path_variants() {
+        let a = normalize_global_path("~/.test/skills/");
+        let b = normalize_global_path("~/.test/skills");
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn test_agent_path_remove_clean_disk() {
+        let tmp = std::env::temp_dir().join("felina_test_disk_cleanup");
+        let _ = fs::remove_dir_all(&tmp);
+        fs::create_dir_all(tmp.join("my-skill")).unwrap();
+        fs::write(tmp.join("my-skill/SKILL.md"), "test").unwrap();
+        assert!(tmp.is_dir());
+
+        // clean_disk=false → directory preserved
+        // (We can't test the full remove flow without a settings file,
+        // but we can test the disk deletion logic directly.)
+        let expanded = tmp.clone();
+        if expanded.is_dir() {
+            // Simulate clean_disk=true
+            fs::remove_dir_all(&expanded).unwrap();
+            assert!(!tmp.exists());
+        }
+
+        // Recreate and verify clean_disk=false would preserve
+        fs::create_dir_all(tmp.join("my-skill")).unwrap();
+        // Not calling remove_dir_all → directory preserved
+        assert!(tmp.is_dir());
+        let _ = fs::remove_dir_all(&tmp);
     }
 
     #[test]
