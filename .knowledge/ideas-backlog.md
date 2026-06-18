@@ -90,9 +90,11 @@ Notes:
 | Field | Value |
 |---|---|
 | type | planned-change |
-| status | planned |
+| status | completed |
 | flagged | 2026-05-28 |
-| last-seen | 2026-06-09 |
+| last-seen | 2026-06-18 |
+| completed | 2026-06-18 |
+| archive | 2026-06-18-third-party-agent-path |
 | description | 使用者可透過 Felina Settings 手動新增無限多組第三方 agent 的路徑 (Global / Project)，使其成為動態 Map 支援。 |
 
 Design route (2026-05-28 discuss 定案):
@@ -134,6 +136,25 @@ Scope:
 - 前端解除 window focus 與 visibilitychange 綁定的全域重整，改由 Event 觸發局部資料刷新（搭配 SWR 模式確保體驗順滑）。
 
 <!-- push-commit-noop-fastpath-and-parallel: archived 2026-06-04, removed per backlog rules -->
+
+### sibling-drift-diff-viewer
+
+| Field | Value |
+|---|---|
+| type | suggestion |
+| status | not-committed |
+| flagged | 2026-06-18 |
+| last-seen | 2026-06-18 |
+| description | Drift 偵測目前只顯示「有 drift」，無法看到附屬檔案（sibling）實際變更內容。對可比較的文字檔（py/js/ts/md/yaml 等）提供 diff viewer，二進位檔（xlsx/png 等）僅標示「binary changed」。 |
+
+Scope:
+- 後端新增 command：接受 skill name + target key，回傳 drifted sibling 清單及逐檔 unified diff（canonical vs agent-side）。
+- 對文字檔（依副檔名或 UTF-8 偵測）產生 diff；二進位檔僅回傳 size/hash 差異摘要。
+- 前端在 drift 狀態的 skill 卡片或 TargetPopover 加入「View Changes」入口，顯示 diff（可用既有 code block 或輕量 diff component）。
+
+Notes:
+- 起因：drift scan 標示 sibling drifted 但使用者無法得知具體變更，需手動 CLI 比對。
+- canonical 側也變動（兩邊內容一致但 meta hash 過期）的情境也應能辨識並顯示「內容一致，僅 meta 過期」。
 
 ---
 

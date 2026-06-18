@@ -70,6 +70,8 @@ export type {
   ImportSelection,
   AgentPathPair,
   AgentPathsConfig,
+  RemovalPreview,
+  RemoveResult,
   SkillTarget,
   TargetMode,
   ProjectSource,

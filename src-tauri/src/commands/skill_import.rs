@@ -138,11 +138,11 @@ pub fn skill_import_scan_quick(project_path: Option<String>) -> Result<ImportSca
     let mut out = ImportScanQuick::default();
     let scope = scan_scope(project_path.as_deref());
 
-    let anthropic = skill_names_at_pair(scope, project_path.as_deref(), &cfg.anthropic)?;
-    let codex = skill_names_at_pair(scope, project_path.as_deref(), &cfg.codex)?;
-    let mut gemini = skill_names_at_pair(scope, project_path.as_deref(), &cfg.gemini)?;
+    let anthropic = skill_names_at_pair(scope, project_path.as_deref(), cfg.pair_for("anthropic").unwrap())?;
+    let codex = skill_names_at_pair(scope, project_path.as_deref(), cfg.pair_for("codex").unwrap())?;
+    let mut gemini = skill_names_at_pair(scope, project_path.as_deref(), cfg.pair_for("gemini").unwrap())?;
     if scope == SkillScope::Global {
-        for extra in cfg.extra_global_paths(AgentId::Gemini, |p| expand_user_path(p)) {
+        for extra in cfg.extra_global_paths("gemini", |p| expand_user_path(p)) {
             gemini.extend(skill_names_at(&extra));
         }
     }
@@ -213,17 +213,13 @@ pub fn skill_import_scan(project_path: Option<String>) -> Result<Vec<ImportCandi
     let scope = scan_scope(project_path.as_deref());
 
     let mut out = Vec::new();
-    for (agent, pair) in [
-        (AgentId::Anthropic, &cfg.anthropic),
-        (AgentId::Codex, &cfg.codex),
-        (AgentId::Gemini, &cfg.gemini),
-    ] {
+    for (agent, pair) in cfg.agents.iter().map(|(k, v)| (k.clone(), v)) {
         let dir = resolve_pair(scope, project_path.as_deref(), pair)?;
         collect_candidates_in(&dir, agent, &canonical_dir, &mut out);
     }
     if scope == SkillScope::Global {
-        for extra in cfg.extra_global_paths(AgentId::Gemini, |p| expand_user_path(p)) {
-            collect_candidates_in(&extra, AgentId::Gemini, &canonical_dir, &mut out);
+        for extra in cfg.extra_global_paths("gemini", |p| expand_user_path(p)) {
+            collect_candidates_in(&extra, "gemini".to_string(), &canonical_dir, &mut out);
         }
     }
 
@@ -321,7 +317,7 @@ fn collect_candidates_in(
 
         out.push(ImportCandidate {
             source_path: normalize_display_path(&skill_md.to_string_lossy()),
-            source_agent: agent,
+            source_agent: agent.clone(),
             skill_name: dir_name,
             body_preview,
             conflict,
@@ -331,12 +327,8 @@ fn collect_candidates_in(
     }
 }
 
-fn agent_label(a: AgentId) -> &'static str {
-    match a {
-        AgentId::Anthropic => "anthropic",
-        AgentId::Codex => "codex",
-        AgentId::Gemini => "gemini",
-    }
+fn agent_label(a: &str) -> &str {
+    a
 }
 
 /// Collapse per-source candidates into one row per skill name. A name found
@@ -362,10 +354,10 @@ fn group_by_name(raw: Vec<ImportCandidate>) -> Vec<ImportCandidate> {
         let mut agents: Vec<AgentId> = Vec::new();
         for c in &group {
             if !agents.contains(&c.source_agent) {
-                agents.push(c.source_agent);
+                agents.push(c.source_agent.clone());
             }
         }
-        let labels: Vec<&str> = agents.iter().map(|a| agent_label(*a)).collect();
+        let labels: Vec<&str> = agents.iter().map(|a| agent_label(a)).collect();
         let reason = format!(
             "Found in {} locations ({}). Select one source to import as canonical content.",
             group.len(),
@@ -443,14 +435,11 @@ fn validate_skill_name_segment(name: &str) -> Result<(), String> {
 
 fn resolve_project_agent_skills_dir(
     project_path: &str,
-    agent: AgentId,
+    agent: &str,
 ) -> Result<PathBuf, String> {
     let cfg = agent_paths_get()?;
-    let pair = match agent {
-        AgentId::Anthropic => &cfg.anthropic,
-        AgentId::Codex => &cfg.codex,
-        AgentId::Gemini => &cfg.gemini,
-    };
+    let pair = cfg.pair_for(agent)
+        .ok_or_else(|| format!("unknown agent: {agent}"))?;
     resolve_pair(SkillScope::Project, Some(project_path), pair)
 }
 
@@ -498,7 +487,7 @@ pub fn project_local_skill_rename(
     if old_name == new_name {
         return Err("new name must differ from old name".into());
     }
-    let dir = resolve_project_agent_skills_dir(&project_path, agent)?;
+    let dir = resolve_project_agent_skills_dir(&project_path, &agent)?;
     let old_dir = dir.join(&old_name);
     let new_dir = dir.join(&new_name);
     if !old_dir.is_dir() {
@@ -549,7 +538,7 @@ pub fn project_local_skill_delete(
     skill_name: String,
 ) -> Result<(), String> {
     validate_skill_name_segment(&skill_name)?;
-    let dir = resolve_project_agent_skills_dir(&project_path, agent)?;
+    let dir = resolve_project_agent_skills_dir(&project_path, &agent)?;
     let target = dir.join(&skill_name);
     if !target.exists() {
         return Ok(());
@@ -674,7 +663,7 @@ fn write_canonical_from_source(
     // schema means many real-world Anthropic skills lack a `name` field; the
     // normalize path fills it from the directory name in that case.
     let name = rename_to.unwrap_or(&candidate.skill_name).to_string();
-    let content = match ensure_required_fields(&raw, &name, candidate.source_agent) {
+    let content = match ensure_required_fields(&raw, &name, &candidate.source_agent) {
         Ok(normalized) => normalized,
         Err(_) => raw.clone(),
     };
@@ -696,7 +685,7 @@ fn write_canonical_from_source(
     // the canonical file's x_felina_agent_fields.codex, then remove the
     // copied agents/ dir from canonical (it's an agent-specific output, not
     // canonical content).
-    if candidate.source_agent == AgentId::Codex {
+    if candidate.source_agent == "codex".to_string() {
         if let Some(source_skill_dir) = source.parent() {
             import_codex_openai_yaml(source_skill_dir, &target_dir);
             let agents_dir = target_dir.join("agents");
@@ -820,14 +809,14 @@ fn import_target_for(
 ) -> SkillTarget {
     match project_path {
         Some(pp) => SkillTarget {
-            agent: candidate.source_agent,
+            agent: candidate.source_agent.clone(),
             scope: SkillScope::Project,
             project: Some(pp.to_string()),
             enabled,
             mode: TargetMode::Manual,
         },
         None => SkillTarget {
-            agent: candidate.source_agent,
+            agent: candidate.source_agent.clone(),
             scope: SkillScope::Global,
             project: None,
             enabled,
@@ -935,7 +924,7 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<(), String> {
 ///
 /// Rejects malformed YAML, non-mapping roots, and nested/repeated frontmatter.
 /// Extra frontmatter is preserved verbatim.
-fn ensure_required_fields(raw: &str, name: &str, source_agent: AgentId) -> Result<String, String> {
+fn ensure_required_fields(raw: &str, name: &str, source_agent: &str) -> Result<String, String> {
     // Try to parse as-is first; if it succeeds, we already have everything
     // we need and just re-serialize. `agents` is optional at the parse layer
     // (agents=[] is a valid content-only state), but importing FROM an agent
@@ -944,7 +933,7 @@ fn ensure_required_fields(raw: &str, name: &str, source_agent: AgentId) -> Resul
     if let Ok(mut parsed) = parse_skill_md(raw) {
         parsed.name = name.to_string();
         if parsed.agents.is_empty() {
-            parsed.agents = vec![source_agent];
+            parsed.agents = vec![source_agent.to_string()];
         }
         return Ok(reserialize(parsed));
     }
@@ -971,11 +960,7 @@ fn ensure_required_fields(raw: &str, name: &str, source_agent: AgentId) -> Resul
     map.insert(name_key, serde_yaml::Value::String(name.to_string()));
     map.entry(serde_yaml::Value::String("description".into()))
         .or_insert_with(|| serde_yaml::Value::String(String::new()));
-    let agent_str = match source_agent {
-        AgentId::Anthropic => "anthropic",
-        AgentId::Codex => "codex",
-        AgentId::Gemini => "gemini",
-    };
+    let agent_str = source_agent;
     map.entry(serde_yaml::Value::String("agents".into()))
         .or_insert_with(|| {
             serde_yaml::Value::Sequence(vec![serde_yaml::Value::String(agent_str.into())])
@@ -1007,16 +992,7 @@ fn reserialize(skill: crate::commands::canonical_skills::CanonicalSkill) -> Stri
     let agents_seq: Vec<serde_yaml::Value> = skill
         .agents
         .iter()
-        .map(|a| {
-            serde_yaml::Value::String(
-                match a {
-                    AgentId::Anthropic => "anthropic",
-                    AgentId::Codex => "codex",
-                    AgentId::Gemini => "gemini",
-                }
-                .into(),
-            )
-        })
+        .map(|a| serde_yaml::Value::String(a.clone()))
         .collect();
     map.insert(
         serde_yaml::Value::String("agents".into()),
@@ -1143,7 +1119,7 @@ fn candidate_from_skill_dir(skill_dir: &Path, canonical_dir: &Path) -> Option<Im
     let raw = fs::read_to_string(&skill_md).ok()?;
     let dir_name = skill_dir.file_name()?.to_string_lossy().to_string();
     let body_preview = body_preview_from(&raw);
-    let source_agent = infer_agent_from_frontmatter(&raw).unwrap_or(AgentId::Anthropic);
+    let source_agent = infer_agent_from_frontmatter(&raw).unwrap_or("anthropic".to_string());
 
     let canonical_path = canonical_dir.join(&dir_name).join("SKILL.md");
     let conflict = if canonical_path.is_file() {
@@ -1204,12 +1180,7 @@ fn infer_agent_from_frontmatter(raw: &str) -> Option<AgentId> {
     let map = value.as_mapping()?;
     let agents = map.get(serde_yaml::Value::String("agents".into()))?;
     let first = agents.as_sequence()?.first()?;
-    match first.as_str()? {
-        "anthropic" => Some(AgentId::Anthropic),
-        "codex" => Some(AgentId::Codex),
-        "gemini" => Some(AgentId::Gemini),
-        _ => None,
-    }
+    Some(first.as_str()?.to_string())
 }
 
 #[cfg(test)]
@@ -1252,7 +1223,7 @@ mod tests {
     fn ensure_required_fields_injects_missing_name_description_agents() {
         // Source has only `description` (Anthropic-style without `name`).
         let raw = "---\ndescription: hi\n---\nbody\n";
-        let out = ensure_required_fields(raw, "auto-name", AgentId::Anthropic).unwrap();
+        let out = ensure_required_fields(raw, "auto-name", "anthropic").unwrap();
         assert!(out.contains("name: auto-name"), "got:\n{out}");
         assert!(out.contains("description: hi"));
         assert!(out.contains("agents:"));
@@ -1270,7 +1241,7 @@ mod tests {
 
     fn candidate(name: &str, agent: AgentId) -> ImportCandidate {
         ImportCandidate {
-            source_path: format!("/fake/{}/{name}/SKILL.md", agent_label(agent)),
+            source_path: format!("/fake/{}/{name}/SKILL.md", agent_label(&agent)),
             source_agent: agent,
             skill_name: name.to_string(),
             body_preview: String::new(),
@@ -1286,9 +1257,9 @@ mod tests {
     #[test]
     fn group_by_name_defers_multi_source_keeps_single_source() {
         let raw = vec![
-            candidate("solo", AgentId::Anthropic),
-            candidate("shared", AgentId::Anthropic),
-            candidate("shared", AgentId::Codex),
+            candidate("solo", "anthropic".to_string()),
+            candidate("shared", "anthropic".to_string()),
+            candidate("shared", "codex".to_string()),
         ];
         let grouped = group_by_name(raw);
         assert_eq!(
@@ -1301,15 +1272,15 @@ mod tests {
         let shared = &grouped[0];
         assert_eq!(shared.skill_name, "shared");
         let def = shared.deferred.as_ref().expect("shared must be deferred");
-        assert_eq!(def.agents, vec![AgentId::Anthropic, AgentId::Codex]);
+        assert_eq!(def.agents, vec!["anthropic".to_string(), "codex".to_string()]);
         assert!(def.reason.contains("2 locations"), "reason: {}", def.reason);
         assert_eq!(
             def.candidates.len(),
             2,
             "multi-source row must preserve all source candidates"
         );
-        assert_eq!(def.candidates[0].source_agent, AgentId::Anthropic);
-        assert_eq!(def.candidates[1].source_agent, AgentId::Codex);
+        assert_eq!(def.candidates[0].source_agent, "anthropic".to_string());
+        assert_eq!(def.candidates[1].source_agent, "codex".to_string());
 
         let solo = &grouped[1];
         assert_eq!(solo.skill_name, "solo");
@@ -1321,11 +1292,11 @@ mod tests {
 
     #[test]
     fn group_by_name_preserves_three_source_candidate_previews() {
-        let mut anthropic = candidate("shared", AgentId::Anthropic);
+        let mut anthropic = candidate("shared", "anthropic".to_string());
         anthropic.body_preview = "# Anthropic".into();
-        let mut codex = candidate("shared", AgentId::Codex);
+        let mut codex = candidate("shared", "codex".to_string());
         codex.body_preview = "# Codex".into();
-        let mut gemini = candidate("shared", AgentId::Gemini);
+        let mut gemini = candidate("shared", "gemini".to_string());
         gemini.body_preview = "# Gemini".into();
 
         let grouped = group_by_name(vec![anthropic, codex, gemini]);
@@ -1399,12 +1370,12 @@ mod tests {
         }
         let _g = G;
 
-        let mut c = candidate("shared", AgentId::Anthropic);
+        let mut c = candidate("shared", "anthropic".to_string());
         c.deferred = Some(DeferredMultiSource {
-            agents: vec![AgentId::Anthropic, AgentId::Codex],
+            agents: vec!["anthropic".to_string(), "codex".to_string()],
             candidates: vec![
-                candidate("shared", AgentId::Anthropic),
-                candidate("shared", AgentId::Codex),
+                candidate("shared", "anthropic".to_string()),
+                candidate("shared", "codex".to_string()),
             ],
             reason: "x".into(),
         });
@@ -1446,13 +1417,13 @@ mod tests {
         fs::write(anth_dir.join("SKILL.md"), anthropic_content).unwrap();
         fs::write(codex_dir.join("SKILL.md"), codex_content).unwrap();
 
-        let mut anthropic = candidate("code-review", AgentId::Anthropic);
+        let mut anthropic = candidate("code-review", "anthropic".to_string());
         anthropic.source_path = anth_dir.join("SKILL.md").to_string_lossy().to_string();
-        let mut codex = candidate("code-review", AgentId::Codex);
+        let mut codex = candidate("code-review", "codex".to_string());
         codex.source_path = codex_dir.join("SKILL.md").to_string_lossy().to_string();
         let mut grouped = anthropic.clone();
         grouped.deferred = Some(DeferredMultiSource {
-            agents: vec![AgentId::Anthropic, AgentId::Codex],
+            agents: vec!["anthropic".to_string(), "codex".to_string()],
             candidates: vec![anthropic, codex],
             reason: "x".into(),
         });
@@ -1495,9 +1466,9 @@ mod tests {
 
         let mut candidates = Vec::new();
         for (agent, root, body) in [
-            (AgentId::Anthropic, ".claude", "anthropic body"),
-            (AgentId::Codex, ".agents", "codex body"),
-            (AgentId::Gemini, ".gemini", "gemini body"),
+            ("anthropic".to_string(), ".claude", "anthropic body"),
+            ("codex".to_string(), ".agents", "codex body"),
+            ("gemini".to_string(), ".gemini", "gemini body"),
         ] {
             let dir = sources.join(root).join("skills").join("my-helper");
             fs::create_dir_all(&dir).unwrap();
@@ -1513,7 +1484,7 @@ mod tests {
 
         let mut grouped = candidates[0].clone();
         grouped.deferred = Some(DeferredMultiSource {
-            agents: vec![AgentId::Anthropic, AgentId::Codex, AgentId::Gemini],
+            agents: vec!["anthropic".to_string(), "codex".to_string(), "gemini".to_string()],
             candidates,
             reason: "x".into(),
         });
@@ -1578,13 +1549,13 @@ mod tests {
         )
         .unwrap();
 
-        let mut anthropic = candidate("code-review", AgentId::Anthropic);
+        let mut anthropic = candidate("code-review", "anthropic".to_string());
         anthropic.source_path = anth_dir.join("SKILL.md").to_string_lossy().to_string();
-        let mut codex = candidate("code-review", AgentId::Codex);
+        let mut codex = candidate("code-review", "codex".to_string());
         codex.source_path = codex_dir.join("SKILL.md").to_string_lossy().to_string();
         let mut grouped = anthropic.clone();
         grouped.deferred = Some(DeferredMultiSource {
-            agents: vec![AgentId::Anthropic, AgentId::Codex],
+            agents: vec!["anthropic".to_string(), "codex".to_string()],
             candidates: vec![anthropic, codex],
             reason: "x".into(),
         });
@@ -1627,10 +1598,10 @@ mod tests {
         }
         let _g = G;
 
-        let mut grouped = candidate("shared", AgentId::Anthropic);
+        let mut grouped = candidate("shared", "anthropic".to_string());
         grouped.deferred = Some(DeferredMultiSource {
-            agents: vec![AgentId::Anthropic],
-            candidates: vec![candidate("shared", AgentId::Anthropic)],
+            agents: vec!["anthropic".to_string()],
+            candidates: vec![candidate("shared", "anthropic".to_string())],
             reason: "x".into(),
         });
 
@@ -1653,7 +1624,7 @@ mod tests {
     #[test]
     fn ensure_required_fields_handles_bom_crlf_source() {
         let raw = "\u{feff}---\r\nname: session-start\r\ndescription: Start session context\r\n---\r\n# Body\r\n";
-        let out = ensure_required_fields(raw, "session-start", AgentId::Anthropic).unwrap();
+        let out = ensure_required_fields(raw, "session-start", "anthropic").unwrap();
         assert!(
             out.contains("description: Start session context"),
             "description preserved, got:\n{out}"
@@ -1672,7 +1643,7 @@ mod tests {
     #[test]
     fn ensure_required_fields_rewrites_mismatched_name_to_directory_identity() {
         let raw = "---\nname: different-name\ndescription: Start session context\nagents:\n  - anthropic\n---\n# Body\n";
-        let out = ensure_required_fields(raw, "folder-name", AgentId::Anthropic).unwrap();
+        let out = ensure_required_fields(raw, "folder-name", "anthropic").unwrap();
         assert!(
             out.contains("name: folder-name"),
             "canonical name should rewrite to directory identity, got:\n{out}"
@@ -1687,7 +1658,7 @@ mod tests {
     #[test]
     fn ensure_required_fields_rejects_malformed_yaml() {
         let raw = "---\n: invalid: yaml: [broken\n---\nbody\n";
-        let err = ensure_required_fields(raw, "bad", AgentId::Anthropic).unwrap_err();
+        let err = ensure_required_fields(raw, "bad", "anthropic").unwrap_err();
         assert!(
             err.to_lowercase().contains("yaml") || err.contains("parse"),
             "should mention YAML error, got: {err}"
@@ -1698,7 +1669,7 @@ mod tests {
     #[test]
     fn ensure_required_fields_rejects_non_mapping_root() {
         let raw = "---\n- list\n- items\n---\nbody\n";
-        let err = ensure_required_fields(raw, "bad", AgentId::Anthropic).unwrap_err();
+        let err = ensure_required_fields(raw, "bad", "anthropic").unwrap_err();
         assert!(
             err.contains("mapping"),
             "should mention mapping, got: {err}"
@@ -1712,7 +1683,7 @@ mod tests {
         // Simulate the corruption pattern: outer frontmatter with empty
         // description, body starts with the original frontmatter.
         let raw = "---\ndescription: ''\n---\n---\nname: real\ndescription: real desc\nagents:\n  - anthropic\n---\n# Body\n";
-        let err = ensure_required_fields(raw, "bad", AgentId::Anthropic).unwrap_err();
+        let err = ensure_required_fields(raw, "bad", "anthropic").unwrap_err();
         assert!(
             err.contains("nested") || err.contains("repeated"),
             "should mention nested/repeated, got: {err}"
@@ -1762,7 +1733,7 @@ mod tests {
         fs::create_dir_all(&src_dir).unwrap();
         fs::write(src_dir.join("SKILL.md"), source_content).unwrap();
 
-        let mut c = candidate("bad-skill", AgentId::Anthropic);
+        let mut c = candidate("bad-skill", "anthropic".to_string());
         c.source_path = src_dir.join("SKILL.md").to_string_lossy().to_string();
         // Simulate scan having flagged it — apply must still import as broken.
         c.validation_error = Some("non-mapping root".into());
@@ -1818,7 +1789,7 @@ mod tests {
         )
         .unwrap();
 
-        let mut c = candidate("skill-a", AgentId::Anthropic);
+        let mut c = candidate("skill-a", "anthropic".to_string());
         c.source_path = src_dir.join("SKILL.md").to_string_lossy().to_string();
         let project_str = project.to_string_lossy().to_string();
         skill_import_apply(
@@ -1873,7 +1844,7 @@ mod tests {
         )
         .unwrap();
 
-        let mut c = candidate("my-skill", AgentId::Anthropic);
+        let mut c = candidate("my-skill", "anthropic".to_string());
         c.source_path = src_dir.join("SKILL.md").to_string_lossy().to_string();
         skill_import_apply(None, vec![ImportSelection {
             candidate: c,
@@ -1921,7 +1892,7 @@ mod tests {
         )
         .unwrap();
 
-        let mut c = candidate("helper", AgentId::Codex);
+        let mut c = candidate("helper", "codex".to_string());
         c.source_path = src_dir.join("SKILL.md").to_string_lossy().to_string();
         skill_import_apply(None, vec![ImportSelection {
             candidate: c,
@@ -1996,7 +1967,7 @@ mod tests {
 
         project_local_skill_rename(
             project.to_string_lossy().to_string(),
-            AgentId::Anthropic,
+            "anthropic".to_string(),
             "old-skill".into(),
             "new-skill".into(),
         )
@@ -2022,7 +1993,7 @@ mod tests {
 
         let err = project_local_skill_rename(
             project.to_string_lossy().to_string(),
-            AgentId::Anthropic,
+            "anthropic".to_string(),
             "alpha".into(),
             "beta".into(),
         )
@@ -2037,7 +2008,7 @@ mod tests {
         for bad in ["", "..", "../escape", "a/b", "a\\b"] {
             let err = project_local_skill_rename(
                 "/tmp/x".into(),
-                AgentId::Anthropic,
+                "anthropic".to_string(),
                 "ok".into(),
                 bad.into(),
             )
@@ -2057,7 +2028,7 @@ mod tests {
         fs::create_dir_all(project.join(".claude/skills")).unwrap();
         let err = project_local_skill_rename(
             project.to_string_lossy().to_string(),
-            AgentId::Anthropic,
+            "anthropic".to_string(),
             "ghost".into(),
             "new".into(),
         )
@@ -2077,7 +2048,7 @@ mod tests {
 
         let err = project_local_skill_rename(
             project.to_string_lossy().to_string(),
-            AgentId::Anthropic,
+            "anthropic".to_string(),
             "broken".into(),
             "fixed".into(),
         )
@@ -2098,7 +2069,7 @@ mod tests {
 
         project_local_skill_delete(
             project.to_string_lossy().to_string(),
-            AgentId::Anthropic,
+            "anthropic".to_string(),
             "doomed".into(),
         )
         .expect("delete");
@@ -2114,7 +2085,7 @@ mod tests {
 
         project_local_skill_delete(
             project.to_string_lossy().to_string(),
-            AgentId::Anthropic,
+            "anthropic".to_string(),
             "never-existed".into(),
         )
         .expect("idempotent");
@@ -2125,7 +2096,7 @@ mod tests {
         for bad in ["", "..", "../etc", "a/b", "a\\b"] {
             let err = project_local_skill_delete(
                 "/tmp/x".into(),
-                AgentId::Anthropic,
+                "anthropic".to_string(),
                 bad.into(),
             )
             .unwrap_err();
@@ -2158,7 +2129,7 @@ mod tests {
         )
         .unwrap();
 
-        let mut c = candidate("gem-skill", AgentId::Gemini);
+        let mut c = candidate("gem-skill", "gemini".to_string());
         c.source_path = src_dir.join("SKILL.md").to_string_lossy().to_string();
         skill_import_apply(None, vec![ImportSelection {
             candidate: c,
@@ -2206,7 +2177,7 @@ mod tests {
         assert_eq!(out.len(), 1, "only good-skill is a valid candidate, got {out:#?}");
         let cand = &out[0];
         assert_eq!(cand.skill_name, "good-skill");
-        assert_eq!(cand.source_agent, AgentId::Gemini, "agent inferred from frontmatter");
+        assert_eq!(cand.source_agent, "gemini".to_string(), "agent inferred from frontmatter");
         assert!(cand.conflict.is_none(), "no canonical conflict yet");
         // Canonical must NOT have been written.
         assert!(
@@ -2241,7 +2212,7 @@ mod tests {
 
         let agent_skills_root = tmp.join("MixedCase").join(".claude").join("skills");
         let mut out = Vec::new();
-        collect_candidates_in(&agent_skills_root, AgentId::Anthropic, &canonical_dir, &mut out);
+        collect_candidates_in(&agent_skills_root, "anthropic".to_string(), &canonical_dir, &mut out);
 
         assert_eq!(out.len(), 1, "expected one candidate, got {out:?}");
         let cand = &out[0];
@@ -2300,7 +2271,7 @@ mod tests {
         let out = skill_import_scan_dir(skill_dir.to_string_lossy().to_string()).expect("scan");
         assert_eq!(out.len(), 1, "exactly one candidate, got {out:#?}");
         assert_eq!(out[0].skill_name, "my-skill", "named after selected directory");
-        assert_eq!(out[0].source_agent, AgentId::Gemini, "agent inferred from frontmatter");
+        assert_eq!(out[0].source_agent, "gemini".to_string(), "agent inferred from frontmatter");
         assert!(out[0].conflict.is_none());
     }
 

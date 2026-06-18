@@ -1,5 +1,5 @@
 {
-  "lastUpdated": "2026-06-12",
+  "lastUpdated": "2026-06-17",
   "entries": [
     {
       "id": "kb-architecture-local-only-boundary",
@@ -817,6 +817,27 @@
       "file": "experience/claude-code-hooks.md",
       "anchor": "stop-hook-防騷擾工作週期-re-arm-模式",
       "updated": "2026-06-12"
+    },
+    {
+      "id": "kb-platform-crlf-semantic-hash",
+      "title": "Semantic hash must normalize line endings to avoid cross-platform false drift",
+      "type": "knowledge",
+      "status": "active",
+      "confidence": "confirmed",
+      "keywords": [
+        "crlf",
+        "lf",
+        "semantic hash",
+        "sibling hash",
+        "drift",
+        "normalize",
+        "autocrlf",
+        "windows"
+      ],
+      "appliesWhen": "Hashing file content for drift detection across Windows/macOS/Linux",
+      "file": "knowledge-base/platform.md",
+      "anchor": "semantic-hash-與-sibling-hash-必須-normalize-行尾",
+      "updated": "2026-06-17"
     }
   ]
 }
