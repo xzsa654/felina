@@ -6,7 +6,6 @@
 //! `list_skill_field_catalog` and renders type-aware controls grouped by agent.
 //! Fan-out renderers use the same catalog as their output allowlist.
 
-use crate::commands::canonical_skills::AgentId;
 use serde::Serialize;
 
 /// Where a field is emitted during fan-out.
@@ -39,12 +38,13 @@ pub enum FieldAgent {
     Standard,
 }
 
-impl From<AgentId> for FieldAgent {
-    fn from(id: AgentId) -> Self {
-        match id {
-            AgentId::Anthropic => FieldAgent::Anthropic,
-            AgentId::Codex => FieldAgent::Codex,
-            AgentId::Gemini => FieldAgent::Gemini,
+impl FieldAgent {
+    pub fn from_agent_key(key: &str) -> Self {
+        match key {
+            "anthropic" => FieldAgent::Anthropic,
+            "codex" => FieldAgent::Codex,
+            "gemini" => FieldAgent::Gemini,
+            _ => FieldAgent::Standard,
         }
     }
 }

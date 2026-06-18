@@ -6,15 +6,15 @@
 
 use super::{prepare_skill_subdir, resolve_pair, FanOutRenderer};
 use crate::commands::agent_paths::AgentPathPair;
-use crate::commands::canonical_skills::{AgentId, CanonicalSkill, SkillScope};
+use crate::commands::canonical_skills::{CanonicalSkill, SkillScope};
 use std::fs;
 use std::path::{Path, PathBuf};
 
 pub struct AnthropicRenderer;
 
 impl FanOutRenderer for AnthropicRenderer {
-    fn agent_id(&self) -> AgentId {
-        AgentId::Anthropic
+    fn agent_id(&self) -> &'static str {
+        "anthropic"
     }
 
     fn resolve_target_dir(
@@ -104,7 +104,7 @@ mod tests {
             canonical_id: "demo".into(),
             name: "demo".into(),
             description: "Demo skill".into(),
-            agents: vec![AgentId::Anthropic, AgentId::Codex, AgentId::Gemini],
+            agents: vec!["anthropic".into(), "codex".into(), "gemini".into()],
             frontmatter_extras: serde_yaml::Value::Mapping(serde_yaml::Mapping::new()),
             body: "# Demo\n\nHello.\n".into(),
             dirty: false,

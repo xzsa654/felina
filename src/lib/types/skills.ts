@@ -17,7 +17,7 @@ export interface SkillInfo {
   content: string;
 }
 
-export type AgentId = "anthropic" | "codex" | "gemini";
+export type AgentId = string;
 
 /**
  * Push-destination discriminator for a {@link SkillTarget}.
@@ -255,12 +255,24 @@ export interface AgentPathPair {
   global: string;
   /** Project-root-relative path (e.g. ".claude/skills"). */
   projectRelative: string;
+  label?: string;
+  icon?: string;
 }
 
 export interface AgentPathsConfig {
-  anthropic: AgentPathPair;
-  codex: AgentPathPair;
-  gemini: AgentPathPair;
+  agents: Record<string, AgentPathPair>;
+}
+
+export interface RemovalPreview {
+  skills: string[];
+  targetCount: number;
+  sharedBy: string[];
+}
+
+export interface RemoveResult {
+  skillsAffected: number;
+  targetsRemoved: number;
+  diskDeleted: boolean;
 }
 
 export type TargetMode = "auto" | "manual" | "tracked" | "detached" | "forked";

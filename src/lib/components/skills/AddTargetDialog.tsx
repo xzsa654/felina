@@ -8,8 +8,6 @@ import { useLocaleStore } from "$lib/stores/locale";
 import { t } from "$lib/i18n";
 import Modal from "$lib/components/shared/Modal";
 
-const AGENTS: AgentId[] = ["anthropic", "codex", "gemini"];
-
 // known_projects_list returns normalized paths; the raw projectPath prop and
 // the OS dialog return un-normalized paths. A controlled <select> only matches
 // an <option> on exact string equality, so we must map a raw/desired path back
@@ -49,12 +47,24 @@ export default function AddTargetDialog({
   onClose,
 }: Props) {
   const locale = useLocaleStore((s) => s.locale);
-  const [agent, setAgent] = useState<AgentId>("anthropic");
+  const [agents, setAgents] = useState<AgentId[]>([]);
+  const [agent, setAgent] = useState<AgentId>("");
   const [targetScope, setTargetScope] = useState<"global" | "project">("global");
   const [selectedProject, setSelectedProject] = useState<string | null>(
     projectPath,
   );
   const [projects, setProjects] = useState<KnownProject[]>([]);
+
+  useEffect(() => {
+    void api.agentPaths
+      .get()
+      .then((config) => {
+        const ids = Object.keys(config.agents) as AgentId[];
+        setAgents(ids);
+        setAgent((cur) => (cur && ids.includes(cur) ? cur : ids[0] ?? ""));
+      })
+      .catch(() => setAgents([]));
+  }, []);
 
   useEffect(() => {
     void api.knownProjects
@@ -100,7 +110,7 @@ export default function AddTargetDialog({
             onChange={(e) => setAgent(e.target.value as AgentId)}
             className="px-2 py-1.5 rounded bg-bg-primary border border-border text-sm"
           >
-            {AGENTS.map((a) => (
+            {agents.map((a) => (
               <option key={a} value={a}>
                 {a}
               </option>

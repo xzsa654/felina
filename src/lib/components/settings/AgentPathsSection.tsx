@@ -1,19 +1,23 @@
 import { useEffect, useState } from "react";
-import { AlertTriangle, ChevronDown, ChevronRight, FolderTree, RefreshCw, RotateCcw, Save } from "lucide-react";
+import { AlertTriangle, ChevronDown, ChevronRight, FolderTree, Plus, RefreshCw, RotateCcw, Save, Trash2 } from "lucide-react";
 import { api } from "$lib/tauri/commands";
 import { t } from "$lib/i18n";
 import { useLocaleStore } from "$lib/stores/locale";
 import { useProjectContextStore } from "$lib/stores/project-context";
-import type { AgentId, AgentPathsConfig, SkillScope } from "$lib/types";
+import type { AgentId, AgentPathPair, AgentPathsConfig, SkillScope } from "$lib/types";
 import Modal from "$lib/components/shared/Modal";
+import AddAgentPathDialog from "./AddAgentPathDialog";
+import RemoveAgentPathDialog from "./RemoveAgentPathDialog";
 
-const AGENT_LABELS: Record<AgentId, string> = {
+const BUILTIN_AGENTS = ["anthropic", "codex", "gemini"] as const;
+
+const AGENT_LABELS: Record<string, string> = {
   anthropic: "Anthropic Claude",
   codex: "OpenAI Codex CLI",
   gemini: "Google Gemini / Antigravity",
 };
 
-const AGENT_HINTS: Record<AgentId, string> = {
+const AGENT_HINTS: Record<string, string> = {
   anthropic: "Anthropic Claude reads ~/.claude/skills/ and project .claude/skills/.",
   codex: "Codex reads ~/.agents/skills/ and project .agents/skills/.",
   gemini:
@@ -21,9 +25,11 @@ const AGENT_HINTS: Record<AgentId, string> = {
 };
 
 const DEFAULTS_FALLBACK: AgentPathsConfig = {
-  anthropic: { global: "~/.claude/skills", projectRelative: ".claude/skills" },
-  codex: { global: "~/.agents/skills", projectRelative: ".agents/skills" },
-  gemini: { global: "~/.gemini/antigravity-cli/skills", projectRelative: ".agents/skills" },
+  agents: {
+    anthropic: { global: "~/.claude/skills", projectRelative: ".claude/skills" },
+    codex: { global: "~/.agents/skills", projectRelative: ".agents/skills" },
+    gemini: { global: "~/.gemini/antigravity-cli/skills", projectRelative: ".agents/skills" },
+  },
 };
 
 /**
@@ -42,15 +48,17 @@ export default function AgentPathsSection() {
   const [config, setConfig] = useState<AgentPathsConfig | null>(null);
   const [original, setOriginal] = useState<AgentPathsConfig | null>(null);
   const [counts, setCounts] = useState<{
-    global: Record<AgentId, number>;
-    project: Record<AgentId, number>;
+    global: Record<string, number>;
+    project: Record<string, number>;
   }>({
-    global: { anthropic: 0, codex: 0, gemini: 0 },
-    project: { anthropic: 0, codex: 0, gemini: 0 },
+    global: {},
+    project: {},
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<{ title: string; detail: string } | null>(null);
   const [info, setInfo] = useState<string | null>(null);
+  const [addDialogOpen, setAddDialogOpen] = useState(false);
+  const [removeTarget, setRemoveTarget] = useState<string | null>(null);
 
   async function reload() {
     try {
@@ -154,16 +162,32 @@ export default function AgentPathsSection() {
             </div>
           )}
 
-          {(Object.keys(AGENT_LABELS) as AgentId[]).map((agent) => (
-            <AgentPathRow
-              key={agent}
-              agent={agent}
-              pair={config[agent]}
-              globalCount={counts.global[agent]}
-              projectCount={counts.project[agent]}
-              onChange={(pair) => setConfig({ ...config, [agent]: pair })}
-            />
-          ))}
+          {sortedAgentKeys(config).map((agent) => {
+            const isBuiltin = BUILTIN_AGENTS.includes(agent as typeof BUILTIN_AGENTS[number]);
+            return (
+              <AgentPathRow
+                key={agent}
+                agent={agent}
+                pair={config.agents[agent]}
+                isBuiltin={isBuiltin}
+                globalCount={counts.global[agent] ?? 0}
+                projectCount={counts.project[agent] ?? 0}
+                onChange={(pair) => setConfig({
+                  ...config,
+                  agents: { ...config.agents, [agent]: pair },
+                })}
+                onDelete={isBuiltin ? undefined : () => setRemoveTarget(agent)}
+              />
+            );
+          })}
+
+          <button
+            type="button"
+            onClick={() => setAddDialogOpen(true)}
+            className="inline-flex items-center gap-1 text-xs px-3 py-1.5 rounded border border-dashed border-border text-text-secondary hover:text-text-primary hover:border-accent w-full justify-center"
+          >
+            <Plus size={14} /> {t(locale, "felinaSettings.agentPaths.addButton")}
+          </button>
 
           <div className="flex items-center gap-2 justify-end">
             <button
@@ -229,26 +253,69 @@ export default function AgentPathsSection() {
             </div>
         </div>
       </Modal>
+      <AddAgentPathDialog
+        open={addDialogOpen}
+        existingKeys={config ? Object.keys(config.agents) : []}
+        onAdd={(key, global, projectRelative, label, icon) => {
+          if (!config) return;
+          const newPair: AgentPathPair = { global, projectRelative, label, icon };
+          const updated: AgentPathsConfig = {
+            agents: { ...config.agents, [key]: newPair },
+          };
+          setConfig(updated);
+          setAddDialogOpen(false);
+        }}
+        onClose={() => setAddDialogOpen(false)}
+      />
+
+      <RemoveAgentPathDialog
+        open={removeTarget !== null}
+        agentKey={removeTarget ?? ""}
+        onRemoved={() => {
+          setRemoveTarget(null);
+          void reload();
+        }}
+        onClose={() => setRemoveTarget(null)}
+      />
     </section>
   );
 }
 
-interface RowProps {
-  agent: AgentId;
-  pair: AgentPathsConfig[AgentId];
-  globalCount: number;
-  projectCount: number;
-  onChange: (pair: AgentPathsConfig[AgentId]) => void;
+function sortedAgentKeys(config: AgentPathsConfig): string[] {
+  const keys = Object.keys(config.agents);
+  const builtinOrder = BUILTIN_AGENTS.filter((b) => keys.includes(b));
+  const custom = keys.filter((k) => !BUILTIN_AGENTS.includes(k as typeof BUILTIN_AGENTS[number])).sort();
+  return [...builtinOrder, ...custom];
 }
 
-function AgentPathRow({ agent, pair, globalCount, projectCount, onChange }: RowProps) {
+interface RowProps {
+  agent: AgentId;
+  pair: AgentPathPair;
+  isBuiltin: boolean;
+  globalCount: number;
+  projectCount: number;
+  onChange: (pair: AgentPathPair) => void;
+  onDelete?: () => void;
+}
+
+function AgentPathRow({ agent, pair, isBuiltin, globalCount, projectCount, onChange, onDelete }: RowProps) {
   return (
     <div className="rounded border border-border p-3 flex flex-col gap-2">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <div className="text-sm font-medium">{AGENT_LABELS[agent]}</div>
-          <div className="text-xs text-text-secondary">{AGENT_HINTS[agent]}</div>
+          <div className="text-sm font-medium">{pair.label ?? AGENT_LABELS[agent] ?? agent}</div>
+          <div className="text-xs text-text-secondary">{AGENT_HINTS[agent] ?? (isBuiltin ? "" : agent)}</div>
         </div>
+        {!isBuiltin && onDelete && (
+          <button
+            type="button"
+            onClick={onDelete}
+            className="text-text-tertiary hover:text-danger p-1 rounded"
+            title="Remove"
+          >
+            <Trash2 size={14} />
+          </button>
+        )}
       </div>
       <PathInput
         scope="global"
