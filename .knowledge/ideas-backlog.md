@@ -90,9 +90,11 @@ Notes:
 | Field | Value |
 |---|---|
 | type | planned-change |
-| status | active |
+| status | completed |
 | flagged | 2026-05-28 |
-| last-seen | 2026-06-17 |
+| last-seen | 2026-06-18 |
+| completed | 2026-06-18 |
+| archive | 2026-06-18-third-party-agent-path |
 | description | 使用者可透過 Felina Settings 手動新增無限多組第三方 agent 的路徑 (Global / Project)，使其成為動態 Map 支援。 |
 
 Design route (2026-05-28 discuss 定案):
