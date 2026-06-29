@@ -179,6 +179,9 @@ pub fn run() {
             // Settings → Felina internal (quota TTL).
             commands::felina_settings::get_felina_quota_ttl,
             commands::felina_settings::set_felina_quota_ttl,
+            // Jesse token assistant.
+            commands::assistant::assistant_chat,
+            commands::assistant::assistant_generate,
             // Quota-window scheduler.
             commands::quota_scheduler::get_quota_window_schedules,
             commands::quota_scheduler::set_quota_window_schedule,

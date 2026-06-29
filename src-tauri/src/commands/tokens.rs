@@ -1366,9 +1366,8 @@ mod tests {
     #[test]
     fn missing_channel_signals_default_to_conversation() {
         // No structural signals, unknown shape — fail-open to conversation.
-        let unknown = single_entry_from_line(
-            r#"{"item":{"role":"user","content":"bare string content"}}"#,
-        );
+        let unknown =
+            single_entry_from_line(r#"{"item":{"role":"user","content":"bare string content"}}"#);
         assert_eq!(unknown.channel, "conversation");
     }
 

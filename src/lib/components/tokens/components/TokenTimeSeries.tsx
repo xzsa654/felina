@@ -9,9 +9,58 @@ import {
   ResponsiveContainer,
   Legend,
 } from "recharts";
-import type { TokenBucket } from "$lib/types";
+import type { JesseContextPayload, TokenBucket } from "$lib/types";
 import type { Locale } from "$lib/i18n";
 import { t } from "$lib/i18n";
+import { formatNumber } from "$lib/utils/format";
+import { totalTokensForBucket } from "../token-insights";
+import { buildJesseContextDragData, setJesseContextDragData } from "../jesse-context";
+
+export function buildTokenTimeSeriesJesseContext({
+  data,
+  locale,
+  title,
+}: {
+  data: TokenBucket[];
+  locale: Locale;
+  title: string;
+}): JesseContextPayload {
+  const allScopeOnly = data.length === 1 && data[0].label === "all";
+  const totals = data.reduce(
+    (acc, bucket) => ({
+      inputTokens: acc.inputTokens + bucket.input_tokens,
+      outputTokens: acc.outputTokens + bucket.output_tokens,
+      cacheReadTokens: acc.cacheReadTokens + bucket.cache_read_tokens,
+      cacheWriteTokens: acc.cacheWriteTokens + bucket.cache_write_tokens,
+      totalTokens: acc.totalTokens + totalTokensForBucket(bucket),
+    }),
+    { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 0 },
+  );
+  const howToRead = allScopeOnly
+    ? "This is a single aggregate stacked bar. Each colored segment is a token category; taller total bar means more total tokens."
+    : "The x-axis is time and the y-axis is token count. Colored stacked areas show input, output, cache read, and cache write tokens; a taller stack means more total usage in that bucket. Cache read means reused cached context, while cache write means new content written into cache.";
+
+  return {
+    kind: "token-overview",
+    title,
+    source: "tokens.tokenTimeSeries",
+    capturedAt: new Date().toISOString(),
+    summary: `${title}: ${data.length} buckets with ${formatNumber(totals.totalTokens, locale)} total tokens. How to read: ${howToRead}`,
+    metrics: {
+      chartType: "stacked token time series",
+      howToRead,
+      bucketCount: data.length,
+      allScopeOnly,
+      firstBucket: data[0]?.label ?? null,
+      lastBucket: data[data.length - 1]?.label ?? null,
+      totalTokens: totals.totalTokens,
+      inputTokens: totals.inputTokens,
+      outputTokens: totals.outputTokens,
+      cacheReadTokens: totals.cacheReadTokens,
+      cacheWriteTokens: totals.cacheWriteTokens,
+    },
+  };
+}
 
 export default function TokenTimeSeries({
   data,
@@ -34,11 +83,20 @@ export default function TokenTimeSeries({
   }
 
   const allScopeOnly = data.length === 1 && data[0].label === "all";
+  const title = t(locale, "tokens.tokenTimeSeries.title");
+  const dragData = buildJesseContextDragData(
+    buildTokenTimeSeriesJesseContext({ data, locale, title }),
+  );
 
   return (
     <div className="bg-bg-secondary border border-border rounded-lg p-4">
-      <h3 className="text-sm font-medium text-text-secondary mb-3">
-        {t(locale, "tokens.tokenTimeSeries.title")}
+      <h3
+        className="mb-3 inline-block cursor-grab text-sm font-medium text-text-secondary active:cursor-grabbing"
+        draggable
+        onDragStart={(event) => setJesseContextDragData(event.dataTransfer, dragData, title)}
+        title="Drag to Jesse"
+      >
+        {title}
       </h3>
       {allScopeOnly && (
         <p className="text-xs text-text-muted mb-2">

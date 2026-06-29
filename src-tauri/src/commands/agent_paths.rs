@@ -61,24 +61,33 @@ pub const BUILTIN_AGENT_ORDER: &[&str] = &["anthropic", "codex", "gemini"];
 impl AgentPathsConfig {
     pub fn defaults() -> Self {
         let mut agents = HashMap::new();
-        agents.insert("anthropic".into(), AgentPathPair {
-            global: "~/.claude/skills".into(),
-            project_relative: ".claude/skills".into(),
-            label: None,
-            icon: None,
-        });
-        agents.insert("codex".into(), AgentPathPair {
-            global: "~/.codex/skills".into(),
-            project_relative: ".agents/skills".into(),
-            label: None,
-            icon: None,
-        });
-        agents.insert("gemini".into(), AgentPathPair {
-            global: "~/.gemini/antigravity-cli/skills".into(),
-            project_relative: ".agents/skills".into(),
-            label: None,
-            icon: None,
-        });
+        agents.insert(
+            "anthropic".into(),
+            AgentPathPair {
+                global: "~/.claude/skills".into(),
+                project_relative: ".claude/skills".into(),
+                label: None,
+                icon: None,
+            },
+        );
+        agents.insert(
+            "codex".into(),
+            AgentPathPair {
+                global: "~/.codex/skills".into(),
+                project_relative: ".agents/skills".into(),
+                label: None,
+                icon: None,
+            },
+        );
+        agents.insert(
+            "gemini".into(),
+            AgentPathPair {
+                global: "~/.gemini/antigravity-cli/skills".into(),
+                project_relative: ".agents/skills".into(),
+                label: None,
+                icon: None,
+            },
+        );
         Self { agents }
     }
 
@@ -244,15 +253,21 @@ pub fn agent_path_removal_preview(agent_key: String) -> Result<RemovalPreview, S
     let mut skills = Vec::new();
     let mut target_count: u32 = 0;
     if canonical_dir.is_dir() {
-        for entry in fs::read_dir(&canonical_dir).map_err(|e| e.to_string())?.flatten() {
+        for entry in fs::read_dir(&canonical_dir)
+            .map_err(|e| e.to_string())?
+            .flatten()
+        {
             let meta_path = entry.path().join(".felina-sync-meta.json");
-            if !meta_path.is_file() { continue; }
+            if !meta_path.is_file() {
+                continue;
+            }
             let raw = fs::read_to_string(&meta_path).unwrap_or_default();
             let meta: serde_json::Value = serde_json::from_str(&raw).unwrap_or_default();
             if let Some(targets) = meta.get("targets").and_then(|t| t.as_array()) {
-                let count = targets.iter().filter(|t| {
-                    t.get("agent").and_then(|a| a.as_str()) == Some(&agent_key)
-                }).count() as u32;
+                let count = targets
+                    .iter()
+                    .filter(|t| t.get("agent").and_then(|a| a.as_str()) == Some(&agent_key))
+                    .count() as u32;
                 if count > 0 {
                     skills.push(entry.file_name().to_string_lossy().to_string());
                     target_count += count;
@@ -261,7 +276,11 @@ pub fn agent_path_removal_preview(agent_key: String) -> Result<RemovalPreview, S
         }
     }
     let shared_by = compute_shared_by(&agent_key);
-    Ok(RemovalPreview { skills, target_count, shared_by })
+    Ok(RemovalPreview {
+        skills,
+        target_count,
+        shared_by,
+    })
 }
 
 #[tauri::command]
@@ -283,9 +302,14 @@ pub fn agent_path_remove(agent_key: String, clean_disk: bool) -> Result<RemoveRe
     let mut skills_affected: u32 = 0;
     let mut targets_removed: u32 = 0;
     if canonical_dir.is_dir() {
-        for entry in fs::read_dir(&canonical_dir).map_err(|e| e.to_string())?.flatten() {
+        for entry in fs::read_dir(&canonical_dir)
+            .map_err(|e| e.to_string())?
+            .flatten()
+        {
             let meta_path = entry.path().join(".felina-sync-meta.json");
-            if !meta_path.is_file() { continue; }
+            if !meta_path.is_file() {
+                continue;
+            }
             let raw = fs::read_to_string(&meta_path).unwrap_or_default();
             let mut meta: serde_json::Value = match serde_json::from_str(&raw) {
                 Ok(v) => v,
@@ -294,9 +318,7 @@ pub fn agent_path_remove(agent_key: String, clean_disk: bool) -> Result<RemoveRe
             let mut changed = false;
             if let Some(targets) = meta.get_mut("targets").and_then(|t| t.as_array_mut()) {
                 let before = targets.len();
-                targets.retain(|t| {
-                    t.get("agent").and_then(|a| a.as_str()) != Some(&agent_key)
-                });
+                targets.retain(|t| t.get("agent").and_then(|a| a.as_str()) != Some(&agent_key));
                 let removed = (before - targets.len()) as u32;
                 if removed > 0 {
                     targets_removed += removed;
@@ -305,7 +327,8 @@ pub fn agent_path_remove(agent_key: String, clean_disk: bool) -> Result<RemoveRe
                 }
             }
             if let Some(last_sync) = meta.get_mut("lastSync").and_then(|l| l.as_object_mut()) {
-                let keys_to_remove: Vec<String> = last_sync.keys()
+                let keys_to_remove: Vec<String> = last_sync
+                    .keys()
                     .filter(|k| k.starts_with(&format!("{}:", agent_key)))
                     .cloned()
                     .collect();
@@ -342,14 +365,21 @@ pub fn agent_path_remove(agent_key: String, clean_disk: bool) -> Result<RemoveRe
         false
     };
 
-    Ok(RemoveResult { skills_affected, targets_removed, disk_deleted })
+    Ok(RemoveResult {
+        skills_affected,
+        targets_removed,
+        disk_deleted,
+    })
 }
 
 fn validate_agent_key(key: &str) -> Result<(), String> {
     if key.is_empty() {
         return Err("agent key must not be empty".into());
     }
-    if !key.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-') {
+    if !key
+        .chars()
+        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+    {
         return Err(format!("agent key must be kebab-case (a-z, 0-9, -): {key}"));
     }
     if key.contains("..") {
@@ -487,11 +517,19 @@ mod tests {
         let legacy = r#"{"anthropic":{"global":"~/.claude/skills","projectRelative":".claude/skills"},"codex":{"global":"~/.codex/skills","projectRelative":".agents/skills"},"gemini":{"global":"~/.gemini/skills","projectRelative":".gemini/skills"}}"#;
         let val: serde_json::Value = serde_json::from_str(legacy).unwrap();
         let cfg = serde_json::from_value::<AgentPathsConfig>(val.clone())
-            .or_else(|_| serde_json::from_value::<LegacyAgentPathsConfig>(val).map(AgentPathsConfig::from))
+            .or_else(|_| {
+                serde_json::from_value::<LegacyAgentPathsConfig>(val).map(AgentPathsConfig::from)
+            })
             .unwrap();
         assert_eq!(cfg.agents.len(), 3);
-        assert_eq!(cfg.pair_for("anthropic").unwrap().global, "~/.claude/skills");
-        assert_eq!(cfg.pair_for("gemini").unwrap().project_relative, ".gemini/skills");
+        assert_eq!(
+            cfg.pair_for("anthropic").unwrap().global,
+            "~/.claude/skills"
+        );
+        assert_eq!(
+            cfg.pair_for("gemini").unwrap().project_relative,
+            ".gemini/skills"
+        );
     }
 
     #[test]
@@ -500,7 +538,10 @@ mod tests {
         let cfg: AgentPathsConfig = serde_json::from_str(new).unwrap();
         assert_eq!(cfg.agents.len(), 3);
         assert_eq!(cfg.pair_for("aider").unwrap().global, "~/.aider/skills");
-        assert_eq!(cfg.pair_for("aider").unwrap().label.as_deref(), Some("Aider"));
+        assert_eq!(
+            cfg.pair_for("aider").unwrap().label.as_deref(),
+            Some("Aider")
+        );
     }
 
     #[test]
@@ -514,28 +555,39 @@ mod tests {
     #[test]
     fn test_removal_preview_shared_path() {
         let mut agents = HashMap::new();
-        agents.insert("aider".into(), AgentPathPair {
-            global: "~/.shared/skills".into(),
-            project_relative: ".aider/skills".into(),
-            label: None,
-            icon: None,
-        });
-        agents.insert("other-tool".into(), AgentPathPair {
-            global: "~/.shared/skills".into(),
-            project_relative: ".other/skills".into(),
-            label: None,
-            icon: None,
-        });
-        agents.insert("separate".into(), AgentPathPair {
-            global: "~/.separate/skills".into(),
-            project_relative: ".separate/skills".into(),
-            label: None,
-            icon: None,
-        });
+        agents.insert(
+            "aider".into(),
+            AgentPathPair {
+                global: "~/.shared/skills".into(),
+                project_relative: ".aider/skills".into(),
+                label: None,
+                icon: None,
+            },
+        );
+        agents.insert(
+            "other-tool".into(),
+            AgentPathPair {
+                global: "~/.shared/skills".into(),
+                project_relative: ".other/skills".into(),
+                label: None,
+                icon: None,
+            },
+        );
+        agents.insert(
+            "separate".into(),
+            AgentPathPair {
+                global: "~/.separate/skills".into(),
+                project_relative: ".separate/skills".into(),
+                label: None,
+                icon: None,
+            },
+        );
         let cfg = AgentPathsConfig { agents };
 
         let aider_global = normalize_global_path(&cfg.agents["aider"].global);
-        let shared: Vec<String> = cfg.agents.iter()
+        let shared: Vec<String> = cfg
+            .agents
+            .iter()
             .filter(|(k, _)| k.as_str() != "aider")
             .filter(|(_, pair)| normalize_global_path(&pair.global) == aider_global)
             .map(|(k, _)| k.clone())
@@ -543,7 +595,9 @@ mod tests {
         assert_eq!(shared, vec!["other-tool".to_string()]);
 
         let separate_global = normalize_global_path(&cfg.agents["separate"].global);
-        let shared2: Vec<String> = cfg.agents.iter()
+        let shared2: Vec<String> = cfg
+            .agents
+            .iter()
             .filter(|(k, _)| k.as_str() != "separate")
             .filter(|(_, pair)| normalize_global_path(&pair.global) == separate_global)
             .map(|(k, _)| k.clone())

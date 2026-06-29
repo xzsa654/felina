@@ -103,10 +103,7 @@ fn parse_hhmm(time: &str) -> Option<(u32, u32)> {
     if !felina_settings::is_valid_hhmm(time) {
         return None;
     }
-    Some((
-        time[0..2].parse().ok()?,
-        time[3..5].parse().ok()?,
-    ))
+    Some((time[0..2].parse().ok()?, time[3..5].parse().ok()?))
 }
 
 /// Pure decision: should this schedule fire right now? `true` only when the
@@ -133,7 +130,6 @@ pub fn should_trigger(
 fn send_for_agent(agent: &str, message: &str) -> Result<(), String> {
     match agent {
         "claude" => agent_message::send_claude_message(message),
-        "codex" => agent_message::send_codex_message(message),
         other => Err(format!("unsupported agent '{other}'")),
     }
 }
@@ -160,10 +156,7 @@ pub fn run_tick(state: &SchedulerState) {
     let date = now.format("%Y-%m-%d").to_string();
     let (hour, minute) = (now.hour(), now.minute());
 
-    for (agent, schedule) in [
-        ("claude", &schedules.claude),
-        ("codex", &schedules.codex),
-    ] {
+    for (agent, schedule) in [("claude", &schedules.claude)] {
         let last = state.last_fired_slot(agent);
         if should_trigger(hour, minute, &date, schedule, last.as_deref()) {
             let result = perform_trigger(agent, &schedule.message);
@@ -208,7 +201,6 @@ pub fn trigger_quota_window_now(
     let schedules = felina_settings::read_quota_window_schedules();
     let message = match agent.as_str() {
         "claude" => schedules.claude.message,
-        "codex" => schedules.codex.message,
         // Unknown agent: send an empty message so send_for_agent reports the
         // unsupported-agent error in the result.
         _ => String::new(),
@@ -238,9 +230,21 @@ mod tests {
         // exactly reached, slot not yet fired → due
         assert!(should_trigger(9, 0, "2026-06-16", &s, None));
         // later same day, this slot already fired → no duplicate
-        assert!(!should_trigger(9, 30, "2026-06-16", &s, Some("2026-06-16 09:00")));
+        assert!(!should_trigger(
+            9,
+            30,
+            "2026-06-16",
+            &s,
+            Some("2026-06-16 09:00")
+        ));
         // next day, last fired slot was yesterday's → due again
-        assert!(should_trigger(9, 0, "2026-06-17", &s, Some("2026-06-16 09:00")));
+        assert!(should_trigger(
+            9,
+            0,
+            "2026-06-17",
+            &s,
+            Some("2026-06-16 09:00")
+        ));
     }
 
     #[test]
@@ -248,9 +252,21 @@ mod tests {
         // User already fired 09:58 today, then changes the schedule to 10:04.
         // At 10:05 the new slot has not fired → it must trigger.
         let s = sched(true, "10:04");
-        assert!(should_trigger(10, 5, "2026-06-18", &s, Some("2026-06-18 09:58")));
+        assert!(should_trigger(
+            10,
+            5,
+            "2026-06-18",
+            &s,
+            Some("2026-06-18 09:58")
+        ));
         // Once that slot fires, it won't re-fire the same minute.
-        assert!(!should_trigger(10, 5, "2026-06-18", &s, Some("2026-06-18 10:04")));
+        assert!(!should_trigger(
+            10,
+            5,
+            "2026-06-18",
+            &s,
+            Some("2026-06-18 10:04")
+        ));
     }
 
     #[test]

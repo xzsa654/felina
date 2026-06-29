@@ -40,10 +40,7 @@ impl FanOutRenderer for GenericRenderer {
         } else {
             &format!("{}\n", skill.body)
         };
-        let content = format!(
-            "---\n{}\n---\n{body}",
-            fm_yaml.trim_end_matches('\n')
-        );
+        let content = format!("---\n{}\n---\n{body}", fm_yaml.trim_end_matches('\n'));
         fs::write(skill_dir.join("SKILL.md"), &content)
             .map_err(|e| format!("failed to write SKILL.md: {e}"))?;
 
@@ -82,9 +79,15 @@ mod tests {
 
         let content = std::fs::read_to_string(tmp.path().join("My Skill/SKILL.md")).unwrap();
         assert!(content.contains("name: My Skill"), "should have name");
-        assert!(content.contains("description: Does things"), "should have description");
+        assert!(
+            content.contains("description: Does things"),
+            "should have description"
+        );
         assert!(content.contains("# Instructions"), "should have body");
         assert!(!content.contains("agents:"), "should NOT have agents field");
-        assert!(!content.contains("x_felina"), "should NOT have agent fields");
+        assert!(
+            !content.contains("x_felina"),
+            "should NOT have agent fields"
+        );
     }
 }

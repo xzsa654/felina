@@ -13,8 +13,7 @@ pub(crate) fn ensure_repo() -> Result<Repository, String> {
     if path.join(".git").exists() {
         Repository::open(&path).map_err(|e| format!("failed to open git repo: {e}"))
     } else {
-        std::fs::create_dir_all(&path)
-            .map_err(|e| format!("failed to create skills dir: {e}"))?;
+        std::fs::create_dir_all(&path).map_err(|e| format!("failed to create skills dir: {e}"))?;
         Repository::init(&path).map_err(|e| format!("failed to init git repo: {e}"))
     }
 }
@@ -23,8 +22,7 @@ fn ensure_repo_at(path: &Path) -> Result<Repository, String> {
     if path.join(".git").exists() {
         Repository::open(path).map_err(|e| format!("failed to open git repo: {e}"))
     } else {
-        std::fs::create_dir_all(path)
-            .map_err(|e| format!("failed to create dir: {e}"))?;
+        std::fs::create_dir_all(path).map_err(|e| format!("failed to create dir: {e}"))?;
         Repository::init(path).map_err(|e| format!("failed to init git repo: {e}"))
     }
 }
@@ -47,7 +45,10 @@ fn rename_skill_in(root: &Path, old_name: &str, new_name: &str) -> Result<String
         return Err(format!("skill directory not found: {}", old_dir.display()));
     }
     if new_dir.exists() {
-        return Err(format!("target directory already exists: {}", new_dir.display()));
+        return Err(format!(
+            "target directory already exists: {}",
+            new_dir.display()
+        ));
     }
 
     for entry in walkdir::WalkDir::new(&old_dir)
@@ -64,8 +65,7 @@ fn rename_skill_in(root: &Path, old_name: &str, new_name: &str) -> Result<String
             .map_err(|e| format!("git remove error: {e}"))?;
     }
 
-    std::fs::rename(&old_dir, &new_dir)
-        .map_err(|e| format!("fs rename error: {e}"))?;
+    std::fs::rename(&old_dir, &new_dir).map_err(|e| format!("fs rename error: {e}"))?;
 
     for entry in walkdir::WalkDir::new(&new_dir)
         .into_iter()
@@ -84,14 +84,16 @@ fn rename_skill_in(root: &Path, old_name: &str, new_name: &str) -> Result<String
     let oid = index
         .write_tree()
         .map_err(|e| format!("write tree error: {e}"))?;
-    index.write().map_err(|e| format!("index write error: {e}"))?;
+    index
+        .write()
+        .map_err(|e| format!("index write error: {e}"))?;
 
     let tree = repo
         .find_tree(oid)
         .map_err(|e| format!("find tree error: {e}"))?;
 
-    let sig = Signature::now("Felina", "felina@local")
-        .map_err(|e| format!("signature error: {e}"))?;
+    let sig =
+        Signature::now("Felina", "felina@local").map_err(|e| format!("signature error: {e}"))?;
 
     let message = format!("rename: {old_name} → {new_name}");
 
@@ -111,7 +113,10 @@ fn commit_skill_changes_in(root: &Path, skill_name: &str) -> Result<String, Stri
 
     let skill_dir = root.join(skill_name);
     if !skill_dir.is_dir() {
-        return Err(format!("skill directory not found: {}", skill_dir.display()));
+        return Err(format!(
+            "skill directory not found: {}",
+            skill_dir.display()
+        ));
     }
 
     for entry in walkdir::WalkDir::new(&skill_dir)
@@ -131,14 +136,16 @@ fn commit_skill_changes_in(root: &Path, skill_name: &str) -> Result<String, Stri
     let oid = index
         .write_tree()
         .map_err(|e| format!("write tree error: {e}"))?;
-    index.write().map_err(|e| format!("index write error: {e}"))?;
+    index
+        .write()
+        .map_err(|e| format!("index write error: {e}"))?;
 
     let tree = repo
         .find_tree(oid)
         .map_err(|e| format!("find tree error: {e}"))?;
 
-    let sig = Signature::now("Felina", "felina@local")
-        .map_err(|e| format!("signature error: {e}"))?;
+    let sig =
+        Signature::now("Felina", "felina@local").map_err(|e| format!("signature error: {e}"))?;
 
     let message = format!("push: {skill_name}");
 
@@ -152,7 +159,10 @@ fn commit_skill_changes_in(root: &Path, skill_name: &str) -> Result<String, Stri
     Ok(format!("{commit_oid}"))
 }
 
-pub fn get_snapshot_content(commit_hash: &str, relative_path: &str) -> Result<Option<String>, String> {
+pub fn get_snapshot_content(
+    commit_hash: &str,
+    relative_path: &str,
+) -> Result<Option<String>, String> {
     get_snapshot_content_in(&repo_path(), commit_hash, relative_path)
 }
 
@@ -176,9 +186,7 @@ fn get_snapshot_content_in(
         Err(_) => return Ok(None),
     };
 
-    let tree = commit
-        .tree()
-        .map_err(|e| format!("tree error: {e}"))?;
+    let tree = commit.tree().map_err(|e| format!("tree error: {e}"))?;
 
     let entry = match tree.get_path(Path::new(relative_path)) {
         Ok(e) => e,
@@ -272,7 +280,11 @@ mod tests {
         let (_tmp, root) = setup_temp_repo();
         let skill_dir = root.join("old-skill");
         fs::create_dir_all(&skill_dir).unwrap();
-        fs::write(skill_dir.join("SKILL.md"), "---\nname: old-skill\n---\n# Old\n").unwrap();
+        fs::write(
+            skill_dir.join("SKILL.md"),
+            "---\nname: old-skill\n---\n# Old\n",
+        )
+        .unwrap();
 
         commit_skill_changes_in(&root, "old-skill").unwrap();
 
@@ -287,7 +299,13 @@ mod tests {
         let oid = git2::Oid::from_str(&hash).unwrap();
         let commit = repo.find_commit(oid).unwrap();
         let msg = commit.message().unwrap();
-        assert!(msg.contains("old-skill"), "commit message should contain old name");
-        assert!(msg.contains("new-skill"), "commit message should contain new name");
+        assert!(
+            msg.contains("old-skill"),
+            "commit message should contain old name"
+        );
+        assert!(
+            msg.contains("new-skill"),
+            "commit message should contain new name"
+        );
     }
 }

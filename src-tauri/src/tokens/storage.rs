@@ -719,7 +719,13 @@ mod tests {
         // felina_parser only covers the recent day (per-event detail).
         storage
             .upsert_events_for_source(
-                &[make_event(AgentId::ClaudeCode, ts_recent, 200, 50, "sess-b")],
+                &[make_event(
+                    AgentId::ClaudeCode,
+                    ts_recent,
+                    200,
+                    50,
+                    "sess-b",
+                )],
                 SOURCE_FELINA_PARSER,
                 "parser",
             )
@@ -747,7 +753,10 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(excluded, 0, "parser-covered day must not pull tokscale rows");
+        assert_eq!(
+            excluded, 0,
+            "parser-covered day must not pull tokscale rows"
+        );
         drop(conn);
 
         // Rebuild is idempotent — running again yields the same row count.

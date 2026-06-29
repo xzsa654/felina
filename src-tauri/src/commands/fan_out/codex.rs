@@ -54,7 +54,9 @@ impl FanOutRenderer for CodexRenderer {
 
         let mut root = serde_yaml::Mapping::new();
         for (k, v) in codex_fields {
-            let serde_yaml::Value::String(ref key) = k else { continue; };
+            let serde_yaml::Value::String(ref key) = k else {
+                continue;
+            };
             if let Some((section, field)) = key.split_once('.') {
                 let section_val = root
                     .entry(serde_yaml::Value::String(section.into()))

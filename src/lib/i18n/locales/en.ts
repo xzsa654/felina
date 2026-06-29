@@ -29,7 +29,7 @@ const en = {
     scheduler: {
       title: "Quota Expiry Control",
       description:
-        "Send a short message at a set time each day to start the usage window.",
+        "Send a short Claude Code message at a set time each day to start the usage window.",
       runtimeNote: "Scheduled triggers run only while Felina is open.",
       quotaWarning: "Each trigger sends one message and uses a little quota.",
       enabled: "Enabled",
@@ -44,6 +44,26 @@ const en = {
       lastFailure: "Failed {time}: {error}",
       saveError: "Save failed: {error}",
       unavailable: "Scheduler unavailable",
+    },
+    jesse: {
+      name: "Jesse",
+      nickname: "pinkman · hungry token helper",
+      open: "Open Jesse",
+      dropHint: "Drop a token card or row here.",
+      invalidDrop: "Jesse can only read supported token context.",
+      clear: "Clear",
+      chatEmpty: "Drop a token metric onto Jesse. He will summarize it first, then you can ask follow-up questions.",
+      chatPlaceholder: "What do you want to know?",
+      thinking: "Jesse is digesting the data...",
+      send: "Send",
+      disclaimer: "Jesse can make mistakes. Check important info.",
+      authRequired:
+        "{provider} is not available. Open the {command} CLI in a terminal and make sure it is logged in, then try again. If the session has been idle for too long, restart the CLI first.",
+      actions: {
+        summary: "Summary",
+        explain: "Explain",
+        plan: "Plan",
+      },
     },
     granularity: {
       hourly: "H",

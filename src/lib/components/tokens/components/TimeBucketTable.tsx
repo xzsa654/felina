@@ -4,6 +4,7 @@ import type { Locale } from "$lib/i18n";
 import { t } from "$lib/i18n";
 import { formatNumber, formatCostFull, formatNumberFull } from "$lib/utils/format";
 import { totalTokensForBucket } from "../token-insights";
+import { buildJesseContextDragData, setJesseContextDragData } from "../jesse-context";
 import DayDetailPanel from "./DayDetailPanel";
 
 type SortField = "label" | "event_count" | "total" | "cost_usd";
@@ -117,6 +118,23 @@ export default function TimeBucketTable({
   ), [dated]);
 
   const arrow = (f: SortField) => sortField === f ? (sortAsc ? " ↑" : " ↓") : "";
+  const tableTitle = t(locale, "tokens.timeBucketTable.title" as never);
+  const tableDragData = buildJesseContextDragData({
+    kind: "token-overview",
+    title: tableTitle,
+    source: "tokens.timeBucketTable",
+    capturedAt: new Date().toISOString(),
+    summary: `${tableTitle}: ${sorted.length} daily buckets, ${formatNumber(totals.total, locale)} total tokens, ${formatCostFull(totals.cost_usd, locale)} estimated cost.`,
+    metrics: {
+      bucketCount: sorted.length,
+      visibleCount: visible.length,
+      eventCount: totals.event_count,
+      totalTokens: totals.total,
+      costUsd: totals.cost_usd,
+      sortField,
+      sortDirection: sortAsc ? "asc" : "desc",
+    },
+  });
 
   function Th({ field, label, right }: { field: SortField; label: string; right?: boolean }) {
     return (
@@ -134,8 +152,13 @@ export default function TimeBucketTable({
   return (
     <div className="bg-bg-secondary border border-border rounded-lg p-4">
       <div className="flex items-center justify-between mb-3">
-        <h3 className="text-sm font-medium text-text-secondary">
-          {t(locale, "tokens.timeBucketTable.title" as never)}
+        <h3
+          className="inline-block cursor-grab text-sm font-medium text-text-secondary active:cursor-grabbing"
+          draggable
+          onDragStart={(event) => setJesseContextDragData(event.dataTransfer, tableDragData, tableTitle)}
+          title="Drag to Jesse"
+        >
+          {tableTitle}
         </h3>
         <span className="text-xs text-text-muted">
           {visible.length} / {sorted.length}
@@ -160,6 +183,24 @@ export default function TimeBucketTable({
               const total = totalTokensForBucket(b);
               const isOpen = expanded.has(b.label);
               const parts = COMPOSITION_PARTS.filter((p) => b[p.key] > 0);
+              const rowDragData = buildJesseContextDragData({
+                kind: "token-overview",
+                title: `${t(locale, "tokens.timeBucketTable.dayDetail" as never, { date: b.label })}`,
+                source: "tokens.timeBucketTable.row",
+                capturedAt: new Date().toISOString(),
+                summary: `${b.label}: ${formatNumber(total, locale)} tokens, ${formatNumber(b.event_count, locale)} messages, ${formatCostFull(b.cost_usd, locale)} estimated cost.`,
+                metrics: {
+                  date: b.label,
+                  eventCount: b.event_count,
+                  totalTokens: total,
+                  inputTokens: b.input_tokens,
+                  outputTokens: b.output_tokens,
+                  cacheReadTokens: b.cache_read_tokens,
+                  cacheWriteTokens: b.cache_write_tokens,
+                  reasoningTokens: b.reasoning_tokens,
+                  costUsd: b.cost_usd,
+                },
+              });
 
               return [
                 <tr
@@ -176,7 +217,20 @@ export default function TimeBucketTable({
                       ▶
                     </span>
                   </td>
-                  <td className="px-3 py-2.5 text-text-primary font-mono">{b.label}</td>
+                  <td className="px-3 py-2.5 text-text-primary font-mono">
+                    <span
+                      className="inline-block cursor-grab active:cursor-grabbing"
+                      draggable
+                      onClick={(event) => event.stopPropagation()}
+                      onDragStart={(event) => {
+                        event.stopPropagation();
+                        setJesseContextDragData(event.dataTransfer, rowDragData, b.label);
+                      }}
+                      title="Drag to Jesse"
+                    >
+                      {b.label}
+                    </span>
+                  </td>
                   <td className="px-3 py-2.5 text-right text-text-secondary">{formatNumber(b.event_count, locale)}</td>
                   <td className="px-3 py-2.5">
                     {total > 0 ? (

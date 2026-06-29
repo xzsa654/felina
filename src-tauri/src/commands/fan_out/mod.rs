@@ -14,8 +14,7 @@
 
 use crate::commands::canonical_skills::{
     canonical_skills_dir, parse_skill_md, read_sync_meta_v2, read_sync_meta_v2_no_backfill,
-    target_key, write_sync_meta_v2, AgentId, CanonicalSkill, LastSyncEntry, SkillScope,
-    TargetMode,
+    target_key, write_sync_meta_v2, AgentId, CanonicalSkill, LastSyncEntry, SkillScope, TargetMode,
 };
 use crate::paths::normalize_display_path;
 use serde::{Deserialize, Serialize};
@@ -442,7 +441,9 @@ pub fn skill_sync_one(name: String) -> Result<Vec<SyncResult>, String> {
         }
 
         let renderer = renderer_for(&target.agent);
-        let Some(pair) = pair_for(&cfg, &target.agent) else { continue; };
+        let Some(pair) = pair_for(&cfg, &target.agent) else {
+            continue;
+        };
         let target_dir =
             match renderer.resolve_target_dir(target.scope, target.project.as_deref(), pair) {
                 Ok(d) => d,
@@ -460,7 +461,10 @@ pub fn skill_sync_one(name: String) -> Result<Vec<SyncResult>, String> {
             };
         let target_skill_dir = target_dir.join(&skill.name);
         let key = target_key(&target);
-        let old_sibling_hashes = meta.last_sync.get(&key).and_then(|e| e.sibling_hashes.clone());
+        let old_sibling_hashes = meta
+            .last_sync
+            .get(&key)
+            .and_then(|e| e.sibling_hashes.clone());
         let render_result = renderer.render(&skill, &target_dir);
         let final_result = match render_result {
             Ok(()) => copy_bundled_siblings(&canonical_skill_dir, &target_skill_dir),
@@ -469,7 +473,11 @@ pub fn skill_sync_one(name: String) -> Result<Vec<SyncResult>, String> {
 
         match final_result {
             Ok(()) => {
-                cleanup_orphan_siblings(&old_sibling_hashes, &canonical_skill_dir, &target_skill_dir);
+                cleanup_orphan_siblings(
+                    &old_sibling_hashes,
+                    &canonical_skill_dir,
+                    &target_skill_dir,
+                );
                 let rendered =
                     fs::read_to_string(target_skill_dir.join("SKILL.md")).unwrap_or_default();
                 let snapshot = try_snapshot(&name);
@@ -576,15 +584,15 @@ fn split_frontmatter(content: &str) -> Option<(&str, &str)> {
         return None;
     }
     let after_open = &trimmed[3..];
-    let after_open = after_open.strip_prefix('\n').unwrap_or(
-        after_open.strip_prefix("\r\n").unwrap_or(after_open),
-    );
+    let after_open = after_open
+        .strip_prefix('\n')
+        .unwrap_or(after_open.strip_prefix("\r\n").unwrap_or(after_open));
     let close_pos = after_open.find("\n---")?;
     let fm = &after_open[..close_pos];
     let rest = &after_open[close_pos + 4..];
-    let rest = rest.strip_prefix('\n').unwrap_or(
-        rest.strip_prefix("\r\n").unwrap_or(rest),
-    );
+    let rest = rest
+        .strip_prefix('\n')
+        .unwrap_or(rest.strip_prefix("\r\n").unwrap_or(rest));
     Some((fm, rest))
 }
 
@@ -608,12 +616,10 @@ fn normalize_yaml_value(val: &serde_yaml::Value) -> String {
             }
             out.trim_end().to_string()
         }
-        other => {
-            serde_yaml::to_string(other)
-                .unwrap_or_default()
-                .trim()
-                .to_string()
-        }
+        other => serde_yaml::to_string(other)
+            .unwrap_or_default()
+            .trim()
+            .to_string(),
     }
 }
 
@@ -636,7 +642,11 @@ pub fn skill_sync_all() -> Result<Vec<SyncResult>, String> {
                     // single result tagged to the first agent so the UI has
                     // somewhere to render the error. Scope is Global because
                     // canonical now lives there exclusively.
-                    let agent = skill.agents.first().cloned().unwrap_or_else(|| "anthropic".to_string());
+                    let agent = skill
+                        .agents
+                        .first()
+                        .cloned()
+                        .unwrap_or_else(|| "anthropic".to_string());
                     out.push(SyncResult {
                         agent,
                         scope: SkillScope::Global,
@@ -665,14 +675,21 @@ pub fn skill_sync_all_preview() -> Result<SkillSyncAllPreview, String> {
     let mut summary = SkillSyncPreviewSummary::default();
     for entry in entries {
         if let super::canonical_skills::SkillListEntry::Ok {
-            canonical_id, skill, ..
+            canonical_id,
+            skill,
+            ..
         } = entry
         {
             if !skill.dirty {
                 continue;
             }
             let has_pushable_target = skill.targets.iter().any(|t| {
-                t.enabled && matches!(t.mode, super::canonical_skills::TargetMode::Auto | super::canonical_skills::TargetMode::Manual)
+                t.enabled
+                    && matches!(
+                        t.mode,
+                        super::canonical_skills::TargetMode::Auto
+                            | super::canonical_skills::TargetMode::Manual
+                    )
             });
             if !has_pushable_target {
                 continue;
@@ -912,7 +929,13 @@ pub fn auto_push_if_needed(canonical_id: &str) -> Vec<SyncResult> {
     let mut results = Vec::new();
 
     for target in &auto_targets {
-        match write_target(&skill, &canonical_skill_dir, target, &attempted_at, &mut meta) {
+        match write_target(
+            &skill,
+            &canonical_skill_dir,
+            target,
+            &attempted_at,
+            &mut meta,
+        ) {
             Ok(r) => {
                 let snapshot = try_snapshot(canonical_id);
                 let key = target_key(target);
@@ -980,7 +1003,10 @@ fn write_target(
             }
         };
     let target_skill_dir = target_dir.join(&skill.name);
-    let old_sibling_hashes = meta.last_sync.get(&target_key(target)).and_then(|e| e.sibling_hashes.clone());
+    let old_sibling_hashes = meta
+        .last_sync
+        .get(&target_key(target))
+        .and_then(|e| e.sibling_hashes.clone());
     let final_result = match renderer.render(skill, &target_dir) {
         Ok(()) => copy_bundled_siblings(canonical_skill_dir, &target_skill_dir),
         Err(e) => Err(e),
@@ -1065,7 +1091,9 @@ fn build_preview_for_skill(
     for target in &meta.targets {
         let key = target_key(target);
         let renderer = renderer_for(&target.agent);
-        let Some(pair) = pair_for(&cfg, &target.agent) else { continue; };
+        let Some(pair) = pair_for(&cfg, &target.agent) else {
+            continue;
+        };
 
         let target_dir =
             match renderer.resolve_target_dir(target.scope, target.project.as_deref(), pair) {
@@ -1115,7 +1143,8 @@ fn build_preview_for_skill(
             continue;
         }
 
-        let rendered_hash = match rendered_skill_md_hash(skill, &target.agent, canonical_skill_dir) {
+        let rendered_hash = match rendered_skill_md_hash(skill, &target.agent, canonical_skill_dir)
+        {
             Ok(hash) => hash,
             Err(error) => {
                 items.push(SkillSyncPreviewItem {
@@ -1139,10 +1168,15 @@ fn build_preview_for_skill(
 
         let last_sync_entry = meta.last_sync.get(&key);
         let last_sync_at = last_sync_entry.map(|e| e.at.as_str());
-        let sibling_hashes_ref = last_sync_entry
-            .and_then(|e| e.sibling_hashes.clone());
+        let sibling_hashes_ref = last_sync_entry.and_then(|e| e.sibling_hashes.clone());
         let canonical_siblings = compute_sibling_hashes(canonical_skill_dir);
-        let drift = check_drift(&skill_md_path, last_sync_hash.as_deref(), last_sync_at, &sibling_hashes_ref, Some(&canonical_siblings));
+        let drift = check_drift(
+            &skill_md_path,
+            last_sync_hash.as_deref(),
+            last_sync_at,
+            &sibling_hashes_ref,
+            Some(&canonical_siblings),
+        );
         let current_hash = if skill_md_path.is_file() {
             let current = fs::read_to_string(&skill_md_path).map_err(|e| {
                 format!(
@@ -1177,7 +1211,13 @@ fn build_preview_for_skill(
             (_, DriftStatus::Synced) => SkillSyncPreviewOperation::Overwrite,
             (_, DriftStatus::NoPushHistory) => SkillSyncPreviewOperation::OverwriteUnknown,
             (_, DriftStatus::Missing) => SkillSyncPreviewOperation::Create,
-            (_, DriftStatus::ForkedClean | DriftStatus::ForkedEdited | DriftStatus::ForkedCanonicalAhead | DriftStatus::ForkedDiverged) => SkillSyncPreviewOperation::Skipped,
+            (
+                _,
+                DriftStatus::ForkedClean
+                | DriftStatus::ForkedEdited
+                | DriftStatus::ForkedCanonicalAhead
+                | DriftStatus::ForkedDiverged,
+            ) => SkillSyncPreviewOperation::Skipped,
         };
 
         items.push(SkillSyncPreviewItem {
@@ -1320,8 +1360,7 @@ pub fn skill_target_dir_resolve(
     project: Option<String>,
 ) -> Result<TargetDirInfo, String> {
     let cfg = super::agent_paths::agent_paths_get()?;
-    let pair = pair_for(&cfg, &agent)
-        .ok_or_else(|| format!("unknown agent: {agent}"))?;
+    let pair = pair_for(&cfg, &agent).ok_or_else(|| format!("unknown agent: {agent}"))?;
     let target_dir = resolve_pair(scope, project.as_deref(), pair)?;
     let dir = target_dir.join(&skill_name);
     let exists = dir.is_dir();
@@ -1334,14 +1373,28 @@ pub fn skill_target_dir_resolve(
 /// Batch drift scan: iterate all canonical skills, check each enabled tracked
 /// target for drift, and return a nested map keyed by skill name → target key.
 #[tauri::command]
-pub fn skill_drift_scan() -> Result<std::collections::BTreeMap<String, std::collections::BTreeMap<String, DriftStatus>>, String> {
+pub fn skill_drift_scan() -> Result<
+    std::collections::BTreeMap<String, std::collections::BTreeMap<String, DriftStatus>>,
+    String,
+> {
     let entries = super::canonical_skills::canonical_skills_list()?;
     let cfg = super::agent_paths::agent_paths_get()?;
-    let mut result: std::collections::BTreeMap<String, std::collections::BTreeMap<String, DriftStatus>> = std::collections::BTreeMap::new();
+    let mut result: std::collections::BTreeMap<
+        String,
+        std::collections::BTreeMap<String, DriftStatus>,
+    > = std::collections::BTreeMap::new();
 
     // Collect (skill_name, target_key, agent_side_path, pushed_hash, last_sync_at)
     // for targets that need checking. Disabled/detached targets are skipped per spec.
-    let mut checks: Vec<(String, String, PathBuf, Option<String>, Option<String>, Option<std::collections::BTreeMap<String, String>>, std::collections::BTreeMap<String, String>)> = Vec::new();
+    let mut checks: Vec<(
+        String,
+        String,
+        PathBuf,
+        Option<String>,
+        Option<String>,
+        Option<std::collections::BTreeMap<String, String>>,
+        std::collections::BTreeMap<String, String>,
+    )> = Vec::new();
 
     for entry in entries {
         let super::canonical_skills::SkillListEntry::Ok {
@@ -1362,21 +1415,24 @@ pub fn skill_drift_scan() -> Result<std::collections::BTreeMap<String, std::coll
             let last_sync_entry = meta.last_sync.get(&key);
 
             if matches!(target.mode, TargetMode::Forked) {
-                let canonical_skill_md = canonical_skills_dir().join(&canonical_id).join("SKILL.md");
+                let canonical_skill_md =
+                    canonical_skills_dir().join(&canonical_id).join("SKILL.md");
                 let renderer = renderer_for(&target.agent);
-                let Some(pair) = pair_for(&cfg, &target.agent) else { continue; };
-                let target_dir =
-                    match renderer.resolve_target_dir(target.scope, target.project.as_deref(), pair) {
-                        Ok(d) => d,
-                        Err(_) => continue,
-                    };
+                let Some(pair) = pair_for(&cfg, &target.agent) else {
+                    continue;
+                };
+                let target_dir = match renderer.resolve_target_dir(
+                    target.scope,
+                    target.project.as_deref(),
+                    pair,
+                ) {
+                    Ok(d) => d,
+                    Err(_) => continue,
+                };
                 let agent_side = target_dir.join(&canonical_id).join("SKILL.md");
 
-                let fork_status = classify_fork_status(
-                    &canonical_skill_md,
-                    &agent_side,
-                    last_sync_entry,
-                );
+                let fork_status =
+                    classify_fork_status(&canonical_skill_md, &agent_side, last_sync_entry);
                 result
                     .entry(canonical_id.clone())
                     .or_default()
@@ -1388,15 +1444,16 @@ pub fn skill_drift_scan() -> Result<std::collections::BTreeMap<String, std::coll
             let last_sync_at = last_sync_entry.map(|e| e.at.clone());
 
             let renderer = renderer_for(&target.agent);
-            let Some(pair) = pair_for(&cfg, &target.agent) else { continue; };
+            let Some(pair) = pair_for(&cfg, &target.agent) else {
+                continue;
+            };
             let target_dir =
                 match renderer.resolve_target_dir(target.scope, target.project.as_deref(), pair) {
                     Ok(d) => d,
                     Err(_) => continue,
                 };
             let skill_md_path = target_dir.join(&canonical_id).join("SKILL.md");
-            let sib_hashes = last_sync_entry
-                .and_then(|e| e.sibling_hashes.clone());
+            let sib_hashes = last_sync_entry.and_then(|e| e.sibling_hashes.clone());
             let canonical_sibs = compute_sibling_hashes(&canonical_skill_dir);
             checks.push((
                 canonical_id.clone(),
@@ -1414,17 +1471,22 @@ pub fn skill_drift_scan() -> Result<std::collections::BTreeMap<String, std::coll
     use rayon::prelude::*;
     let statuses: Vec<(String, String, DriftStatus)> = checks
         .into_par_iter()
-        .map(|(skill_name, tkey, path, pushed, at, sib_hashes, canonical_sibs)| {
-            let status = check_drift(&path, pushed.as_deref(), at.as_deref(), &sib_hashes, Some(&canonical_sibs));
-            (skill_name, tkey, status)
-        })
+        .map(
+            |(skill_name, tkey, path, pushed, at, sib_hashes, canonical_sibs)| {
+                let status = check_drift(
+                    &path,
+                    pushed.as_deref(),
+                    at.as_deref(),
+                    &sib_hashes,
+                    Some(&canonical_sibs),
+                );
+                (skill_name, tkey, status)
+            },
+        )
         .collect();
 
     for (skill_name, tkey, status) in statuses {
-        result
-            .entry(skill_name)
-            .or_default()
-            .insert(tkey, status);
+        result.entry(skill_name).or_default().insert(tkey, status);
     }
 
     Ok(result)
@@ -1507,25 +1569,40 @@ pub(crate) fn build_diff_hunks(old_text: &str, new_text: &str) -> Vec<DiffHunk> 
             match tag {
                 similar::DiffTag::Equal => {
                     for line in old_text.lines().skip(old_range.start).take(old_range.len()) {
-                        lines.push(DiffLine { kind: "context".into(), content: format!("{line}\n") });
+                        lines.push(DiffLine {
+                            kind: "context".into(),
+                            content: format!("{line}\n"),
+                        });
                     }
                 }
                 similar::DiffTag::Delete => {
                     for line in old_text.lines().skip(old_range.start).take(old_range.len()) {
-                        lines.push(DiffLine { kind: "delete".into(), content: format!("{line}\n") });
+                        lines.push(DiffLine {
+                            kind: "delete".into(),
+                            content: format!("{line}\n"),
+                        });
                     }
                 }
                 similar::DiffTag::Insert => {
                     for line in new_text.lines().skip(new_range.start).take(new_range.len()) {
-                        lines.push(DiffLine { kind: "add".into(), content: format!("{line}\n") });
+                        lines.push(DiffLine {
+                            kind: "add".into(),
+                            content: format!("{line}\n"),
+                        });
                     }
                 }
                 similar::DiffTag::Replace => {
                     for line in old_text.lines().skip(old_range.start).take(old_range.len()) {
-                        lines.push(DiffLine { kind: "delete".into(), content: format!("{line}\n") });
+                        lines.push(DiffLine {
+                            kind: "delete".into(),
+                            content: format!("{line}\n"),
+                        });
                     }
                     for line in new_text.lines().skip(new_range.start).take(new_range.len()) {
-                        lines.push(DiffLine { kind: "add".into(), content: format!("{line}\n") });
+                        lines.push(DiffLine {
+                            kind: "add".into(),
+                            content: format!("{line}\n"),
+                        });
                     }
                 }
             }
@@ -1597,25 +1674,26 @@ pub(crate) fn compute_sibling_changes(
             (None, _, None) => continue,
         };
 
-        changes.push(SiblingChange {
-            path: key,
-            status,
-        });
+        changes.push(SiblingChange { path: key, status });
     }
 
     changes
 }
 
 #[tauri::command]
-pub fn skill_pull_preview(canonical_id: String, target_key: String) -> Result<PullDiffPreview, String> {
-    use crate::commands::canonical_skills::{
-        split_frontmatter, target_key as make_target_key,
-    };
+pub fn skill_pull_preview(
+    canonical_id: String,
+    target_key: String,
+) -> Result<PullDiffPreview, String> {
+    use crate::commands::canonical_skills::{split_frontmatter, target_key as make_target_key};
 
     let canonical_dir = canonical_skills_dir();
     let skill_dir = canonical_dir.join(&canonical_id);
     if !skill_dir.is_dir() {
-        return Err(format!("canonical skill directory not found: {}", skill_dir.display()));
+        return Err(format!(
+            "canonical skill directory not found: {}",
+            skill_dir.display()
+        ));
     }
 
     let meta = read_sync_meta_v2_no_backfill(&skill_dir);
@@ -1627,8 +1705,7 @@ pub fn skill_pull_preview(canonical_id: String, target_key: String) -> Result<Pu
         .clone();
 
     let cfg = super::agent_paths::agent_paths_get()?;
-    let pair = pair_for(&cfg, &tgt.agent)
-        .ok_or_else(|| format!("unknown agent: {}", tgt.agent))?;
+    let pair = pair_for(&cfg, &tgt.agent).ok_or_else(|| format!("unknown agent: {}", tgt.agent))?;
     let target_dir = resolve_pair(tgt.scope, tgt.project.as_deref(), pair)?;
     let agent_side = target_dir.join(&canonical_id).join("SKILL.md");
 
@@ -1641,7 +1718,10 @@ pub fn skill_pull_preview(canonical_id: String, target_key: String) -> Result<Pu
         .map_err(|e| format!("cannot read canonical SKILL.md: {e}"))?;
     let (_, canonical_body) = split_frontmatter(&canonical_raw);
 
-    let base_snapshot = meta.last_sync.get(&target_key).and_then(|e| e.base_snapshot.as_deref());
+    let base_snapshot = meta
+        .last_sync
+        .get(&target_key)
+        .and_then(|e| e.base_snapshot.as_deref());
 
     let (has_base, base_content) = if let Some(hash) = base_snapshot {
         match super::snapshot::get_snapshot_content(hash, &format!("{}/SKILL.md", canonical_id)) {
@@ -1660,7 +1740,9 @@ pub fn skill_pull_preview(canonical_id: String, target_key: String) -> Result<Pu
 
     let agent_skill_dir = target_dir.join(&canonical_id);
     let sibling_changes = compute_sibling_changes(
-        meta.last_sync.get(&target_key).and_then(|e| e.sibling_hashes.as_ref()),
+        meta.last_sync
+            .get(&target_key)
+            .and_then(|e| e.sibling_hashes.as_ref()),
         &skill_dir,
         &agent_skill_dir,
     );
@@ -1682,8 +1764,11 @@ fn apply_sibling_changes(
     canonical_skill_dir: &Path,
     agent_skill_dir: &Path,
 ) -> Result<(), String> {
-    let resolution_map: std::collections::HashMap<usize, &SiblingResolution> =
-        resolutions.iter().enumerate().map(|(i, r)| (i, r)).collect();
+    let resolution_map: std::collections::HashMap<usize, &SiblingResolution> = resolutions
+        .iter()
+        .enumerate()
+        .map(|(i, r)| (i, r))
+        .collect();
 
     let mut conflict_idx = 0usize;
     for change in changes {
@@ -1693,8 +1778,9 @@ fn apply_sibling_changes(
         match change.status {
             SiblingStatus::Added | SiblingStatus::Modified => {
                 if let Some(parent) = canonical_path.parent() {
-                    fs::create_dir_all(parent)
-                        .map_err(|e| format!("cannot create dir for sibling {}: {e}", change.path))?;
+                    fs::create_dir_all(parent).map_err(|e| {
+                        format!("cannot create dir for sibling {}: {e}", change.path)
+                    })?;
                 }
                 fs::copy(&agent_path, &canonical_path)
                     .map_err(|e| format!("cannot copy sibling {}: {e}", change.path))?;
@@ -1711,13 +1797,16 @@ fn apply_sibling_changes(
                 match resolution {
                     Some(SiblingResolution::UseAgent) => {
                         if let Some(parent) = canonical_path.parent() {
-                            fs::create_dir_all(parent)
-                                .map_err(|e| format!("cannot create dir for sibling {}: {e}", change.path))?;
+                            fs::create_dir_all(parent).map_err(|e| {
+                                format!("cannot create dir for sibling {}: {e}", change.path)
+                            })?;
                         }
                         fs::copy(&agent_path, &canonical_path)
                             .map_err(|e| format!("cannot copy sibling {}: {e}", change.path))?;
                     }
-                    Some(SiblingResolution::UseCanonical) | Some(SiblingResolution::Skip) | None => {
+                    Some(SiblingResolution::UseCanonical)
+                    | Some(SiblingResolution::Skip)
+                    | None => {
                         // keep canonical as-is
                     }
                 }
@@ -1734,14 +1823,15 @@ pub fn skill_pull_from_target(
     target_key: String,
     sibling_resolutions: Option<Vec<SiblingResolution>>,
 ) -> Result<(), String> {
-    use crate::commands::canonical_skills::{
-        split_frontmatter, target_key as make_target_key,
-    };
+    use crate::commands::canonical_skills::{split_frontmatter, target_key as make_target_key};
 
     let canonical_dir = canonical_skills_dir();
     let skill_dir = canonical_dir.join(&canonical_id);
     if !skill_dir.is_dir() {
-        return Err(format!("canonical skill directory not found: {}", skill_dir.display()));
+        return Err(format!(
+            "canonical skill directory not found: {}",
+            skill_dir.display()
+        ));
     }
 
     let mut meta = read_sync_meta_v2_no_backfill(&skill_dir);
@@ -1753,8 +1843,7 @@ pub fn skill_pull_from_target(
         .clone();
 
     let cfg = super::agent_paths::agent_paths_get()?;
-    let pair = pair_for(&cfg, &tgt.agent)
-        .ok_or_else(|| format!("unknown agent: {}", tgt.agent))?;
+    let pair = pair_for(&cfg, &tgt.agent).ok_or_else(|| format!("unknown agent: {}", tgt.agent))?;
     let target_dir = resolve_pair(tgt.scope, tgt.project.as_deref(), pair)?;
     let agent_skill_dir = target_dir.join(&canonical_id);
     let agent_side = agent_skill_dir.join("SKILL.md");
@@ -1780,7 +1869,9 @@ pub fn skill_pull_from_target(
 
     // Sibling sync
     let sibling_changes = compute_sibling_changes(
-        meta.last_sync.get(&target_key).and_then(|e| e.sibling_hashes.as_ref()),
+        meta.last_sync
+            .get(&target_key)
+            .and_then(|e| e.sibling_hashes.as_ref()),
         &skill_dir,
         &agent_skill_dir,
     );
@@ -1804,10 +1895,11 @@ pub fn skill_pull_from_target(
             sibling_hashes: Some(compute_sibling_hashes(&skill_dir)),
         },
     );
-    let has_other_targets = meta
-        .targets
-        .iter()
-        .any(|t| make_target_key(t) != pulled_key && t.enabled && !matches!(t.mode, TargetMode::Detached | TargetMode::Forked));
+    let has_other_targets = meta.targets.iter().any(|t| {
+        make_target_key(t) != pulled_key
+            && t.enabled
+            && !matches!(t.mode, TargetMode::Detached | TargetMode::Forked)
+    });
     meta.dirty = has_other_targets;
     write_sync_meta_v2(&skill_dir, &meta)?;
 
@@ -1895,10 +1987,14 @@ pub(crate) fn cleanup_orphan_siblings(
     let current_canonical = compute_sibling_hashes(canonical_skill_dir);
     for key in baseline.keys() {
         if !current_canonical.contains_key(key) {
-            let orphan_path = target_skill_dir.join(key.replace('/', std::path::MAIN_SEPARATOR_STR));
+            let orphan_path =
+                target_skill_dir.join(key.replace('/', std::path::MAIN_SEPARATOR_STR));
             if orphan_path.is_file() {
                 if let Err(e) = fs::remove_file(&orphan_path) {
-                    eprintln!("[fan_out] warning: failed to remove orphan sibling {}: {e}", orphan_path.display());
+                    eprintln!(
+                        "[fan_out] warning: failed to remove orphan sibling {}: {e}",
+                        orphan_path.display()
+                    );
                 }
             }
         }
@@ -2026,14 +2122,15 @@ pub fn skill_fork_read_agent_content(
     canonical_id: String,
     target_key: String,
 ) -> Result<ForkAgentContent, String> {
-    use crate::commands::canonical_skills::{
-        split_frontmatter, target_key as make_target_key,
-    };
+    use crate::commands::canonical_skills::{split_frontmatter, target_key as make_target_key};
 
     let canonical_dir = canonical_skills_dir();
     let skill_dir = canonical_dir.join(&canonical_id);
     if !skill_dir.is_dir() {
-        return Err(format!("canonical skill directory not found: {}", skill_dir.display()));
+        return Err(format!(
+            "canonical skill directory not found: {}",
+            skill_dir.display()
+        ));
     }
 
     let meta = read_sync_meta_v2_no_backfill(&skill_dir);
@@ -2049,8 +2146,7 @@ pub fn skill_fork_read_agent_content(
     }
 
     let cfg = super::agent_paths::agent_paths_get()?;
-    let pair = pair_for(&cfg, &tgt.agent)
-        .ok_or_else(|| format!("unknown agent: {}", tgt.agent))?;
+    let pair = pair_for(&cfg, &tgt.agent).ok_or_else(|| format!("unknown agent: {}", tgt.agent))?;
     let target_dir = resolve_pair(tgt.scope, tgt.project.as_deref(), pair)?;
     let agent_side = target_dir.join(&canonical_id).join("SKILL.md");
 
@@ -2066,14 +2162,15 @@ pub fn skill_fork_diff_preview(
     canonical_id: String,
     target_key: String,
 ) -> Result<ForkDiffPreview, String> {
-    use crate::commands::canonical_skills::{
-        split_frontmatter, target_key as make_target_key,
-    };
+    use crate::commands::canonical_skills::{split_frontmatter, target_key as make_target_key};
 
     let canonical_dir = canonical_skills_dir();
     let skill_dir = canonical_dir.join(&canonical_id);
     if !skill_dir.is_dir() {
-        return Err(format!("canonical skill directory not found: {}", skill_dir.display()));
+        return Err(format!(
+            "canonical skill directory not found: {}",
+            skill_dir.display()
+        ));
     }
 
     let meta = read_sync_meta_v2_no_backfill(&skill_dir);
@@ -2089,8 +2186,7 @@ pub fn skill_fork_diff_preview(
     }
 
     let cfg = super::agent_paths::agent_paths_get()?;
-    let pair = pair_for(&cfg, &tgt.agent)
-        .ok_or_else(|| format!("unknown agent: {}", tgt.agent))?;
+    let pair = pair_for(&cfg, &tgt.agent).ok_or_else(|| format!("unknown agent: {}", tgt.agent))?;
     let target_dir = resolve_pair(tgt.scope, tgt.project.as_deref(), pair)?;
     let agent_side = target_dir.join(&canonical_id).join("SKILL.md");
 
@@ -2121,16 +2217,14 @@ pub fn skill_fork_diff_preview(
             (false, false) => ForkStatus::Diverged,
         };
 
-        let base_content = super::snapshot::get_snapshot_content(
-            base_hash,
-            &format!("{}/SKILL.md", canonical_id),
-        )
-        .ok()
-        .flatten()
-        .map(|raw| {
-            let (_, body) = split_frontmatter(&raw);
-            body
-        });
+        let base_content =
+            super::snapshot::get_snapshot_content(base_hash, &format!("{}/SKILL.md", canonical_id))
+                .ok()
+                .flatten()
+                .map(|raw| {
+                    let (_, body) = split_frontmatter(&raw);
+                    body
+                });
 
         (true, base_content, status)
     } else {
@@ -2187,7 +2281,10 @@ mod tests {
         let path = tmp.join("SKILL.md");
         fs::write(&path, content).unwrap();
         let hash = semantic_hash(content);
-        assert_eq!(check_drift(&path, Some(&hash), None, &Default::default(), None), DriftStatus::Synced);
+        assert_eq!(
+            check_drift(&path, Some(&hash), None, &Default::default(), None),
+            DriftStatus::Synced
+        );
         let _ = fs::remove_dir_all(&tmp);
     }
 
@@ -2205,7 +2302,10 @@ mod tests {
         let path = tmp.join("SKILL.md");
         fs::write(&path, "---\nname: changed\n---\n# New body\n").unwrap();
         let old_hash = semantic_hash("---\nname: original\n---\n# Old body\n");
-        assert_eq!(check_drift(&path, Some(&old_hash), None, &Default::default(), None), DriftStatus::Drifted);
+        assert_eq!(
+            check_drift(&path, Some(&old_hash), None, &Default::default(), None),
+            DriftStatus::Drifted
+        );
         let _ = fs::remove_dir_all(&tmp);
     }
 
@@ -2221,7 +2321,10 @@ mod tests {
     #[test]
     fn check_drift_returns_no_push_history_when_no_hash() {
         let path = std::env::temp_dir().join("felina-drift-nopush-SKILL.md");
-        assert_eq!(check_drift(&path, None, None, &Default::default(), None), DriftStatus::NoPushHistory);
+        assert_eq!(
+            check_drift(&path, None, None, &Default::default(), None),
+            DriftStatus::NoPushHistory
+        );
     }
 
     #[test]
@@ -2244,7 +2347,13 @@ mod tests {
         // Use a far-future push timestamp so file mtime is definitely ≤.
         let future_at = "2099-01-01T00:00:00Z";
         assert_eq!(
-            check_drift(&path, Some(&wrong_hash), Some(future_at), &Default::default(), None),
+            check_drift(
+                &path,
+                Some(&wrong_hash),
+                Some(future_at),
+                &Default::default(),
+                None
+            ),
             DriftStatus::Synced,
             "mtime fast-path should return Synced without hash computation"
         );
@@ -3279,13 +3388,19 @@ mod tests {
         )
         .unwrap();
         let new_pushed = &final_meta.last_sync[&key].pushed_hash;
-        assert_ne!(new_pushed, &raw_hash, "pushed hash must not be the old raw hash");
+        assert_ne!(
+            new_pushed, &raw_hash,
+            "pushed hash must not be the old raw hash"
+        );
         let new_rendered = fs::read_to_string(&target_skill_md).unwrap();
         assert_eq!(new_pushed, &semantic_hash(&new_rendered));
 
         // Preview should now show NoOp.
         let after_preview = skill_sync_preview("mig-skill".into()).expect("after preview");
-        assert_eq!(after_preview.items[0].operation, SkillSyncPreviewOperation::NoOp);
+        assert_eq!(
+            after_preview.items[0].operation,
+            SkillSyncPreviewOperation::NoOp
+        );
     }
 
     #[test]
@@ -3611,7 +3726,11 @@ mod tests {
             .join("skills")
             .join("scan-b")
             .join("SKILL.md");
-        fs::write(&gemini_skill_md, "---\nname: scan-b\n---\n# Externally changed\n").unwrap();
+        fs::write(
+            &gemini_skill_md,
+            "---\nname: scan-b\n---\n# Externally changed\n",
+        )
+        .unwrap();
 
         let scan = skill_drift_scan().expect("drift scan");
 
@@ -3651,7 +3770,10 @@ mod tests {
         let new = "line1\nmodified\nline3\nextra\n";
         let hunks = build_diff_hunks(old, new);
         assert!(!hunks.is_empty());
-        let all_lines: Vec<&str> = hunks.iter().flat_map(|h| h.lines.iter().map(|l| l.kind.as_str())).collect();
+        let all_lines: Vec<&str> = hunks
+            .iter()
+            .flat_map(|h| h.lines.iter().map(|l| l.kind.as_str()))
+            .collect();
         assert!(all_lines.contains(&"delete"));
         assert!(all_lines.contains(&"add"));
         assert!(all_lines.contains(&"context"));
@@ -4042,15 +4164,27 @@ mod tests {
         fs::write(agent.join("existing.txt"), "modified").unwrap();
 
         let changes = vec![
-            SiblingChange { path: "new.py".into(), status: SiblingStatus::Added },
-            SiblingChange { path: "old.txt".into(), status: SiblingStatus::Deleted },
-            SiblingChange { path: "existing.txt".into(), status: SiblingStatus::Modified },
+            SiblingChange {
+                path: "new.py".into(),
+                status: SiblingStatus::Added,
+            },
+            SiblingChange {
+                path: "old.txt".into(),
+                status: SiblingStatus::Deleted,
+            },
+            SiblingChange {
+                path: "existing.txt".into(),
+                status: SiblingStatus::Modified,
+            },
         ];
         apply_sibling_changes(&changes, &[], &canonical, &agent).unwrap();
 
         assert!(canonical.join("new.py").exists());
         assert!(!canonical.join("old.txt").exists());
-        assert_eq!(fs::read_to_string(canonical.join("existing.txt")).unwrap(), "modified");
+        assert_eq!(
+            fs::read_to_string(canonical.join("existing.txt")).unwrap(),
+            "modified"
+        );
         let _ = fs::remove_dir_all(&canonical);
         let _ = fs::remove_dir_all(&agent);
     }
@@ -4064,11 +4198,16 @@ mod tests {
         fs::write(canonical.join("shared.txt"), "canonical ver").unwrap();
         fs::write(agent.join("shared.txt"), "agent ver").unwrap();
 
-        let changes = vec![
-            SiblingChange { path: "shared.txt".into(), status: SiblingStatus::Conflict },
-        ];
-        apply_sibling_changes(&changes, &[SiblingResolution::UseAgent], &canonical, &agent).unwrap();
-        assert_eq!(fs::read_to_string(canonical.join("shared.txt")).unwrap(), "agent ver");
+        let changes = vec![SiblingChange {
+            path: "shared.txt".into(),
+            status: SiblingStatus::Conflict,
+        }];
+        apply_sibling_changes(&changes, &[SiblingResolution::UseAgent], &canonical, &agent)
+            .unwrap();
+        assert_eq!(
+            fs::read_to_string(canonical.join("shared.txt")).unwrap(),
+            "agent ver"
+        );
         let _ = fs::remove_dir_all(&canonical);
         let _ = fs::remove_dir_all(&agent);
     }
@@ -4082,11 +4221,21 @@ mod tests {
         fs::write(canonical.join("shared.txt"), "canonical ver").unwrap();
         fs::write(agent.join("shared.txt"), "agent ver").unwrap();
 
-        let changes = vec![
-            SiblingChange { path: "shared.txt".into(), status: SiblingStatus::Conflict },
-        ];
-        apply_sibling_changes(&changes, &[SiblingResolution::UseCanonical], &canonical, &agent).unwrap();
-        assert_eq!(fs::read_to_string(canonical.join("shared.txt")).unwrap(), "canonical ver");
+        let changes = vec![SiblingChange {
+            path: "shared.txt".into(),
+            status: SiblingStatus::Conflict,
+        }];
+        apply_sibling_changes(
+            &changes,
+            &[SiblingResolution::UseCanonical],
+            &canonical,
+            &agent,
+        )
+        .unwrap();
+        assert_eq!(
+            fs::read_to_string(canonical.join("shared.txt")).unwrap(),
+            "canonical ver"
+        );
         let _ = fs::remove_dir_all(&canonical);
         let _ = fs::remove_dir_all(&agent);
     }
@@ -4100,11 +4249,15 @@ mod tests {
         fs::write(canonical.join("shared.txt"), "canonical ver").unwrap();
         fs::write(agent.join("shared.txt"), "agent ver").unwrap();
 
-        let changes = vec![
-            SiblingChange { path: "shared.txt".into(), status: SiblingStatus::Conflict },
-        ];
+        let changes = vec![SiblingChange {
+            path: "shared.txt".into(),
+            status: SiblingStatus::Conflict,
+        }];
         apply_sibling_changes(&changes, &[SiblingResolution::Skip], &canonical, &agent).unwrap();
-        assert_eq!(fs::read_to_string(canonical.join("shared.txt")).unwrap(), "canonical ver");
+        assert_eq!(
+            fs::read_to_string(canonical.join("shared.txt")).unwrap(),
+            "canonical ver"
+        );
         let _ = fs::remove_dir_all(&canonical);
         let _ = fs::remove_dir_all(&agent);
     }
@@ -4187,7 +4340,10 @@ mod tests {
             &fs::read_to_string(canonical_skill_dir.join(".felina-sync-meta.json")).unwrap(),
         )
         .unwrap();
-        let entry2 = meta2.last_sync.get(&key).expect("entry after second commit");
+        let entry2 = meta2
+            .last_sync
+            .get(&key)
+            .expect("entry after second commit");
 
         assert_eq!(
             entry2.base_snapshot, snap1,
@@ -4246,7 +4402,12 @@ mod tests {
             &fs::read_to_string(canonical_skill_dir.join(".felina-sync-meta.json")).unwrap(),
         )
         .unwrap();
-        let actual_hash = meta1.last_sync.get(&key).expect("entry after first commit").pushed_hash.clone();
+        let actual_hash = meta1
+            .last_sync
+            .get(&key)
+            .expect("entry after first commit")
+            .pushed_hash
+            .clone();
         let snap1 = meta1.last_sync.get(&key).unwrap().base_snapshot.clone();
 
         let mut meta_patched = meta1.clone();
@@ -4265,7 +4426,10 @@ mod tests {
             &fs::read_to_string(canonical_skill_dir.join(".felina-sync-meta.json")).unwrap(),
         )
         .unwrap();
-        let entry2 = meta2.last_sync.get(&key).expect("entry after second commit");
+        let entry2 = meta2
+            .last_sync
+            .get(&key)
+            .expect("entry after second commit");
 
         assert_eq!(
             entry2.pushed_hash, actual_hash,
@@ -4309,7 +4473,11 @@ mod tests {
 
             let agent_dir = tmp.join(".claude").join("skills").join(name);
             fs::create_dir_all(&agent_dir).unwrap();
-            fs::write(agent_dir.join("SKILL.md"), format!("# {name}\n\nOld body.\n")).unwrap();
+            fs::write(
+                agent_dir.join("SKILL.md"),
+                format!("# {name}\n\nOld body.\n"),
+            )
+            .unwrap();
         }
 
         let request = SkillSyncAllCommitRequest {
@@ -4317,8 +4485,15 @@ mod tests {
         };
         let results = skill_sync_all_commit(request).expect("all commit");
 
-        assert_eq!(results.len(), 3, "expected one SyncResult per skill: {results:#?}");
-        assert!(results.iter().all(|r| r.success), "all results must succeed: {results:#?}");
+        assert_eq!(
+            results.len(),
+            3,
+            "expected one SyncResult per skill: {results:#?}"
+        );
+        assert!(
+            results.iter().all(|r| r.success),
+            "all results must succeed: {results:#?}"
+        );
     }
 
     #[test]
@@ -4376,12 +4551,15 @@ mod tests {
                 targets: vec![target],
                 last_sync: {
                     let mut m = std::collections::BTreeMap::new();
-                    m.insert(key.clone(), LastSyncEntry {
-                        pushed_hash: canonical_hash.clone(),
-                        base_snapshot: Some(canonical_hash),
-                        at: "2026-01-01T00:00:00Z".into(),
-                        sibling_hashes: None,
-                    });
+                    m.insert(
+                        key.clone(),
+                        LastSyncEntry {
+                            pushed_hash: canonical_hash.clone(),
+                            base_snapshot: Some(canonical_hash),
+                            at: "2026-01-01T00:00:00Z".into(),
+                            sibling_hashes: None,
+                        },
+                    );
                     m
                 },
                 dirty: false,
@@ -4490,7 +4668,11 @@ mod tests {
         let _g = override_felina_home(&tmp);
 
         // Modify agent-side to make forked hash differ from pushed_hash.
-        let agent_file = tmp.join(".claude").join("skills").join("fork-test").join("SKILL.md");
+        let agent_file = tmp
+            .join(".claude")
+            .join("skills")
+            .join("fork-test")
+            .join("SKILL.md");
         fs::write(
             &agent_file,
             "---\nname: fork-test\ndescription: fork-test description\n---\n# fork-test\n\nEdited body.\n",
@@ -4509,7 +4691,11 @@ mod tests {
         let _g = override_felina_home(&tmp);
 
         // Modify canonical to make canonical hash differ from base_snapshot.
-        let canonical_file = tmp.join(".felina").join("skills").join("fork-test").join("SKILL.md");
+        let canonical_file = tmp
+            .join(".felina")
+            .join("skills")
+            .join("fork-test")
+            .join("SKILL.md");
         fs::write(
             &canonical_file,
             "---\nname: fork-test\ndescription: fork-test description\n---\n# fork-test\n\nUpdated canonical.\n",
@@ -4527,13 +4713,21 @@ mod tests {
         let _g = override_felina_home(&tmp);
 
         // Modify both canonical and agent-side.
-        let canonical_file = tmp.join(".felina").join("skills").join("fork-test").join("SKILL.md");
+        let canonical_file = tmp
+            .join(".felina")
+            .join("skills")
+            .join("fork-test")
+            .join("SKILL.md");
         fs::write(
             &canonical_file,
             "---\nname: fork-test\ndescription: fork-test description\n---\n# fork-test\n\nUpdated canonical.\n",
         )
         .unwrap();
-        let agent_file = tmp.join(".claude").join("skills").join("fork-test").join("SKILL.md");
+        let agent_file = tmp
+            .join(".claude")
+            .join("skills")
+            .join("fork-test")
+            .join("SKILL.md");
         fs::write(
             &agent_file,
             "---\nname: fork-test\ndescription: fork-test description\n---\n# fork-test\n\nEdited agent.\n",
@@ -4568,12 +4762,15 @@ mod tests {
                 targets: vec![target],
                 last_sync: {
                     let mut m = std::collections::BTreeMap::new();
-                    m.insert(key.clone(), LastSyncEntry {
-                        pushed_hash: "some-old-hash".into(),
-                        base_snapshot: None,
-                        at: "2026-01-01T00:00:00Z".into(),
-                        sibling_hashes: None,
-                    });
+                    m.insert(
+                        key.clone(),
+                        LastSyncEntry {
+                            pushed_hash: "some-old-hash".into(),
+                            base_snapshot: None,
+                            at: "2026-01-01T00:00:00Z".into(),
+                            sibling_hashes: None,
+                        },
+                    );
                     m
                 },
                 dirty: false,
@@ -4623,7 +4820,10 @@ mod tests {
         .unwrap();
 
         let results = skill_sync_one("skip-forked".into()).unwrap();
-        assert!(results.is_empty(), "forked target should be skipped by push");
+        assert!(
+            results.is_empty(),
+            "forked target should be skipped by push"
+        );
     }
 
     #[test]
@@ -4632,14 +4832,22 @@ mod tests {
         let _g = override_felina_home(&tmp);
 
         // Modify agent-side to produce "edited" status.
-        let agent_file = tmp.join(".claude").join("skills").join("fork-test").join("SKILL.md");
+        let agent_file = tmp
+            .join(".claude")
+            .join("skills")
+            .join("fork-test")
+            .join("SKILL.md");
         fs::write(
             &agent_file,
             "---\nname: fork-test\ndescription: fork-test description\n---\n# fork-test\n\nEdited body.\n",
         )
         .unwrap();
 
-        let canonical_path = tmp.join(".felina").join("skills").join("fork-test").join("SKILL.md");
+        let canonical_path = tmp
+            .join(".felina")
+            .join("skills")
+            .join("fork-test")
+            .join("SKILL.md");
         let canonical_skill_dir = tmp.join(".felina").join("skills").join("fork-test");
         let meta = read_sync_meta_v2_no_backfill(&canonical_skill_dir);
         let entry = meta.last_sync.get(&key);
@@ -4663,9 +4871,18 @@ mod tests {
         let hash_mixed = semantic_hash(mixed);
         let hash_bare_cr = semantic_hash(bare_cr);
 
-        assert_eq!(hash_lf, hash_crlf, "CRLF and LF should produce identical hash");
-        assert_eq!(hash_lf, hash_mixed, "mixed line endings should produce identical hash");
-        assert_eq!(hash_lf, hash_bare_cr, "bare CR should produce identical hash");
+        assert_eq!(
+            hash_lf, hash_crlf,
+            "CRLF and LF should produce identical hash"
+        );
+        assert_eq!(
+            hash_lf, hash_mixed,
+            "mixed line endings should produce identical hash"
+        );
+        assert_eq!(
+            hash_lf, hash_bare_cr,
+            "bare CR should produce identical hash"
+        );
     }
 
     #[test]
@@ -4708,12 +4925,20 @@ mod tests {
         let bin_dir_a = tmp.join("bin_a");
         fs::create_dir_all(&bin_dir_a).unwrap();
         fs::write(bin_dir_a.join("SKILL.md"), "stub").unwrap();
-        fs::write(bin_dir_a.join("icon.bin"), &[0x89, 0x50, 0x0D, 0x0A, 0x1A, 0x0A]).unwrap();
+        fs::write(
+            bin_dir_a.join("icon.bin"),
+            &[0x89, 0x50, 0x0D, 0x0A, 0x1A, 0x0A],
+        )
+        .unwrap();
 
         let bin_dir_b = tmp.join("bin_b");
         fs::create_dir_all(&bin_dir_b).unwrap();
         fs::write(bin_dir_b.join("SKILL.md"), "stub").unwrap();
-        fs::write(bin_dir_b.join("icon.bin"), &[0x89, 0x50, 0x0D, 0x0A, 0x1A, 0x0A]).unwrap();
+        fs::write(
+            bin_dir_b.join("icon.bin"),
+            &[0x89, 0x50, 0x0D, 0x0A, 0x1A, 0x0A],
+        )
+        .unwrap();
 
         let hash_a = compute_sibling_hashes(&bin_dir_a);
         let hash_b = compute_sibling_hashes(&bin_dir_b);
@@ -4727,7 +4952,11 @@ mod tests {
         let bin_dir_c = tmp.join("bin_c");
         fs::create_dir_all(&bin_dir_c).unwrap();
         fs::write(bin_dir_c.join("SKILL.md"), "stub").unwrap();
-        fs::write(bin_dir_c.join("icon.bin"), &[0x89, 0x50, 0x0A, 0x0A, 0x1A, 0x0A]).unwrap();
+        fs::write(
+            bin_dir_c.join("icon.bin"),
+            &[0x89, 0x50, 0x0A, 0x0A, 0x1A, 0x0A],
+        )
+        .unwrap();
         let hash_c = compute_sibling_hashes(&bin_dir_c);
         assert_ne!(
             hash_a.get("icon.bin"),
@@ -4759,7 +4988,10 @@ mod tests {
 
         let canonical_sibs = compute_sibling_hashes(&canonical_dir);
         let agent_sibs = compute_sibling_hashes(&agent_dir);
-        assert_eq!(canonical_sibs, agent_sibs, "canonical and agent siblings should match");
+        assert_eq!(
+            canonical_sibs, agent_sibs,
+            "canonical and agent siblings should match"
+        );
 
         // Recorded baseline has old hash (H1) — stale
         let mut stale_baseline = std::collections::BTreeMap::new();
@@ -4794,7 +5026,11 @@ mod tests {
 
         // Canonical has H1, agent has H2 — real drift
         fs::create_dir_all(canonical_dir.join("references")).unwrap();
-        fs::write(canonical_dir.join("references/guide.md"), "canonical content").unwrap();
+        fs::write(
+            canonical_dir.join("references/guide.md"),
+            "canonical content",
+        )
+        .unwrap();
         fs::create_dir_all(agent_dir.join("references")).unwrap();
         fs::write(agent_dir.join("references/guide.md"), "modified by agent").unwrap();
 

@@ -30,7 +30,7 @@ const zhTW: TranslationDict = {
     refresh: "重新整理",
     scheduler: {
       title: "流量到期日控制",
-      description: "每天在設定的時間發送一句簡短訊息,用以觸發配額視窗。",
+      description: "每天在設定的時間發送一句簡短 Claude Code 訊息,用以觸發配額視窗。",
       runtimeNote: "排程僅在 Felina 開啟時觸發。",
       quotaWarning: "每次觸發會發送一則訊息並消耗少量配額。",
       enabled: "啟用",
@@ -45,6 +45,26 @@ const zhTW: TranslationDict = {
       lastFailure: "失敗 {time}:{error}",
       saveError: "儲存失敗:{error}",
       unavailable: "排程器無法使用",
+    },
+    jesse: {
+      name: "Jesse",
+      nickname: "pinkman · 貪吃的 token 助理",
+      open: "開啟 Jesse",
+      dropHint: "把 token 卡片或資料列拖到這裡。",
+      invalidDrop: "Jesse 只能讀取支援的 token context。",
+      clear: "清除",
+      chatEmpty: "把 token 指標拖給 Jesse，他會先幫你摘要，接著可以繼續追問。",
+      chatPlaceholder: "想問 Jesse 什麼？",
+      thinking: "Jesse 正在消化資料…",
+      send: "送出",
+      disclaimer: "Jesse 可能會看錯，重要資訊請再確認。",
+      authRequired:
+        "{provider} 目前不可用。請先在終端機開啟 {command} CLI 並確認已登入，再回來重試；如果 session 閒置太久，請先重開 CLI。",
+      actions: {
+        summary: "摘要",
+        explain: "解釋",
+        plan: "分析計畫",
+      },
     },
     granularity: {
       hourly: "時",

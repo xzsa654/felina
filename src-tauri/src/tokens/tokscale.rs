@@ -1,10 +1,10 @@
+use serde_json::Value;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
-use serde_json::Value;
 
 use crate::tokens::reconciliation::{
-    ReconcileOptions, ReconciliationRecord, SourceCollection, SourceStatus, TokenSource,
-    aggregate_records,
+    aggregate_records, ReconcileOptions, ReconciliationRecord, SourceCollection, SourceStatus,
+    TokenSource,
 };
 
 pub trait TokscaleAdapter {
@@ -751,18 +751,14 @@ mod tests {
 
         assert_eq!(collection.status, SourceStatus::Ok);
         assert_eq!(collection.records.len(), 2);
-        assert!(
-            collection
-                .records
-                .iter()
-                .any(|record| record.timestamp_bucket == "2026-01-27")
-        );
-        assert!(
-            collection
-                .records
-                .iter()
-                .any(|record| record.timestamp_bucket == "2026-02-03")
-        );
+        assert!(collection
+            .records
+            .iter()
+            .any(|record| record.timestamp_bucket == "2026-01-27"));
+        assert!(collection
+            .records
+            .iter()
+            .any(|record| record.timestamp_bucket == "2026-02-03"));
     }
 
     #[test]
@@ -880,13 +876,11 @@ mod tests {
             },
         );
         assert_eq!(collection.status, SourceStatus::UnsupportedSchema);
-        assert!(
-            collection
-                .message
-                .as_deref()
-                .unwrap_or_default()
-                .contains("cacheRead")
-        );
+        assert!(collection
+            .message
+            .as_deref()
+            .unwrap_or_default()
+            .contains("cacheRead"));
         assert!(collection.records.is_empty());
     }
 
@@ -906,11 +900,9 @@ mod tests {
         assert!(args.contains(&"--until".to_string()));
         assert!(args.contains(&"--group-by".to_string()));
         assert!(args.contains(&"day".to_string()));
-        assert!(
-            !args
-                .iter()
-                .any(|arg| matches!(arg.as_str(), "submit" | "login" | "tui" | "wrapped"))
-        );
+        assert!(!args
+            .iter()
+            .any(|arg| matches!(arg.as_str(), "submit" | "login" | "tui" | "wrapped")));
     }
 
     #[test]
@@ -939,7 +931,10 @@ mod tests {
             cmd_variant(&PathBuf::from("tokscale")),
             Some(PathBuf::from("tokscale.cmd"))
         );
-        assert_eq!(cmd_variant(&PathBuf::from("npx")), Some(PathBuf::from("npx.cmd")));
+        assert_eq!(
+            cmd_variant(&PathBuf::from("npx")),
+            Some(PathBuf::from("npx.cmd"))
+        );
     }
 
     #[test]
@@ -964,7 +959,10 @@ mod tests {
         let adapter = TokscaleCommandAdapter::new(Some(PathBuf::from("/opt/bin/tokscale")));
 
         assert_eq!(adapter.candidates.len(), 1);
-        assert_eq!(adapter.candidates[0].bin, PathBuf::from("/opt/bin/tokscale"));
+        assert_eq!(
+            adapter.candidates[0].bin,
+            PathBuf::from("/opt/bin/tokscale")
+        );
         assert!(adapter.candidates[0].base_args.is_empty());
     }
 

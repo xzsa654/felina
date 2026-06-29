@@ -221,7 +221,7 @@ export interface QuotaScheduleState {
   };
 }
 
-export type SchedulerAgent = "claude" | "codex";
+export type SchedulerAgent = "claude";
 
 export interface RefreshResult {
   agents_scanned: number;

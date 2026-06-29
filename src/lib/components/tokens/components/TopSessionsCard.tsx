@@ -4,10 +4,12 @@ import type { DaySessionBreakdown } from "$lib/types";
 import type { Locale } from "$lib/i18n";
 import { t } from "$lib/i18n";
 import { formatCostFull, formatNumber } from "$lib/utils/format";
+import { buildJesseContextDragData, setJesseContextDragData } from "../jesse-context";
 
 interface TopSessionsCardProps {
   data: DaySessionBreakdown[];
   locale: Locale;
+  dateRangeLabel: string;
 }
 
 function shortSession(id: string): string {
@@ -20,7 +22,7 @@ function projectName(raw: string | null, locale: Locale): string {
   return parts.slice(-2).join("/") || raw;
 }
 
-export default function TopSessionsCard({ data, locale }: TopSessionsCardProps) {
+export default function TopSessionsCard({ data, locale, dateRangeLabel }: TopSessionsCardProps) {
   const navigate = useNavigate();
   const rows = data.slice(0, 5);
   const hasLinkedSession = rows.some((session) => session.transcript_available);
@@ -65,19 +67,45 @@ export default function TopSessionsCard({ data, locale }: TopSessionsCardProps) 
             </tr>
           </thead>
           <tbody>
-            {rows.map((session) => (
-              <tr
-                key={`${session.agent}:${session.session_id}`}
-                className="border-b border-border/20 last:border-0 hover:bg-bg-hover/60"
-              >
-                <td className="px-4 py-2.5">
-                  <div className="min-w-0">
-                    <div className="font-mono text-text-primary truncate" title={session.session_id}>
-                      {shortSession(session.session_id)}
+            {rows.map((session) => {
+              const dragData = buildJesseContextDragData({
+                kind: "top-session",
+                title: `${session.agent} session ${shortSession(session.session_id)}`,
+                source: "tokens.topSessions",
+                capturedAt: new Date().toISOString(),
+                summary: `${session.agent} ${session.model} · ${formatNumber(session.tokens, locale)} tokens · ${formatCostFull(session.cost_usd, locale)}. Time range: ${dateRangeLabel}.`,
+                metrics: {
+                  dateRange: dateRangeLabel,
+                  tokens: session.tokens,
+                  costUsd: session.cost_usd,
+                  messages: session.messages,
+                  transcriptAvailable: session.transcript_available,
+                },
+              });
+              return (
+                <tr
+                  key={`${session.agent}:${session.session_id}`}
+                  className="border-b border-border/20 last:border-0 hover:bg-bg-hover/60"
+                >
+                  <td className="px-4 py-2.5">
+                    <div className="min-w-0">
+                      <div
+                        className="inline-block max-w-full cursor-grab truncate font-mono text-text-primary active:cursor-grabbing"
+                        draggable
+                        onDragStart={(event) => {
+                          setJesseContextDragData(
+                            event.dataTransfer,
+                            dragData,
+                            shortSession(session.session_id),
+                          );
+                        }}
+                        title="Drag to Jesse"
+                      >
+                        {shortSession(session.session_id)}
+                      </div>
+                      <div className="text-[10px] text-text-muted mt-0.5">{session.agent}</div>
                     </div>
-                    <div className="text-[10px] text-text-muted mt-0.5">{session.agent}</div>
-                  </div>
-                </td>
+                  </td>
                 <td className="px-3 py-2.5 text-text-secondary truncate max-w-[160px]" title={session.project ?? ""}>
                   {projectName(session.project, locale)}
                 </td>
@@ -107,7 +135,8 @@ export default function TopSessionsCard({ data, locale }: TopSessionsCardProps) 
                   </td>
                 )}
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
       </div>

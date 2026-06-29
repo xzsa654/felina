@@ -96,6 +96,21 @@ export type {
 export { canonicalSkillId, skillListEntryCanonicalId } from "./skills";
 export type { RuleFile } from "./rules";
 export type {
+  JesseAssistantAction,
+  JesseAssistantProvider,
+  JesseContextKind,
+  JesseMetricValue,
+  JesseContextRow,
+  JesseContextBase,
+  JesseMetricsContext,
+  JesseRowsContext,
+  JesseContextPayload,
+  JesseAssistantRequest,
+  JesseChatMessage,
+  JesseChatRequest,
+  JesseAssistantResponse,
+} from "./assistant";
+export type {
   OptimizerStatus,
   SavingsSummary,
   SavingsTimeBucket,

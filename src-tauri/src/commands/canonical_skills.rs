@@ -238,14 +238,30 @@ fn extract_agent_fields(map: &mut serde_yaml::Mapping) -> BTreeMap<String, serde
 /// Format: (flat_key_variants, agent_namespace, canonical_key).
 const FLAT_FIELD_CLASSIFICATIONS: &[(&[&str], &str, &str)] = &[
     // Anthropic / Claude Code
-    (&["allowed_tools", "allowed-tools"], "anthropic", "allowed-tools"),
+    (
+        &["allowed_tools", "allowed-tools"],
+        "anthropic",
+        "allowed-tools",
+    ),
     (&["effort"], "anthropic", "effort"),
     (&["model"], "anthropic", "model"),
     (&["when_to_use"], "anthropic", "when_to_use"),
-    (&["argument-hint", "argument_hint"], "anthropic", "argument-hint"),
+    (
+        &["argument-hint", "argument_hint"],
+        "anthropic",
+        "argument-hint",
+    ),
     (&["arguments"], "anthropic", "arguments"),
-    (&["disable-model-invocation", "disable_model_invocation"], "anthropic", "disable-model-invocation"),
-    (&["user-invocable", "user_invocable"], "anthropic", "user-invocable"),
+    (
+        &["disable-model-invocation", "disable_model_invocation"],
+        "anthropic",
+        "disable-model-invocation",
+    ),
+    (
+        &["user-invocable", "user_invocable"],
+        "anthropic",
+        "user-invocable",
+    ),
     (&["context"], "anthropic", "context"),
     (&["agent"], "anthropic", "agent"),
     (&["hooks"], "anthropic", "hooks"),
@@ -253,7 +269,11 @@ const FLAT_FIELD_CLASSIFICATIONS: &[(&[&str], &str, &str)] = &[
     (&["shell"], "anthropic", "shell"),
     // Codex (flat keys that might appear from old imports)
     (&["display_name"], "codex", "interface.display_name"),
-    (&["short_description"], "codex", "interface.short_description"),
+    (
+        &["short_description"],
+        "codex",
+        "interface.short_description",
+    ),
     (&["default_prompt"], "codex", "interface.default_prompt"),
 ];
 
@@ -278,7 +298,10 @@ fn classify_flat_extras(
     }
 }
 
-pub(crate) fn inject_agent_fields(map: &mut serde_yaml::Mapping, agent_fields: &BTreeMap<String, serde_yaml::Value>) {
+pub(crate) fn inject_agent_fields(
+    map: &mut serde_yaml::Mapping,
+    agent_fields: &BTreeMap<String, serde_yaml::Value>,
+) {
     if agent_fields.is_empty() {
         return;
     }
@@ -339,7 +362,9 @@ pub enum TargetMode {
 }
 
 pub fn has_pushable_target(targets: &[SkillTarget]) -> bool {
-    targets.iter().any(|t| t.enabled && matches!(t.mode, TargetMode::Auto | TargetMode::Manual))
+    targets
+        .iter()
+        .any(|t| t.enabled && matches!(t.mode, TargetMode::Auto | TargetMode::Manual))
 }
 
 /// A single fan-out target entry in the per-skill target list.
@@ -873,7 +898,9 @@ pub fn skill_targets_set(skill_name: String, targets: Vec<SkillTarget>) -> Resul
     for t in &targets {
         if t.mode == TargetMode::Forked {
             let key = target_key(t);
-            let was_forked = old_modes.get(&key).map_or(false, |m| *m == TargetMode::Forked);
+            let was_forked = old_modes
+                .get(&key)
+                .map_or(false, |m| *m == TargetMode::Forked);
             if !was_forked {
                 let skill_md = skill_dir.join("SKILL.md");
                 let canonical_raw = fs::read_to_string(&skill_md)
@@ -1065,7 +1092,8 @@ pub fn skill_target_read_content(skill_name: String, target_key: String) -> Resu
 
 fn resolve_target_skill_dir(skill_name: &str, target: &SkillTarget) -> Result<PathBuf, String> {
     let cfg = super::agent_paths::agent_paths_get()?;
-    let pair = cfg.pair_for(&target.agent)
+    let pair = cfg
+        .pair_for(&target.agent)
         .ok_or_else(|| format!("unknown agent: {}", target.agent))?;
     super::fan_out::resolve_pair(target.scope, target.project.as_deref(), pair)
         .map(|root| root.join(skill_name))
@@ -1163,8 +1191,8 @@ pub fn canonical_skill_rename(old_name: String, new_name: String) -> Result<Rena
             serde_yaml::Value::String(new_name.clone()),
         );
     }
-    let fm_yaml = serde_yaml::to_string(&fm)
-        .map_err(|e| format!("failed to serialize frontmatter: {e}"))?;
+    let fm_yaml =
+        serde_yaml::to_string(&fm).map_err(|e| format!("failed to serialize frontmatter: {e}"))?;
     let fm_trimmed = fm_yaml.trim_end_matches('\n');
     let body_normalized = if body.ends_with('\n') {
         body.to_string()
@@ -1290,7 +1318,9 @@ fn resolve_current_target_skill_dirs(
         if !target.enabled || !matches!(target.mode, TargetMode::Auto | TargetMode::Manual) {
             continue;
         }
-        let Some(pair) = cfg.pair_for(&target.agent) else { continue; };
+        let Some(pair) = cfg.pair_for(&target.agent) else {
+            continue;
+        };
         if let Ok(root) =
             super::fan_out::resolve_pair(target.scope, target.project.as_deref(), pair)
         {
@@ -1429,7 +1459,10 @@ Hello.\n";
         let s = parse_skill_md(SAMPLE).unwrap();
         assert_eq!(s.name, "search-helper");
         assert_eq!(s.description, "Search the web");
-        assert_eq!(s.agents, vec!["anthropic".to_string(), "gemini".to_string()]);
+        assert_eq!(
+            s.agents,
+            vec!["anthropic".to_string(), "gemini".to_string()]
+        );
         assert!(s.body.starts_with("# Body"));
         assert!(!s.dirty);
         assert!(s.last_synced.is_none());
@@ -1444,7 +1477,12 @@ Hello.\n";
         assert!(extras.contains_key(serde_yaml::Value::String("custom_field".into())));
         assert!(!extras.contains_key(serde_yaml::Value::String("name".into())));
         // effort should be in agent_fields
-        let anth = s.agent_fields.get("anthropic").unwrap().as_mapping().unwrap();
+        let anth = s
+            .agent_fields
+            .get("anthropic")
+            .unwrap()
+            .as_mapping()
+            .unwrap();
         assert!(anth.contains_key(serde_yaml::Value::String("effort".into())));
     }
 
@@ -1455,7 +1493,12 @@ Hello.\n";
         assert_eq!(s.agent_fields.len(), 2);
         assert!(s.agent_fields.contains_key("anthropic"));
         assert!(s.agent_fields.contains_key("codex"));
-        let anth = s.agent_fields.get("anthropic").unwrap().as_mapping().unwrap();
+        let anth = s
+            .agent_fields
+            .get("anthropic")
+            .unwrap()
+            .as_mapping()
+            .unwrap();
         assert_eq!(
             anth.get(serde_yaml::Value::String("allowed-tools".into()))
                 .unwrap()
@@ -1517,8 +1560,14 @@ Hello.\n";
                 .join("SKILL.md"),
         )
         .unwrap();
-        assert!(written.contains("x_felina_agent_fields:"), "got:\n{written}");
-        assert!(written.contains("allowed-tools: Read Grep"), "got:\n{written}");
+        assert!(
+            written.contains("x_felina_agent_fields:"),
+            "got:\n{written}"
+        );
+        assert!(
+            written.contains("allowed-tools: Read Grep"),
+            "got:\n{written}"
+        );
         assert!(written.contains("effort: high"), "got:\n{written}");
 
         let parsed = parse_skill_md(&written).unwrap();
@@ -1531,7 +1580,12 @@ Hello.\n";
         let raw = "---\nname: test\ndescription: d\nagents:\n  - anthropic\nallowed_tools: Read\neffort: high\ndisplay_name: Demo\nunknown_field: keep\n---\nbody\n";
         let s = parse_skill_md(raw).unwrap();
         // allowed_tools and effort → anthropic namespace
-        let anth = s.agent_fields.get("anthropic").unwrap().as_mapping().unwrap();
+        let anth = s
+            .agent_fields
+            .get("anthropic")
+            .unwrap()
+            .as_mapping()
+            .unwrap();
         assert_eq!(
             anth.get(serde_yaml::Value::String("allowed-tools".into()))
                 .unwrap()
@@ -1549,7 +1603,8 @@ Hello.\n";
         // display_name → codex namespace
         let codex = s.agent_fields.get("codex").unwrap().as_mapping().unwrap();
         assert_eq!(
-            codex.get(serde_yaml::Value::String("interface.display_name".into()))
+            codex
+                .get(serde_yaml::Value::String("interface.display_name".into()))
                 .unwrap()
                 .as_str()
                 .unwrap(),
@@ -1577,7 +1632,10 @@ Hello.\n";
     fn parse_skill_md_with_agents_unchanged() {
         let raw = "---\nname: x\ndescription: y\nagents:\n  - anthropic\n  - gemini\n---\nbody\n";
         let s = parse_skill_md(raw).unwrap();
-        assert_eq!(s.agents, vec!["anthropic".to_string(), "gemini".to_string()]);
+        assert_eq!(
+            s.agents,
+            vec!["anthropic".to_string(), "gemini".to_string()]
+        );
     }
 
     #[test]
@@ -1814,7 +1872,12 @@ Hello.\n";
         assert_eq!(skill.agents, vec!["anthropic".to_string()]);
         assert!(skill.body.contains("Foo body"));
         // `effort` is classified into agent_fields.anthropic.
-        let anth = skill.agent_fields.get("anthropic").unwrap().as_mapping().unwrap();
+        let anth = skill
+            .agent_fields
+            .get("anthropic")
+            .unwrap()
+            .as_mapping()
+            .unwrap();
         assert!(anth.contains_key(serde_yaml::Value::String("effort".into())));
     }
 
@@ -1834,8 +1897,8 @@ Hello.\n";
             "with space",
             "with;semi",
         ] {
-            let err =
-                canonical_skills_write(bad.into(), empty_fm.clone(), String::new(), None).unwrap_err();
+            let err = canonical_skills_write(bad.into(), empty_fm.clone(), String::new(), None)
+                .unwrap_err();
             assert!(
                 err.contains("skill name") || err.contains("disallowed"),
                 "bad={bad:?} err={err}"
@@ -2230,7 +2293,10 @@ Hello.\n";
         .unwrap();
 
         // Skill has agents=[anthropic, codex] in frontmatter.
-        let skill = skill_with_agents("empty-v2", vec!["anthropic".to_string(), "codex".to_string()]);
+        let skill = skill_with_agents(
+            "empty-v2",
+            vec!["anthropic".to_string(), "codex".to_string()],
+        );
         let (meta, legacy) = read_sync_meta_v2(&skill_dir, &skill);
 
         assert_eq!(meta.version, 2);
@@ -2410,7 +2476,11 @@ Hello.\n";
         assert_eq!(result.new_name, "new-skill");
         assert_eq!(result.commit_hash.len(), 40);
 
-        assert!(!tmp.join(".felina").join("skills").join("old-skill").exists());
+        assert!(!tmp
+            .join(".felina")
+            .join("skills")
+            .join("old-skill")
+            .exists());
         let new_dir = tmp.join(".felina").join("skills").join("new-skill");
         assert!(new_dir.join("SKILL.md").is_file());
 
@@ -2843,8 +2913,13 @@ Hello.\n";
                     "gemini".into(),
                 ]),
             );
-            canonical_skills_write(name.into(), serde_yaml::Value::Mapping(fm), "body".into(), None)
-                .unwrap();
+            canonical_skills_write(
+                name.into(),
+                serde_yaml::Value::Mapping(fm),
+                "body".into(),
+                None,
+            )
+            .unwrap();
             let project = tmp.to_string_lossy().to_string();
             let disabled_project = tmp.join("disabled-project");
             let detached_project = tmp.join("detached-project");
@@ -2990,8 +3065,13 @@ Hello.\n";
             "agents".into(),
             serde_yaml::Value::Sequence(vec!["anthropic".into(), "codex".into(), "gemini".into()]),
         );
-        canonical_skills_write(name.into(), serde_yaml::Value::Mapping(fm), "body".into(), None)
-            .unwrap();
+        canonical_skills_write(
+            name.into(),
+            serde_yaml::Value::Mapping(fm),
+            "body".into(),
+            None,
+        )
+        .unwrap();
 
         let project = tmp.to_string_lossy().to_string();
         let disabled_project = tmp.join("disabled-project");
@@ -3459,7 +3539,8 @@ Hello.\n";
         let tmp = tempdir();
         let _g = override_felina_home(&tmp);
         let skills_root = tmp.join(".felina").join("skills");
-        let skill_body = "---\nname: my-skill\ndescription: d\nagents:\n  - anthropic\n---\n# Body\n";
+        let skill_body =
+            "---\nname: my-skill\ndescription: d\nagents:\n  - anthropic\n---\n# Body\n";
         write_skill(&skills_root, "my-skill", skill_body);
 
         let target = SkillTarget {
@@ -3479,12 +3560,15 @@ Hello.\n";
             targets: vec![target.clone()],
             last_sync: {
                 let mut m = BTreeMap::new();
-                m.insert(key.clone(), LastSyncEntry {
-                    pushed_hash: initial_hash.clone(),
-                    base_snapshot: None,
-                    at: "2026-01-01T00:00:00Z".to_string(),
-                    sibling_hashes: None,
-                });
+                m.insert(
+                    key.clone(),
+                    LastSyncEntry {
+                        pushed_hash: initial_hash.clone(),
+                        base_snapshot: None,
+                        at: "2026-01-01T00:00:00Z".to_string(),
+                        sibling_hashes: None,
+                    },
+                );
                 m
             },
             dirty: false,
@@ -3499,11 +3583,18 @@ Hello.\n";
         };
         skill_targets_set("my-skill".to_string(), vec![forked_target]).unwrap();
 
-        let meta: SyncMetaV2 = serde_json::from_str(&fs::read_to_string(&meta_path).unwrap()).unwrap();
-        let entry = meta.last_sync.get(&key).expect("last_sync entry should exist");
+        let meta: SyncMetaV2 =
+            serde_json::from_str(&fs::read_to_string(&meta_path).unwrap()).unwrap();
+        let entry = meta
+            .last_sync
+            .get(&key)
+            .expect("last_sync entry should exist");
         assert!(entry.base_snapshot.is_some(), "base_snapshot should be set");
         assert_eq!(entry.base_snapshot.as_ref().unwrap(), &initial_hash);
-        assert_eq!(entry.pushed_hash, initial_hash, "pushed_hash should be preserved");
+        assert_eq!(
+            entry.pushed_hash, initial_hash,
+            "pushed_hash should be preserved"
+        );
     }
 
     #[test]
@@ -3511,7 +3602,8 @@ Hello.\n";
         let tmp = tempdir();
         let _g = override_felina_home(&tmp);
         let skills_root = tmp.join(".felina").join("skills");
-        let skill_body = "---\nname: my-skill\ndescription: d\nagents:\n  - anthropic\n---\n# Body\n";
+        let skill_body =
+            "---\nname: my-skill\ndescription: d\nagents:\n  - anthropic\n---\n# Body\n";
         write_skill(&skills_root, "my-skill", skill_body);
 
         // Start with no sync-meta at all.
@@ -3526,8 +3618,12 @@ Hello.\n";
         skill_targets_set("my-skill".to_string(), vec![forked_target]).unwrap();
 
         let meta_path = skills_root.join("my-skill").join(SYNC_META_FILENAME);
-        let meta: SyncMetaV2 = serde_json::from_str(&fs::read_to_string(&meta_path).unwrap()).unwrap();
-        let entry = meta.last_sync.get(&key).expect("last_sync entry should be created");
+        let meta: SyncMetaV2 =
+            serde_json::from_str(&fs::read_to_string(&meta_path).unwrap()).unwrap();
+        let entry = meta
+            .last_sync
+            .get(&key)
+            .expect("last_sync entry should be created");
         let expected_hash = crate::commands::fan_out::semantic_hash(skill_body);
         assert_eq!(entry.pushed_hash, expected_hash);
         assert_eq!(entry.base_snapshot.as_ref().unwrap(), &expected_hash);
@@ -3536,15 +3632,13 @@ Hello.\n";
 
     #[test]
     fn test_dirty_not_set_for_forked_only() {
-        let targets = vec![
-            SkillTarget {
-                agent: "anthropic".into(),
-                scope: SkillScope::Global,
-                project: None,
-                enabled: true,
-                mode: TargetMode::Forked,
-            },
-        ];
+        let targets = vec![SkillTarget {
+            agent: "anthropic".into(),
+            scope: SkillScope::Global,
+            project: None,
+            enabled: true,
+            mode: TargetMode::Forked,
+        }];
         assert!(!has_pushable_target(&targets));
 
         let targets_detached = vec![
@@ -3586,15 +3680,13 @@ Hello.\n";
         ];
         assert!(has_pushable_target(&targets));
 
-        let manual_only = vec![
-            SkillTarget {
-                agent: "gemini".into(),
-                scope: SkillScope::Global,
-                project: None,
-                enabled: true,
-                mode: TargetMode::Manual,
-            },
-        ];
+        let manual_only = vec![SkillTarget {
+            agent: "gemini".into(),
+            scope: SkillScope::Global,
+            project: None,
+            enabled: true,
+            mode: TargetMode::Manual,
+        }];
         assert!(has_pushable_target(&manual_only));
     }
 }

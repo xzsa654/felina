@@ -43,7 +43,9 @@ impl FanOutRenderer for AnthropicRenderer {
         // Each key is already in canonical (kebab-case) form.
         if let Some(serde_yaml::Value::Mapping(anth)) = skill.agent_fields.get("anthropic") {
             for (k, v) in anth {
-                let serde_yaml::Value::String(key) = k else { continue; };
+                let serde_yaml::Value::String(key) = k else {
+                    continue;
+                };
                 if key == "name" || key == "description" || key == "agents" {
                     continue;
                 }

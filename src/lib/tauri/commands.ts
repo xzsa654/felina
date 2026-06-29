@@ -46,6 +46,11 @@ import type {
   SiblingResolution,
   ForkAgentContent,
   ForkDiffPreview,
+  JesseAssistantAction,
+  JesseAssistantProvider,
+  JesseAssistantResponse,
+  JesseChatMessage,
+  JesseContextPayload,
 } from "$lib/types";
 import type {
   AgentId as TokenAgentId,
@@ -317,6 +322,33 @@ export const api = {
       invoke<void>("set_quota_window_schedule", { agent, enabled, time, message }),
     triggerNow: (agent: import("$lib/types").SchedulerAgent) =>
       invoke<import("$lib/types").QuotaTriggerResult>("trigger_quota_window_now", { agent }),
+  },
+
+  assistant: {
+    generate: (
+      provider: JesseAssistantProvider,
+      action: JesseAssistantAction,
+      context: JesseContextPayload,
+      locale: string,
+    ) =>
+      invoke<JesseAssistantResponse>("assistant_generate", {
+        provider,
+        action,
+        context,
+        locale,
+      }),
+    chat: (
+      provider: JesseAssistantProvider,
+      context: JesseContextPayload,
+      messages: JesseChatMessage[],
+      locale: string,
+    ) =>
+      invoke<JesseAssistantResponse>("assistant_chat", {
+        provider,
+        context,
+        messages,
+        locale,
+      }),
   },
 
   tokenAnalytics: {

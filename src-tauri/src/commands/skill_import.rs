@@ -138,9 +138,21 @@ pub fn skill_import_scan_quick(project_path: Option<String>) -> Result<ImportSca
     let mut out = ImportScanQuick::default();
     let scope = scan_scope(project_path.as_deref());
 
-    let anthropic = skill_names_at_pair(scope, project_path.as_deref(), cfg.pair_for("anthropic").unwrap())?;
-    let codex = skill_names_at_pair(scope, project_path.as_deref(), cfg.pair_for("codex").unwrap())?;
-    let mut gemini = skill_names_at_pair(scope, project_path.as_deref(), cfg.pair_for("gemini").unwrap())?;
+    let anthropic = skill_names_at_pair(
+        scope,
+        project_path.as_deref(),
+        cfg.pair_for("anthropic").unwrap(),
+    )?;
+    let codex = skill_names_at_pair(
+        scope,
+        project_path.as_deref(),
+        cfg.pair_for("codex").unwrap(),
+    )?;
+    let mut gemini = skill_names_at_pair(
+        scope,
+        project_path.as_deref(),
+        cfg.pair_for("gemini").unwrap(),
+    )?;
     if scope == SkillScope::Global {
         for extra in cfg.extra_global_paths("gemini", |p| expand_user_path(p)) {
             gemini.extend(skill_names_at(&extra));
@@ -433,12 +445,10 @@ fn validate_skill_name_segment(name: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn resolve_project_agent_skills_dir(
-    project_path: &str,
-    agent: &str,
-) -> Result<PathBuf, String> {
+fn resolve_project_agent_skills_dir(project_path: &str, agent: &str) -> Result<PathBuf, String> {
     let cfg = agent_paths_get()?;
-    let pair = cfg.pair_for(agent)
+    let pair = cfg
+        .pair_for(agent)
         .ok_or_else(|| format!("unknown agent: {agent}"))?;
     resolve_pair(SkillScope::Project, Some(project_path), pair)
 }
@@ -497,13 +507,9 @@ pub fn project_local_skill_rename(
         ));
     }
     if new_dir.exists() {
-        return Err(format!(
-            "target name already exists: {}",
-            new_dir.display()
-        ));
+        return Err(format!("target name already exists: {}", new_dir.display()));
     }
-    fs::rename(&old_dir, &new_dir)
-        .map_err(|e| format!("failed to rename skill directory: {e}"))?;
+    fs::rename(&old_dir, &new_dir).map_err(|e| format!("failed to rename skill directory: {e}"))?;
 
     let skill_md = new_dir.join("SKILL.md");
     if skill_md.is_file() {
@@ -543,8 +549,7 @@ pub fn project_local_skill_delete(
     if !target.exists() {
         return Ok(());
     }
-    fs::remove_dir_all(&target)
-        .map_err(|e| format!("failed to delete skill directory: {e}"))?;
+    fs::remove_dir_all(&target).map_err(|e| format!("failed to delete skill directory: {e}"))?;
     Ok(())
 }
 
@@ -1029,8 +1034,7 @@ fn reserialize(skill: crate::commands::canonical_skills::CanonicalSkill) -> Stri
 pub fn skill_import_scan_zip(zip_path: String) -> Result<Vec<ImportCandidate>, String> {
     use std::io::Read;
 
-    let file =
-        fs::File::open(&zip_path).map_err(|e| format!("failed to open ZIP file: {e}"))?;
+    let file = fs::File::open(&zip_path).map_err(|e| format!("failed to open ZIP file: {e}"))?;
     let mut archive =
         zip::ZipArchive::new(file).map_err(|e| format!("failed to read ZIP archive: {e}"))?;
 
@@ -1038,10 +1042,8 @@ pub fn skill_import_scan_zip(zip_path: String) -> Result<Vec<ImportCandidate>, S
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_nanos())
         .unwrap_or(0);
-    let extract_root = std::env::temp_dir().join(format!(
-        "felina-zip-import-{}-{stamp}",
-        std::process::id()
-    ));
+    let extract_root =
+        std::env::temp_dir().join(format!("felina-zip-import-{}-{stamp}", std::process::id()));
     fs::create_dir_all(&extract_root)
         .map_err(|e| format!("failed to create temp extract dir: {e}"))?;
 
@@ -1088,11 +1090,7 @@ pub fn skill_import_scan_zip(zip_path: String) -> Result<Vec<ImportCandidate>, S
 /// Mirror of `collect_candidates_in` for ZIP-sourced skills: agent is inferred
 /// from the source SKILL.md frontmatter (`agents[0]`, fallback `Anthropic`).
 /// No multi-source grouping — a ZIP is a single source.
-fn collect_zip_candidates_in(
-    dir: &Path,
-    canonical_dir: &Path,
-    out: &mut Vec<ImportCandidate>,
-) {
+fn collect_zip_candidates_in(dir: &Path, canonical_dir: &Path, out: &mut Vec<ImportCandidate>) {
     let entries = match fs::read_dir(dir) {
         Ok(e) => e,
         Err(_) => return,
@@ -1272,7 +1270,10 @@ mod tests {
         let shared = &grouped[0];
         assert_eq!(shared.skill_name, "shared");
         let def = shared.deferred.as_ref().expect("shared must be deferred");
-        assert_eq!(def.agents, vec!["anthropic".to_string(), "codex".to_string()]);
+        assert_eq!(
+            def.agents,
+            vec!["anthropic".to_string(), "codex".to_string()]
+        );
         assert!(def.reason.contains("2 locations"), "reason: {}", def.reason);
         assert_eq!(
             def.candidates.len(),
@@ -1484,7 +1485,11 @@ mod tests {
 
         let mut grouped = candidates[0].clone();
         grouped.deferred = Some(DeferredMultiSource {
-            agents: vec!["anthropic".to_string(), "codex".to_string(), "gemini".to_string()],
+            agents: vec![
+                "anthropic".to_string(),
+                "codex".to_string(),
+                "gemini".to_string(),
+            ],
             candidates,
             reason: "x".into(),
         });
@@ -1846,18 +1851,29 @@ mod tests {
 
         let mut c = candidate("my-skill", "anthropic".to_string());
         c.source_path = src_dir.join("SKILL.md").to_string_lossy().to_string();
-        skill_import_apply(None, vec![ImportSelection {
-            candidate: c,
-            resolution: ImportResolution::OverwriteCanonical,
-        }])
+        skill_import_apply(
+            None,
+            vec![ImportSelection {
+                candidate: c,
+                resolution: ImportResolution::OverwriteCanonical,
+            }],
+        )
         .expect("import");
 
         let canonical = fs::read_to_string(
-            home.join(".felina").join("skills").join("my-skill").join("SKILL.md"),
+            home.join(".felina")
+                .join("skills")
+                .join("my-skill")
+                .join("SKILL.md"),
         )
         .unwrap();
         let skill = crate::commands::canonical_skills::parse_skill_md(&canonical).unwrap();
-        let anth = skill.agent_fields.get("anthropic").unwrap().as_mapping().unwrap();
+        let anth = skill
+            .agent_fields
+            .get("anthropic")
+            .unwrap()
+            .as_mapping()
+            .unwrap();
         assert!(anth.contains_key(serde_yaml::Value::String("allowed-tools".into())));
         assert!(anth.contains_key(serde_yaml::Value::String("effort".into())));
     }
@@ -1894,20 +1910,33 @@ mod tests {
 
         let mut c = candidate("helper", "codex".to_string());
         c.source_path = src_dir.join("SKILL.md").to_string_lossy().to_string();
-        skill_import_apply(None, vec![ImportSelection {
-            candidate: c,
-            resolution: ImportResolution::OverwriteCanonical,
-        }])
+        skill_import_apply(
+            None,
+            vec![ImportSelection {
+                candidate: c,
+                resolution: ImportResolution::OverwriteCanonical,
+            }],
+        )
         .expect("import");
 
         let canonical = fs::read_to_string(
-            home.join(".felina").join("skills").join("helper").join("SKILL.md"),
+            home.join(".felina")
+                .join("skills")
+                .join("helper")
+                .join("SKILL.md"),
         )
         .unwrap();
         let skill = crate::commands::canonical_skills::parse_skill_md(&canonical).unwrap();
-        let codex = skill.agent_fields.get("codex").unwrap().as_mapping().unwrap();
+        let codex = skill
+            .agent_fields
+            .get("codex")
+            .unwrap()
+            .as_mapping()
+            .unwrap();
         assert!(codex.contains_key(serde_yaml::Value::String("interface.display_name".into())));
-        assert!(codex.contains_key(serde_yaml::Value::String("policy.allow_implicit_invocation".into())));
+        assert!(codex.contains_key(serde_yaml::Value::String(
+            "policy.allow_implicit_invocation".into()
+        )));
     }
 
     // ------------------------------------------------------------------
@@ -1943,7 +1972,8 @@ mod tests {
 
     #[test]
     fn rewrite_skill_md_name_updates_name_field_preserves_body() {
-        let raw = "---\nname: old\ndescription: hi\nagents: [anthropic]\n---\n# Body content\nmore\n";
+        let raw =
+            "---\nname: old\ndescription: hi\nagents: [anthropic]\n---\n# Body content\nmore\n";
         let out = rewrite_skill_md_name(raw, "new-name").unwrap();
         assert!(out.contains("name: new-name"));
         assert!(!out.contains("name: old"));
@@ -2094,12 +2124,9 @@ mod tests {
     #[test]
     fn project_local_delete_rejects_traversal() {
         for bad in ["", "..", "../etc", "a/b", "a\\b"] {
-            let err = project_local_skill_delete(
-                "/tmp/x".into(),
-                "anthropic".to_string(),
-                bad.into(),
-            )
-            .unwrap_err();
+            let err =
+                project_local_skill_delete("/tmp/x".into(), "anthropic".to_string(), bad.into())
+                    .unwrap_err();
             assert!(
                 err.contains("empty") || err.contains("separator") || err.contains("'..'"),
                 "input {bad:?} → {err}"
@@ -2131,18 +2158,27 @@ mod tests {
 
         let mut c = candidate("gem-skill", "gemini".to_string());
         c.source_path = src_dir.join("SKILL.md").to_string_lossy().to_string();
-        skill_import_apply(None, vec![ImportSelection {
-            candidate: c,
-            resolution: ImportResolution::OverwriteCanonical,
-        }])
+        skill_import_apply(
+            None,
+            vec![ImportSelection {
+                candidate: c,
+                resolution: ImportResolution::OverwriteCanonical,
+            }],
+        )
         .expect("import");
 
         let canonical = fs::read_to_string(
-            home.join(".felina").join("skills").join("gem-skill").join("SKILL.md"),
+            home.join(".felina")
+                .join("skills")
+                .join("gem-skill")
+                .join("SKILL.md"),
         )
         .unwrap();
         let skill = crate::commands::canonical_skills::parse_skill_md(&canonical).unwrap();
-        assert!(skill.agent_fields.is_empty(), "gemini import should not create agent_fields");
+        assert!(
+            skill.agent_fields.is_empty(),
+            "gemini import should not create agent_fields"
+        );
     }
 
     /// `skill_import_scan_zip` extracts a ZIP to a temp directory and returns
@@ -2174,14 +2210,26 @@ mod tests {
         zw.finish().unwrap();
 
         let out = skill_import_scan_zip(zip_path.to_string_lossy().to_string()).expect("scan");
-        assert_eq!(out.len(), 1, "only good-skill is a valid candidate, got {out:#?}");
+        assert_eq!(
+            out.len(),
+            1,
+            "only good-skill is a valid candidate, got {out:#?}"
+        );
         let cand = &out[0];
         assert_eq!(cand.skill_name, "good-skill");
-        assert_eq!(cand.source_agent, "gemini".to_string(), "agent inferred from frontmatter");
+        assert_eq!(
+            cand.source_agent,
+            "gemini".to_string(),
+            "agent inferred from frontmatter"
+        );
         assert!(cand.conflict.is_none(), "no canonical conflict yet");
         // Canonical must NOT have been written.
         assert!(
-            !home.join(".felina").join("skills").join("good-skill").exists(),
+            !home
+                .join(".felina")
+                .join("skills")
+                .join("good-skill")
+                .exists(),
             "scan must not write canonical"
         );
     }
@@ -2192,7 +2240,11 @@ mod tests {
     #[test]
     fn collect_candidates_normalizes_source_and_conflict_paths_for_display() {
         let tmp = unique_tmp("normalize-display");
-        let source_dir = tmp.join("MixedCase").join(".claude").join("skills").join("MySkill");
+        let source_dir = tmp
+            .join("MixedCase")
+            .join(".claude")
+            .join("skills")
+            .join("MySkill");
         fs::create_dir_all(&source_dir).expect("mkdir source");
         let source_skill = source_dir.join("SKILL.md");
         fs::write(
@@ -2212,7 +2264,12 @@ mod tests {
 
         let agent_skills_root = tmp.join("MixedCase").join(".claude").join("skills");
         let mut out = Vec::new();
-        collect_candidates_in(&agent_skills_root, "anthropic".to_string(), &canonical_dir, &mut out);
+        collect_candidates_in(
+            &agent_skills_root,
+            "anthropic".to_string(),
+            &canonical_dir,
+            &mut out,
+        );
 
         assert_eq!(out.len(), 1, "expected one candidate, got {out:?}");
         let cand = &out[0];
@@ -2226,14 +2283,18 @@ mod tests {
             "case must be preserved: {}",
             cand.source_path
         );
-        let conflict = cand.conflict.as_ref().expect("expected conflict against canonical");
+        let conflict = cand
+            .conflict
+            .as_ref()
+            .expect("expected conflict against canonical");
         assert!(
             !conflict.canonical_path.contains('\\'),
             "canonical_path must not contain backslashes: {}",
             conflict.canonical_path
         );
         assert!(
-            conflict.canonical_path.contains("Felina") && conflict.canonical_path.contains("MySkill"),
+            conflict.canonical_path.contains("Felina")
+                && conflict.canonical_path.contains("MySkill"),
             "canonical_path case must be preserved: {}",
             conflict.canonical_path
         );
@@ -2270,8 +2331,15 @@ mod tests {
 
         let out = skill_import_scan_dir(skill_dir.to_string_lossy().to_string()).expect("scan");
         assert_eq!(out.len(), 1, "exactly one candidate, got {out:#?}");
-        assert_eq!(out[0].skill_name, "my-skill", "named after selected directory");
-        assert_eq!(out[0].source_agent, "gemini".to_string(), "agent inferred from frontmatter");
+        assert_eq!(
+            out[0].skill_name, "my-skill",
+            "named after selected directory"
+        );
+        assert_eq!(
+            out[0].source_agent,
+            "gemini".to_string(),
+            "agent inferred from frontmatter"
+        );
         assert!(out[0].conflict.is_none());
     }
 
@@ -2360,6 +2428,9 @@ mod tests {
 
         let out = skill_import_scan_dir(skill_dir.to_string_lossy().to_string()).expect("scan");
         assert_eq!(out.len(), 1);
-        assert!(out[0].conflict.is_some(), "expected conflict info, got {out:#?}");
+        assert!(
+            out[0].conflict.is_some(),
+            "expected conflict info, got {out:#?}"
+        );
     }
 }

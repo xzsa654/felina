@@ -31,8 +31,7 @@ where
     I: IntoIterator<Item = PackageEntry<R>>,
     R: Read,
 {
-    std::fs::create_dir_all(dest_root)
-        .map_err(|e| format!("failed to create dest root: {e}"))?;
+    std::fs::create_dir_all(dest_root).map_err(|e| format!("failed to create dest root: {e}"))?;
     let canonical_root = dest_root
         .canonicalize()
         .map_err(|e| format!("failed to canonicalize dest root: {e}"))?;
@@ -178,7 +177,10 @@ mod tests {
         let entries = vec![
             dir("code-review"),
             file("code-review/SKILL.md", b"x"),
-            file("code-review/.felina-sync-meta.json", b"{\"directoryHash\":\"X\"}"),
+            file(
+                "code-review/.felina-sync-meta.json",
+                b"{\"directoryHash\":\"X\"}",
+            ),
         ];
         import_entries(entries, tmp.path()).unwrap();
         assert!(!tmp

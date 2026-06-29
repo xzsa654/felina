@@ -77,8 +77,8 @@ fn package_skill_dir(name: &str, skill_dir: &Path) -> Result<Vec<u8>, String> {
 use super::hub_auth::is_token_expired;
 
 async fn get_valid_token() -> Result<String, String> {
-    let access_token = super::hub_auth::read_hub_access_token()?
-        .ok_or_else(|| "請先登入 Hub 帳號".to_string())?;
+    let access_token =
+        super::hub_auth::read_hub_access_token()?.ok_or_else(|| "請先登入 Hub 帳號".to_string())?;
     if !is_token_expired(&access_token) {
         return Ok(access_token);
     }
@@ -94,7 +94,10 @@ pub async fn publish_canonical_skill(name: String) -> Result<(), String> {
 
     let skill_dir = paths::felina_global_skills_dir().join(&name);
     if !skill_dir.is_dir() {
-        return Err(format!("skill directory not found: {}", skill_dir.display()));
+        return Err(format!(
+            "skill directory not found: {}",
+            skill_dir.display()
+        ));
     }
     if !skill_dir.join("SKILL.md").is_file() {
         return Err(format!("SKILL.md not found in {}", skill_dir.display()));
@@ -167,9 +170,9 @@ pub async fn delete_market_skill(name: String) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
     use crate::commands::market_server::set_market_server_url;
     use crate::paths::set_felina_home_override_for_test;
+    use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
     use flate2::read::GzDecoder;
     use std::io::{Read, Write};
     use std::net::TcpListener;
@@ -180,7 +183,10 @@ mod tests {
         std::fs::create_dir_all(settings_path.parent().unwrap()).unwrap();
         // Create a non-expired JWT-like token for testing (exp far in future)
         let header = URL_SAFE_NO_PAD.encode(r#"{"alg":"HS256"}"#);
-        let payload = URL_SAFE_NO_PAD.encode(format!(r#"{{"sub":"test","email":"test@test.com","exp":{}}}"#, i64::MAX));
+        let payload = URL_SAFE_NO_PAD.encode(format!(
+            r#"{{"sub":"test","email":"test@test.com","exp":{}}}"#,
+            i64::MAX
+        ));
         let fake_jwt = format!("{header}.{payload}.sig");
         std::fs::write(
             &settings_path,
@@ -198,12 +204,19 @@ mod tests {
         )
         .unwrap();
         std::fs::write(skill_dir.join(".felina-sync-meta.json"), "{}").unwrap();
-        std::fs::write(skill_dir.join("nested").join(".felina-sync-meta.json"), "{}").unwrap();
+        std::fs::write(
+            skill_dir.join("nested").join(".felina-sync-meta.json"),
+            "{}",
+        )
+        .unwrap();
         std::fs::write(skill_dir.join("nested").join("notes.txt"), "notes").unwrap();
         skill_dir
     }
 
-    fn spawn_put_server(status: &'static str, body: &'static str) -> (String, std::thread::JoinHandle<Vec<u8>>) {
+    fn spawn_put_server(
+        status: &'static str,
+        body: &'static str,
+    ) -> (String, std::thread::JoinHandle<Vec<u8>>) {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let url = format!("http://{}", listener.local_addr().unwrap());
         let handle = std::thread::spawn(move || {
@@ -282,7 +295,9 @@ mod tests {
         let (url, handle) = spawn_put_server("500 Internal Server Error", "upload failed");
         set_market_server_url(url).unwrap();
 
-        let err = publish_canonical_skill("code-review".into()).await.unwrap_err();
+        let err = publish_canonical_skill("code-review".into())
+            .await
+            .unwrap_err();
         assert!(err.contains("500"));
         assert!(err.contains("upload failed"));
         let _ = handle.join().unwrap();
@@ -332,12 +347,21 @@ mod tests {
         let mut names = archive
             .entries()
             .unwrap()
-            .map(|entry| entry.unwrap().path().unwrap().to_string_lossy().into_owned())
+            .map(|entry| {
+                entry
+                    .unwrap()
+                    .path()
+                    .unwrap()
+                    .to_string_lossy()
+                    .into_owned()
+            })
             .collect::<Vec<_>>();
         names.sort();
 
         assert!(names.contains(&"code-review/SKILL.md".into()));
         assert!(names.contains(&"code-review/nested/notes.txt".into()));
-        assert!(!names.iter().any(|name| name.ends_with(".felina-sync-meta.json")));
+        assert!(!names
+            .iter()
+            .any(|name| name.ends_with(".felina-sync-meta.json")));
     }
 }

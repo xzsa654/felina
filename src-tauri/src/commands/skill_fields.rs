@@ -87,7 +87,10 @@ fn anthropic_field(
         enum_values: enum_values.iter().map(|s| s.to_string()).collect(),
         source_url: "https://docs.claude.com/en/docs/claude-code/skills".to_string(),
         verified_date: "2026-05-26".to_string(),
-        label_key: format!("skills.fields.anthropic.{}", canonical_key.replace('-', "_")),
+        label_key: format!(
+            "skills.fields.anthropic.{}",
+            canonical_key.replace('-', "_")
+        ),
         help_key: format!(
             "skills.fields.anthropic.{}_help",
             canonical_key.replace('-', "_")
@@ -109,7 +112,10 @@ fn codex_yaml_field(
         enum_values: Vec::new(),
         source_url: "https://developers.openai.com/codex/skills".to_string(),
         verified_date: "2026-05-26".to_string(),
-        label_key: format!("skills.fields.codex.{}", canonical_key.replace('.', "_").replace('-', "_")),
+        label_key: format!(
+            "skills.fields.codex.{}",
+            canonical_key.replace('.', "_").replace('-', "_")
+        ),
         help_key: format!(
             "skills.fields.codex.{}_help",
             canonical_key.replace('.', "_").replace('-', "_")
@@ -117,10 +123,7 @@ fn codex_yaml_field(
     }
 }
 
-fn standard_field(
-    canonical_key: &str,
-    value_kind: ValueKind,
-) -> SkillFieldDefinition {
+fn standard_field(canonical_key: &str, value_kind: ValueKind) -> SkillFieldDefinition {
     SkillFieldDefinition {
         agent: FieldAgent::Standard,
         canonical_path: format!("standard.{canonical_key}"),
@@ -161,21 +164,11 @@ pub fn build_catalog() -> Vec<SkillFieldDefinition> {
             &[],
         ),
         anthropic_field("user-invocable", "user-invocable", ValueKind::Boolean, &[]),
-        anthropic_field(
-            "context",
-            "context",
-            ValueKind::Enum,
-            &["fork"],
-        ),
+        anthropic_field("context", "context", ValueKind::Enum, &["fork"]),
         anthropic_field("agent", "agent", ValueKind::String, &[]),
         anthropic_field("hooks", "hooks", ValueKind::Object, &[]),
         anthropic_field("paths", "paths", ValueKind::StringList, &[]),
-        anthropic_field(
-            "shell",
-            "shell",
-            ValueKind::Enum,
-            &["bash", "powershell"],
-        ),
+        anthropic_field("shell", "shell", ValueKind::Enum, &["bash", "powershell"]),
         // ── Codex (agents/openai.yaml) ───────────────────────────
         codex_yaml_field(
             "interface.display_name",
@@ -276,7 +269,10 @@ mod tests {
             .iter()
             .find(|f| f.canonical_path == "anthropic.allowed-tools")
             .expect("anthropic.allowed-tools");
-        assert_eq!(allowed_tools.output_location, OutputLocation::SkillFrontmatter);
+        assert_eq!(
+            allowed_tools.output_location,
+            OutputLocation::SkillFrontmatter
+        );
         assert_eq!(allowed_tools.output_key, "allowed-tools");
         assert_eq!(allowed_tools.value_kind, ValueKind::StringList);
 
@@ -295,7 +291,10 @@ mod tests {
             .iter()
             .find(|f| f.canonical_path == "codex.interface.display_name")
             .expect("codex.interface.display_name");
-        assert_eq!(display_name.output_location, OutputLocation::CodexOpenaiYaml);
+        assert_eq!(
+            display_name.output_location,
+            OutputLocation::CodexOpenaiYaml
+        );
         assert_eq!(display_name.output_key, "interface.display_name");
 
         let policy = catalog
@@ -305,7 +304,10 @@ mod tests {
         assert_eq!(policy.value_kind, ValueKind::Boolean);
 
         // Gemini — no optional fields yet, so nothing to find
-        let gemini_count = catalog.iter().filter(|f| f.agent == FieldAgent::Gemini).count();
+        let gemini_count = catalog
+            .iter()
+            .filter(|f| f.agent == FieldAgent::Gemini)
+            .count();
         assert_eq!(gemini_count, 0, "Gemini has no optional fields yet");
 
         // Standard entries
@@ -352,10 +354,26 @@ mod tests {
         for field in build_catalog() {
             assert!(!field.canonical_path.is_empty(), "empty canonical_path");
             assert!(!field.output_key.is_empty(), "empty output_key");
-            assert!(!field.source_url.is_empty(), "empty source_url for {}", field.canonical_path);
-            assert!(!field.verified_date.is_empty(), "empty verified_date for {}", field.canonical_path);
-            assert!(!field.label_key.is_empty(), "empty label_key for {}", field.canonical_path);
-            assert!(!field.help_key.is_empty(), "empty help_key for {}", field.canonical_path);
+            assert!(
+                !field.source_url.is_empty(),
+                "empty source_url for {}",
+                field.canonical_path
+            );
+            assert!(
+                !field.verified_date.is_empty(),
+                "empty verified_date for {}",
+                field.canonical_path
+            );
+            assert!(
+                !field.label_key.is_empty(),
+                "empty label_key for {}",
+                field.canonical_path
+            );
+            assert!(
+                !field.help_key.is_empty(),
+                "empty help_key for {}",
+                field.canonical_path
+            );
         }
     }
 }

@@ -9,25 +9,26 @@ mod stats;
 
 pub mod felina_settings;
 pub mod maintenance;
-pub mod quota_scheduler;
 pub mod memory;
 pub mod projects;
+pub mod quota_scheduler;
 pub mod skills;
 pub mod tokens;
 
 // multi-agent-skills-foundation: canonical storage + fan-out + import.
 pub mod agent_paths;
+pub mod assistant;
 pub mod canonical_skills;
 pub mod fan_out;
-pub mod known_projects;
-pub mod skill_fields;
-pub mod skill_import;
-pub mod skill_library;
 pub mod hub_auth;
+pub mod known_projects;
 pub mod leaderboard;
 pub mod market_install;
 pub mod market_publish;
 pub mod market_server;
+pub mod skill_fields;
+pub mod skill_import;
+pub mod skill_library;
 pub mod skill_name;
 pub mod skill_package;
 pub mod snapshot;

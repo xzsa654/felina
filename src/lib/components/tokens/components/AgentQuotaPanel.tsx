@@ -8,6 +8,7 @@ import {
   useFelinaQuotaTtl,
   useSetFelinaQuotaTtl,
 } from "../hooks/useTokenQueries";
+import { buildJesseContextDragData, setJesseContextDragData } from "../jesse-context";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -28,6 +29,10 @@ function formatReset(iso: string | null): string {
     return `重置 ${d.toLocaleDateString("zh-TW", { weekday: "short", month: "numeric", day: "numeric" })}`;
   }
   return h > 0 ? `重置 ${h} hr ${m % 60} min 後` : `重置 ${m} min 後`;
+}
+
+function isInteractiveDragTarget(target: EventTarget | null): boolean {
+  return target instanceof Element && Boolean(target.closest("button,input,select,textarea"));
 }
 
 // ── Progress bar ──────────────────────────────────────────────────────────────
@@ -160,7 +165,7 @@ let _optimisticTtl: number | null = null;
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 
-export default function AgentQuotaPanel({ locale: _locale }: { locale: Locale }) {
+export default function AgentQuotaPanel({ locale }: { locale: Locale }) {
   const [, tick] = useState(0);
   useEffect(() => {
     const t = setInterval(() => tick((n) => n + 1), 1000);
@@ -180,10 +185,44 @@ export default function AgentQuotaPanel({ locale: _locale }: { locale: Locale })
 
   return (
     <QuotaContent key={ttlSeconds} ttlSeconds={ttlSeconds}>
-      {({ snapshot, lastUpdated, isInCooldown, isFetching, refetch }) => (
-        <div className="bg-bg-secondary border border-border rounded-lg p-5">
+      {({ snapshot, lastUpdated, isInCooldown, isFetching, refetch }) => {
+        const quotaDragData = buildJesseContextDragData({
+          kind: "quota-snapshot",
+          title: locale === "zh-TW" ? "Token 用量" : "Token usage",
+          source: "tokens.quota",
+          capturedAt: new Date().toISOString(),
+          summary: `Claude available: ${snapshot.anthropic_limits.available}; Codex available: ${snapshot.codex_limits.available}`,
+          metrics: {
+            stale: snapshot.stale,
+            nextRefreshAt: snapshot.next_refresh_at,
+            claudeAvailable: snapshot.anthropic_limits.available,
+            claudeFiveHourPct: snapshot.anthropic_limits.five_hour.utilization,
+            claudeSevenDayPct: snapshot.anthropic_limits.seven_day.utilization,
+            codexAvailable: snapshot.codex_limits.available,
+            codexPrimaryPct: snapshot.codex_limits.primary_pct,
+            codexSecondaryPct: snapshot.codex_limits.secondary_pct,
+            codexPlanType: snapshot.codex_limits.plan_type,
+            ttlSeconds,
+          },
+        });
+
+        return (
+        <div className="rounded-lg border border-border bg-bg-secondary p-5">
           <div className="flex items-center justify-between mb-5">
-            <h3 className="text-sm font-semibold text-text-primary">Token 用量</h3>
+            <h3
+              className="inline-block cursor-grab text-sm font-semibold text-text-primary active:cursor-grabbing"
+              draggable
+              onDragStart={(event) => {
+                if (isInteractiveDragTarget(event.target)) {
+                  event.preventDefault();
+                  return;
+                }
+                setJesseContextDragData(event.dataTransfer, quotaDragData, "Token 用量");
+              }}
+              title="Drag to Jesse"
+            >
+              Token 用量
+            </h3>
             <div className="flex items-center gap-2">
               <label className="flex items-center gap-1 text-[10px] text-text-muted">
                 TTL
@@ -228,7 +267,8 @@ export default function AgentQuotaPanel({ locale: _locale }: { locale: Locale })
             <div className="pl-6 border-l border-border"><CodexCard limits={snapshot.codex_limits} /></div>
           </div>
         </div>
-      )}
+        );
+      }}
     </QuotaContent>
   );
 }

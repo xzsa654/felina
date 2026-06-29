@@ -15,9 +15,9 @@ const SETTINGS_KEY: &str = "quotaTtlSeconds";
 /// Settings-file key holding per-agent quota-window trigger schedules.
 const SCHEDULES_KEY: &str = "quotaWindowSchedules";
 
-/// Supported agents for quota-window scheduling. Gemini is intentionally
-/// excluded (see change `quota-window-scheduler` Non-Goals).
-pub const SCHEDULE_AGENTS: [&str; 2] = ["claude", "codex"];
+/// Supported agents for quota-window scheduling. Codex and Gemini are
+/// intentionally excluded from the control tool.
+pub const SCHEDULE_AGENTS: [&str; 1] = ["claude"];
 
 /// A single agent's daily quota-window trigger schedule. `time` is a local
 /// wall-clock `HH:MM` (24-hour). `message` is the text sent on trigger.
@@ -188,7 +188,9 @@ pub(crate) fn write_quota_window_schedule(
         ));
     }
     if !is_valid_hhmm(time) {
-        return Err(format!("time must be in HH:MM 24-hour format, got '{time}'"));
+        return Err(format!(
+            "time must be in HH:MM 24-hour format, got '{time}'"
+        ));
     }
     if message.trim().is_empty() {
         return Err("message must not be empty".into());
@@ -358,25 +360,33 @@ mod tests {
             let raw = fs::read_to_string(&path).expect("read back");
             let val: serde_json::Value = serde_json::from_str(&raw).expect("valid json");
             assert_eq!(val["quotaTtlSeconds"], serde_json::Value::from(120));
-            assert_eq!(val["quotaWindowSchedules"]["claude"]["enabled"], serde_json::Value::Bool(true));
-            assert_eq!(val["quotaWindowSchedules"]["claude"]["time"], serde_json::Value::from("07:30"));
+            assert_eq!(
+                val["quotaWindowSchedules"]["claude"]["enabled"],
+                serde_json::Value::Bool(true)
+            );
+            assert_eq!(
+                val["quotaWindowSchedules"]["claude"]["time"],
+                serde_json::Value::from("07:30")
+            );
 
             let s = read_quota_window_schedules();
             assert!(s.claude.enabled);
             assert_eq!(s.claude.time, "07:30");
-            // codex untouched → default
+            // Legacy codex schedule remains readable for settings compatibility.
             assert_eq!(s.codex, QuotaWindowSchedule::default());
         });
     }
 
     #[test]
-    fn writing_second_agent_keeps_first() {
-        with_temp_home("sched_two_agents", |_| {
+    fn codex_schedule_write_is_rejected() {
+        with_temp_home("sched_codex_rejected", |_| {
             write_quota_window_schedule("claude", true, "08:00", "morning").expect("claude");
-            write_quota_window_schedule("codex", true, "23:59", "hi").expect("codex");
+            let err = write_quota_window_schedule("codex", true, "23:59", "hi")
+                .expect_err("codex schedule should be unsupported");
             let s = read_quota_window_schedules();
             assert!(s.claude.enabled && s.claude.time == "08:00");
-            assert!(s.codex.enabled && s.codex.time == "23:59");
+            assert_eq!(s.codex, QuotaWindowSchedule::default());
+            assert!(err.contains("unsupported agent 'codex'"));
         });
     }
 
@@ -389,6 +399,7 @@ mod tests {
 
             // spec validation table
             assert!(write_quota_window_schedule("gemini", true, "09:00", "早安").is_err());
+            assert!(write_quota_window_schedule("codex", true, "09:00", "早安").is_err());
             assert!(write_quota_window_schedule("claude", true, "9:0", "早安").is_err());
             assert!(write_quota_window_schedule("claude", true, "25:00", "早安").is_err());
             assert!(write_quota_window_schedule("claude", true, "09:00", "").is_err());
@@ -399,7 +410,6 @@ mod tests {
 
             // valid cases accepted
             assert!(write_quota_window_schedule("claude", true, "09:00", "早安").is_ok());
-            assert!(write_quota_window_schedule("codex", false, "23:59", "hi").is_ok());
         });
     }
 

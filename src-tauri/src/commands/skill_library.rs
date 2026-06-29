@@ -31,17 +31,13 @@ pub fn skill_library_export(output_path: String) -> Result<(), String> {
     }
 
     let out = Path::new(&output_path);
-    let file =
-        fs::File::create(out).map_err(|e| format!("failed to create output file: {e}"))?;
+    let file = fs::File::create(out).map_err(|e| format!("failed to create output file: {e}"))?;
     let mut zip = zip::ZipWriter::new(file);
     let options = zip::write::SimpleFileOptions::default()
         .compression_method(zip::CompressionMethod::Deflated);
 
     for skill_dir in &skill_dirs {
-        let skill_name = skill_dir
-            .file_name()
-            .unwrap_or_default()
-            .to_string_lossy();
+        let skill_name = skill_dir.file_name().unwrap_or_default().to_string_lossy();
         add_dir_to_zip(&mut zip, skill_dir, &skill_name, &options)?;
     }
 
@@ -58,19 +54,14 @@ fn add_dir_to_zip(
 ) -> Result<(), String> {
     for entry in WalkDir::new(dir).min_depth(1) {
         let entry = entry.map_err(|e| format!("walk error: {e}"))?;
-        let name = entry
-            .file_name()
-            .to_string_lossy();
+        let name = entry.file_name().to_string_lossy();
 
         if should_exclude(&name, entry.file_type().is_dir()) {
             continue;
         }
 
         // Check if any ancestor is excluded
-        let rel = entry
-            .path()
-            .strip_prefix(dir)
-            .unwrap_or(entry.path());
+        let rel = entry.path().strip_prefix(dir).unwrap_or(entry.path());
         if rel.components().any(|c| {
             let s = c.as_os_str().to_string_lossy();
             EXCLUDED_DIRS.contains(&s.as_ref())
@@ -112,8 +103,8 @@ pub fn skill_library_reset() -> Result<ResetResult, String> {
     }
 
     let mut deleted = 0usize;
-    for entry in fs::read_dir(&skills_dir)
-        .map_err(|e| format!("failed to read skills directory: {e}"))?
+    for entry in
+        fs::read_dir(&skills_dir).map_err(|e| format!("failed to read skills directory: {e}"))?
     {
         let entry = entry.map_err(|e| format!("read_dir entry error: {e}"))?;
         let path = entry.path();
@@ -165,7 +156,11 @@ mod tests {
     fn create_skill(skills_dir: &Path, name: &str, with_subdir: bool) {
         let skill = skills_dir.join(name);
         fs::create_dir_all(&skill).unwrap();
-        fs::write(skill.join("SKILL.md"), format!("---\nname: {name}\n---\n# {name}")).unwrap();
+        fs::write(
+            skill.join("SKILL.md"),
+            format!("---\nname: {name}\n---\n# {name}"),
+        )
+        .unwrap();
         fs::write(
             skill.join(".felina-sync-meta.json"),
             r#"{"version":2,"targets":[],"dirty":false}"#,

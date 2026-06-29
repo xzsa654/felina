@@ -2,6 +2,7 @@ import type { TokenAnalytics } from "$lib/types";
 import type { Locale } from "$lib/i18n";
 import { t } from "$lib/i18n";
 import { formatNumberFull, formatCostFull } from "$lib/utils/format";
+import { buildJesseContextDragData, setJesseContextDragData } from "../jesse-context";
 
 export default function CostBudgetCard({
   analytics,
@@ -15,11 +16,33 @@ export default function CostBudgetCard({
   const datedBuckets = analytics.time_series.filter((bucket) => bucket.label !== "all");
   const nDays = datedBuckets.length;
   const allScopeOnly = analytics.time_series.length > 0 && nDays === 0;
+  const title = t(locale, "tokens.costBudget.title");
+  const dragData = buildJesseContextDragData({
+    kind: "token-overview",
+    title,
+    source: "tokens.costBudget",
+    capturedAt: new Date().toISOString(),
+    summary: `${title}: estimated cost ${formatCostFull(analytics.total_cost_usd, locale)} across ${formatNumberFull(analytics.event_count, locale)} events.`,
+    metrics: {
+      totalCostUsd: analytics.total_cost_usd,
+      eventCount: analytics.event_count,
+      datedDays: nDays,
+      allScopeOnly,
+      averageDailyCostUsd: nDays > 0
+        ? datedBuckets.reduce((s, b) => s + b.cost_usd, 0) / nDays
+        : null,
+    },
+  });
 
   return (
     <div className="bg-bg-secondary border border-border rounded-lg p-4">
-      <h3 className="text-sm font-medium text-text-secondary mb-3">
-        {t(locale, "tokens.costBudget.title")}
+      <h3
+        className="mb-3 inline-block cursor-grab text-sm font-medium text-text-secondary active:cursor-grabbing"
+        draggable
+        onDragStart={(event) => setJesseContextDragData(event.dataTransfer, dragData, title)}
+        title="Drag to Jesse"
+      >
+        {title}
       </h3>
       <div className="space-y-3">
         <div className="grid grid-cols-2 gap-3 text-sm">

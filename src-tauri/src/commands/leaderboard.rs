@@ -316,7 +316,8 @@ pub fn get_leaderboard_handle() -> Result<Option<String>, String> {
     if !path.exists() {
         return Ok(None);
     }
-    let raw = fs::read_to_string(&path).map_err(|e| format!("failed to read settings.json: {e}"))?;
+    let raw =
+        fs::read_to_string(&path).map_err(|e| format!("failed to read settings.json: {e}"))?;
     if raw.trim().is_empty() {
         return Ok(None);
     }
@@ -362,7 +363,7 @@ pub fn set_leaderboard_handle(handle: String) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tokens::types::{ModelBreakdown, AgentId, TokenBucket};
+    use crate::tokens::types::{AgentId, ModelBreakdown, TokenBucket};
     use std::io::{Read, Write};
     use std::net::TcpListener;
 

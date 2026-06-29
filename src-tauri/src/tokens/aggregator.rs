@@ -1587,10 +1587,10 @@ impl TokenAggregator {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tokens::pricing::ModelPricing;
     use crate::tokens::reconciliation::{
         ReconcileOptions, ReconciliationRecord, SourceCollection, SourceStatus, TokenSource,
     };
-    use crate::tokens::pricing::ModelPricing;
     use crate::tokens::storage::{
         SOURCE_FELINA_PARSER, SOURCE_PARSER_FALLBACK, SOURCE_TOKSCALE_EXPORT,
     };
@@ -2178,9 +2178,7 @@ mod tests {
             pair.cache_efficiency.cache_read_tokens,
             expected.cache_read_tokens
         );
-        assert!(
-            (pair.cache_efficiency.cache_cost_saved - expected.cache_cost_saved).abs() < 1e-12
-        );
+        assert!((pair.cache_efficiency.cache_cost_saved - expected.cache_cost_saved).abs() < 1e-12);
         assert!((pair.cache_efficiency.cache_cost_saved - 4.50).abs() < 1e-9);
         cleanup_db(&db);
     }

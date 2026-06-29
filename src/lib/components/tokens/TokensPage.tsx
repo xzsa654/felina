@@ -13,6 +13,7 @@ import CacheEfficiencyCard from "./components/CacheEfficiencyCard";
 import TopSessionsCard from "./components/TopSessionsCard";
 import CostBudgetCard from "./components/CostBudgetCard";
 import AgentQuotaPanel from "./components/AgentQuotaPanel";
+import JesseTokenAssistant from "./components/JesseTokenAssistant";
 import QuotaWindowSchedulerPanel from "./components/QuotaWindowSchedulerPanel";
 import TimeBucketTable from "./components/TimeBucketTable";
 import DailySummaryCards from "./components/DailySummaryCards";
@@ -157,6 +158,7 @@ export default function TokensPage() {
   const analytics = analyticsPairQuery.data?.monthly ?? null;
   const analyticsDaily = analyticsPairQuery.data?.daily ?? null;
   const cacheEfficiency = analyticsPairQuery.data?.cache_efficiency ?? null;
+  const dateRangeLabel = t(locale, `tokens.dateRange.${datePreset}` as never);
   const isImporting = needsImport || (importRefreshStartedRef.current && refreshMutation.isPending);
   const isPending = importStatusQuery.isPending || analyticsPairQuery.isPending;
   const queryError = analyticsPairQuery.error;
@@ -284,8 +286,17 @@ export default function TokensPage() {
                 {activeTab === "overview" && (
                   <div className="space-y-4">
                     <AgentQuotaPanel locale={locale} />
-                    <TokenStatCards analytics={analytics} cacheEfficiency={cacheEfficiency} locale={locale} />
-                    <TopSessionsCard data={analytics.top_sessions ?? []} locale={locale} />
+                    <TokenStatCards
+                      analytics={analytics}
+                      cacheEfficiency={cacheEfficiency}
+                      locale={locale}
+                      dateRangeLabel={dateRangeLabel}
+                    />
+                    <TopSessionsCard
+                      data={analytics.top_sessions ?? []}
+                      locale={locale}
+                      dateRangeLabel={dateRangeLabel}
+                    />
                     <CacheEfficiencyCard data={cacheEfficiency} locale={locale} />
                     {canShowTemporalCharts && (
                       <div className="grid lg:grid-cols-2 gap-4">
@@ -333,7 +344,11 @@ export default function TokensPage() {
                 {activeTab === "models" && (
                   <div className="space-y-4">
                     <div className="grid xl:grid-cols-[minmax(0,1fr)_360px] gap-4">
-                      <ModelBreakdownTable data={analytics?.model_breakdown ?? []} locale={locale} />
+                      <ModelBreakdownTable
+                        data={analytics?.model_breakdown ?? []}
+                        locale={locale}
+                        dateRangeLabel={dateRangeLabel}
+                      />
                       <div className="space-y-4">
                         <CostBudgetCard analytics={analytics} locale={locale} />
                         <ModelBreakdownChart data={analytics?.model_breakdown ?? []} locale={locale} />
@@ -349,6 +364,7 @@ export default function TokensPage() {
 
         </div>
       </PageBody>
+      <JesseTokenAssistant locale={locale} />
     </div>
   );
 }

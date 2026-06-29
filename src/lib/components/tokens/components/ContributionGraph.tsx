@@ -1,10 +1,11 @@
 import { useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import type { TokenBucket } from "$lib/types";
+import type { JesseContextPayload, TokenBucket } from "$lib/types";
 import type { Locale } from "$lib/i18n";
 import { t } from "$lib/i18n";
 import { formatNumber, formatCostFull } from "$lib/utils/format";
 import { totalTokensForBucket } from "../token-insights";
+import { buildJesseContextDragData, setJesseContextDragData } from "../jesse-context";
 
 // ── Color levels ─────────────────────────────────────────────────────────────
 // 5 levels (0=empty, 1–4 = activity intensity)
@@ -66,6 +67,16 @@ interface DayCell {
   inRange: boolean;
 }
 
+interface ContributionGraphStats {
+  activeDays: number;
+  totalDays: number;
+  inactiveDays: number;
+  totalTokens: number;
+  totalCost: number;
+  firstDate: string;
+  lastDate: string;
+}
+
 // ── Tooltip ───────────────────────────────────────────────────────────────────
 interface TooltipInfo {
   key:    string;
@@ -73,6 +84,83 @@ interface TooltipInfo {
   cost:   number;
   x:      number; // window-level px
   y:      number; // window-level px
+}
+
+function utcDayNumber(key: string): number {
+  const [year, month, day] = key.split("-").map(Number);
+  return Date.UTC(year, month - 1, day) / 86_400_000;
+}
+
+function calendarDaysInclusive(firstDate: string, lastDate: string): number {
+  return Math.max(0, Math.floor(utcDayNumber(lastDate) - utcDayNumber(firstDate)) + 1);
+}
+
+export function buildContributionGraphStats(data: TokenBucket[]): ContributionGraphStats | null {
+  const dated = data
+    .filter((b) => /^\d{4}-\d{2}-\d{2}/.test(b.label))
+    .sort((a, b) => a.label.localeCompare(b.label));
+  if (dated.length === 0) return null;
+
+  let activeDays = 0;
+  let totalTokens = 0;
+  let totalCost = 0;
+
+  for (const b of dated) {
+    const total = totalTokensForBucket(b);
+    if (total > 0) activeDays++;
+    totalTokens += total;
+    totalCost += b.cost_usd;
+  }
+
+  const firstDate = dated[0].label;
+  const lastDate = dated[dated.length - 1].label;
+  const totalDays = calendarDaysInclusive(firstDate, lastDate);
+
+  return {
+    activeDays,
+    totalDays,
+    inactiveDays: Math.max(0, totalDays - activeDays),
+    totalTokens,
+    totalCost,
+    firstDate,
+    lastDate,
+  };
+}
+
+export function buildContributionGraphJesseContext({
+  data,
+  locale,
+  title,
+}: {
+  data: TokenBucket[];
+  locale: Locale;
+  title: string;
+}): JesseContextPayload | null {
+  const stats = buildContributionGraphStats(data);
+  if (!stats) return null;
+  const howToRead =
+    "Each square is one calendar day. Darker green means more token activity. A blank or darkest background square means no recorded activity for that day.";
+
+  return {
+    kind: "token-overview",
+    title,
+    source: "tokens.daily.contributionGraph",
+    capturedAt: new Date().toISOString(),
+    summary: `${title}: ${stats.activeDays} active days across ${stats.totalDays} calendar days from ${stats.firstDate} to ${stats.lastDate}; ${stats.inactiveDays} days have no recorded activity, with ${formatNumber(stats.totalTokens, locale)} total tokens. How to read: ${howToRead}`,
+    metrics: {
+      chartType: "calendar activity heatmap",
+      howToRead,
+      activeDays: stats.activeDays,
+      totalDays: stats.totalDays,
+      inactiveDays: stats.inactiveDays,
+      firstDate: stats.firstDate,
+      lastDate: stats.lastDate,
+      totalTokens: stats.totalTokens,
+      costUsd: stats.totalCost,
+      caveat:
+        "totalDays is the calendar span between the first and last dated bucket, not merely the number of returned buckets.",
+    },
+  };
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -121,13 +209,11 @@ export default function ContributionGraph({
 
     const tokenMap = new Map<string, { tokens: number; cost: number }>();
     let max = 0;
-    let activeDays = 0;
 
     for (const b of dated) {
       const total = totalTokensForBucket(b);
       tokenMap.set(b.label, { tokens: total, cost: b.cost_usd });
       if (total > max) max = total;
-      if (total > 0) activeDays++;
     }
 
     const sorted = [...dated].sort((a, b) => a.label.localeCompare(b.label));
@@ -173,11 +259,16 @@ export default function ContributionGraph({
       weeks: weeksArr,
       maxTokens: max,
       monthLabels: monthLabelList,
-      stats: { activeDays },
+      stats: buildContributionGraphStats(data),
     };
   }, [data, locale]);
 
   const dayLabels = DAY_LABELS[locale] ?? DAY_LABELS.en;
+  const title = t(locale, "tokens.daily.contributionTitle" as never);
+  const canDrag = !transparent && Boolean(stats);
+  const dragData = stats
+    ? buildJesseContextDragData(buildContributionGraphJesseContext({ data, locale, title })!)
+    : null;
 
 
   if (weeks.length === 0) {
@@ -199,8 +290,16 @@ export default function ContributionGraph({
       {/* Header */}
       <div className="flex items-start justify-between mb-4">
         <div>
-          <h3 className={`text-sm font-medium ${titleC}`}>
-            {t(locale, "tokens.daily.contributionTitle" as never)}
+          <h3
+            className={`${canDrag ? "inline-block cursor-grab active:cursor-grabbing" : ""} text-sm font-medium ${titleC}`}
+            draggable={canDrag}
+            onDragStart={(event) => {
+              if (!dragData) return;
+              setJesseContextDragData(event.dataTransfer, dragData, title);
+            }}
+            title={canDrag ? "Drag to Jesse" : undefined}
+          >
+            {title}
           </h3>
           {stats && (
             <p className={`text-xs mt-0.5 ${mutedC}`}>

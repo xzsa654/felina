@@ -1,5 +1,5 @@
-use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use crate::paths;
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::fs;
@@ -34,8 +34,8 @@ fn read_settings() -> Result<Value, String> {
     if !path.exists() {
         return Ok(Value::Object(serde_json::Map::new()));
     }
-    let raw = fs::read_to_string(&path)
-        .map_err(|e| format!("failed to read settings.json: {e}"))?;
+    let raw =
+        fs::read_to_string(&path).map_err(|e| format!("failed to read settings.json: {e}"))?;
     if raw.trim().is_empty() {
         return Ok(Value::Object(serde_json::Map::new()));
     }
@@ -45,25 +45,39 @@ fn read_settings() -> Result<Value, String> {
 fn write_settings(root: &Value) -> Result<(), String> {
     let path = paths::felina_global_settings_path();
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|e| format!("failed to create settings dir: {e}"))?;
+        fs::create_dir_all(parent).map_err(|e| format!("failed to create settings dir: {e}"))?;
     }
     let pretty = serde_json::to_string_pretty(root)
         .map_err(|e| format!("failed to encode settings.json: {e}"))?;
     fs::write(&path, pretty).map_err(|e| format!("failed to write settings.json: {e}"))
 }
 
-pub fn save_auth_public(access_token: &str, refresh_token: &str, email: &str) -> Result<(), String> {
+pub fn save_auth_public(
+    access_token: &str,
+    refresh_token: &str,
+    email: &str,
+) -> Result<(), String> {
     save_auth(access_token, refresh_token, email, true)
 }
 
-fn save_auth(access_token: &str, refresh_token: &str, email: &str, remember_me: bool) -> Result<(), String> {
+fn save_auth(
+    access_token: &str,
+    refresh_token: &str,
+    email: &str,
+    remember_me: bool,
+) -> Result<(), String> {
     let mut root = read_settings()?;
     let obj = root
         .as_object_mut()
         .ok_or("settings.json root must be an object")?;
-    obj.insert(HUB_ACCESS_TOKEN_KEY.to_string(), Value::String(access_token.to_string()));
-    obj.insert(HUB_REFRESH_TOKEN_KEY.to_string(), Value::String(refresh_token.to_string()));
+    obj.insert(
+        HUB_ACCESS_TOKEN_KEY.to_string(),
+        Value::String(access_token.to_string()),
+    );
+    obj.insert(
+        HUB_REFRESH_TOKEN_KEY.to_string(),
+        Value::String(refresh_token.to_string()),
+    );
     obj.insert(HUB_EMAIL_KEY.to_string(), Value::String(email.to_string()));
     obj.insert(HUB_REMEMBER_ME_KEY.to_string(), Value::Bool(remember_me));
     write_settings(&root)
@@ -140,7 +154,12 @@ async fn auth_request(
 
     let auth: AuthResponse =
         serde_json::from_str(&body).map_err(|e| format!("parse error: {e}"))?;
-    save_auth(&auth.access_token, &auth.refresh_token, &auth.email, remember_me)?;
+    save_auth(
+        &auth.access_token,
+        &auth.refresh_token,
+        &auth.email,
+        remember_me,
+    )?;
     Ok(HubAuthResult {
         access_token: auth.access_token,
         refresh_token: auth.refresh_token,
@@ -166,8 +185,7 @@ pub async fn login_hub_account(
 }
 
 pub(crate) async fn try_refresh_token() -> Result<String, String> {
-    let refresh_token = read_hub_refresh_token()?
-        .ok_or_else(|| "no refresh token".to_string())?;
+    let refresh_token = read_hub_refresh_token()?.ok_or_else(|| "no refresh token".to_string())?;
     let base = super::market_server::get_market_server_url()?;
     let url = format!("{}/auth/refresh", base.trim_end_matches('/'));
     let response = reqwest::Client::new()
@@ -208,26 +226,22 @@ pub async fn get_hub_auth_status() -> Result<Option<HubAuthStatus>, String> {
         .filter(|s| !s.is_empty())
         .map(|s| s.to_string());
     match (email, token) {
-        (Some(email), Some(t)) if !is_token_expired(&t) => {
-            Ok(Some(HubAuthStatus { email }))
-        }
-        (Some(_), Some(_)) | (Some(_), None) => {
-            match try_refresh_token().await {
-                Ok(_) => {
-                    let fresh = read_settings()?;
-                    let email = fresh
-                        .get(HUB_EMAIL_KEY)
-                        .and_then(|v| v.as_str())
-                        .filter(|s| !s.is_empty())
-                        .map(|s| s.to_string());
-                    Ok(email.map(|e| HubAuthStatus { email: e }))
-                }
-                Err(_) => {
-                    logout_hub_account()?;
-                    Ok(None)
-                }
+        (Some(email), Some(t)) if !is_token_expired(&t) => Ok(Some(HubAuthStatus { email })),
+        (Some(_), Some(_)) | (Some(_), None) => match try_refresh_token().await {
+            Ok(_) => {
+                let fresh = read_settings()?;
+                let email = fresh
+                    .get(HUB_EMAIL_KEY)
+                    .and_then(|v| v.as_str())
+                    .filter(|s| !s.is_empty())
+                    .map(|s| s.to_string());
+                Ok(email.map(|e| HubAuthStatus { email: e }))
             }
-        }
+            Err(_) => {
+                logout_hub_account()?;
+                Ok(None)
+            }
+        },
         _ => Ok(None),
     }
 }
