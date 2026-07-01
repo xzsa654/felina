@@ -4,6 +4,7 @@ import { api } from "$lib/tauri/commands";
 import type { ProjectInfo, MemoryFile } from "$lib/types";
 import ConfirmDialog from "$lib/components/shared/ConfirmDialog";
 import ErrorNotice from "$lib/components/shared/ErrorNotice";
+import JesseFood from "$lib/components/shared/JesseFood";
 import MarkdownPreview from "$lib/components/shared/MarkdownPreview";
 import { t } from "$lib/i18n";
 import { useLocaleStore } from "$lib/stores/locale";
@@ -286,9 +287,26 @@ export default function MemoryPage() {
                   {memoryFiles.map((file) => {
                     const typeColor = TYPE_COLORS[file.memory_type ?? ""] ?? "bg-bg-tertiary text-text-muted";
                     const TypeIcon = TYPE_ICONS[file.memory_type ?? ""] ?? Brain;
+                    const foodPayload = {
+                      kind: "memory-entry" as const,
+                      title: file.name || file.filename,
+                      source: file.filename,
+                      capturedAt: new Date().toISOString(),
+                      summary: `${file.memory_type ? `[${file.memory_type}] ` : ""}${
+                        file.name || file.filename
+                      }${file.description ? ` — ${file.description}` : ""}. Content preview: ${file.content.slice(0, 200)}`,
+                      metrics: {
+                        filename: file.filename,
+                        type: file.memory_type,
+                        project: projectDisplayName(selectedProject.path),
+                      },
+                    };
                     return (
-                      <button
+                      <JesseFood
+                        as="button"
                         key={file.filename}
+                        payload={foodPayload}
+                        label={file.name || file.filename}
                         className={`text-left p-4 bg-bg-secondary border rounded-lg transition-colors hover:border-accent/30 ${
                           editingFile?.filename === file.filename ? "border-accent/50 bg-accent/5" : "border-border"
                         }`}
@@ -315,7 +333,7 @@ export default function MemoryPage() {
                         <p className="text-xs text-text-muted mt-2 line-clamp-2 font-mono opacity-50">
                           {file.content.slice(0, 100)}
                         </p>
-                      </button>
+                      </JesseFood>
                     );
                   })}
                 </div>

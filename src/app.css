@@ -107,6 +107,53 @@ html, body, #app {
   animation: text-shimmer 1.4s linear infinite;
 }
 
+/* Jesse character animations */
+@keyframes jesse-bob {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  50% { transform: translateY(-4px) rotate(-1.5deg); }
+}
+
+/* Chewing: the mouth spans keep their translateX(-50%) centering while the
+   jaw opens and closes, so Jesse looks like he is happily munching. */
+@keyframes jesse-chew {
+  0%, 100% { transform: translateX(-50%) scaleY(1); }
+  50% { transform: translateX(-50%) scaleY(0.45); }
+}
+
+@keyframes jesse-blink {
+  0%, 92%, 100% { transform: scaleY(1); }
+  96% { transform: scaleY(0.1); }
+}
+
+.jesse-bob {
+  animation: jesse-bob 3.2s ease-in-out infinite;
+}
+
+.jesse-chew {
+  transform-origin: center;
+  animation: jesse-chew 0.26s ease-in-out infinite;
+}
+
+.jesse-eye {
+  transform-origin: center;
+  animation: jesse-blink 4.6s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .jesse-bob,
+  .jesse-chew,
+  .jesse-eye {
+    animation: none;
+  }
+}
+
+/* Food items keep the default cursor on hover; the browser shows its own drag
+   cursor only while an item is actively being dragged. Unlayered so it also
+   overrides any leftover cursor-grab utility on individual items. */
+[draggable="true"] {
+  cursor: default;
+}
+
 /* Scrollbar styling */
 ::-webkit-scrollbar {
   width: 8px;

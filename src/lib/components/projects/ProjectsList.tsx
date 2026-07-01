@@ -4,6 +4,7 @@ import type { KnownProject } from "$lib/types";
 import { api } from "$lib/tauri/commands";
 import ConfirmDialog from "$lib/components/shared/ConfirmDialog";
 import ErrorNotice from "$lib/components/shared/ErrorNotice";
+import JesseFood from "$lib/components/shared/JesseFood";
 import { useLocaleStore } from "$lib/stores/locale";
 import { t } from "$lib/i18n";
 import {
@@ -74,12 +75,29 @@ export default function ProjectsList({ projects, loaded, selectedPath, onSelect,
         // are derived and would reappear on the next scan. Surface the remove
         // affordance for not-found saved entries (the cleanup case).
         const removable = !p.exists && p.sources.includes("saved");
+        const foodPayload = {
+          kind: "project" as const,
+          title: name,
+          source: p.path,
+          capturedAt: new Date().toISOString(),
+          summary: `Project "${name}" at ${p.path}. ${
+            p.exists ? "Exists on disk." : "Missing on disk."
+          } Known via: ${p.sources.join(", ")}.`,
+          metrics: {
+            path: p.path,
+            exists: p.exists,
+            sources: p.sources.join(", "),
+          },
+        };
         return (
           <li
             key={p.path}
             className="flex items-stretch"
           >
-            <button
+            <JesseFood
+              as="button"
+              payload={foodPayload}
+              label={name}
               type="button"
               onClick={() => onSelect(p.path)}
               className={`flex-1 min-w-0 text-left mx-2 rounded-lg border px-3 py-2 transition-colors ${
@@ -104,7 +122,7 @@ export default function ProjectsList({ projects, loaded, selectedPath, onSelect,
               <div className="text-[11px] text-text-muted truncate" title={p.path}>
                 {p.path}
               </div>
-            </button>
+            </JesseFood>
             {removable && (
               <button
                 type="button"

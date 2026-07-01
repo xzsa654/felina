@@ -13,7 +13,6 @@ import CacheEfficiencyCard from "./components/CacheEfficiencyCard";
 import TopSessionsCard from "./components/TopSessionsCard";
 import CostBudgetCard from "./components/CostBudgetCard";
 import AgentQuotaPanel from "./components/AgentQuotaPanel";
-import JesseTokenAssistant from "./components/JesseTokenAssistant";
 import QuotaWindowSchedulerPanel from "./components/QuotaWindowSchedulerPanel";
 import TimeBucketTable from "./components/TimeBucketTable";
 import DailySummaryCards from "./components/DailySummaryCards";
@@ -364,7 +363,6 @@ export default function TokensPage() {
 
         </div>
       </PageBody>
-      <JesseTokenAssistant locale={locale} />
     </div>
   );
 }

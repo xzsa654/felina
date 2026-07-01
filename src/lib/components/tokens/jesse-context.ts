@@ -10,6 +10,12 @@ const JESSE_CONTEXT_KINDS = new Set<JesseContextKind>([
   "top-session",
   "model-breakdown",
   "quota-snapshot",
+  "skill",
+  "project",
+  "memory-entry",
+  "history-session",
+  "hub-item",
+  "app",
 ]);
 
 export const JESSE_CONTEXT_MIME = "application/x-felina-jesse-context+json";

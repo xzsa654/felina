@@ -1,6 +1,7 @@
 import { CheckCircle, Download } from "lucide-react";
 import { t } from "$lib/i18n";
 import type { Locale } from "$lib/i18n";
+import JesseFood from "$lib/components/shared/JesseFood";
 import {
   glassListRowClass,
   glassListSelectedRowClass,
@@ -29,9 +30,28 @@ export default function MarketSkillList({
     <div className={`rounded-xl p-1 ${glassListSurfaceClass}`}>
       {entries.map((entry) => {
         const selected = entry.name === selectedName;
+        const foodPayload = {
+          kind: "hub-item" as const,
+          title: entry.name,
+          source: entry.name,
+          capturedAt: new Date().toISOString(),
+          summary: `Marketplace skill "${entry.name}"${
+            entry.version ? ` v${entry.version}` : ""
+          }${entry.author ? ` by ${entry.author}` : ""}. ${
+            entry.upToDate ? "Installed and up to date." : "Available to install or update."
+          }`,
+          metrics: {
+            version: entry.version,
+            author: entry.author,
+            upToDate: entry.upToDate,
+          },
+        };
         return (
-          <button
+          <JesseFood
+            as="button"
             key={entry.name}
+            payload={foodPayload}
+            label={entry.name}
             type="button"
             onClick={() => onSelect(entry.name)}
             className={`w-full min-h-12 rounded-lg px-3 py-2 text-left transition-colors ${
@@ -58,7 +78,7 @@ export default function MarketSkillList({
                 <Download size={13} className="text-text-muted shrink-0" />
               )}
             </div>
-          </button>
+          </JesseFood>
         );
       })}
     </div>

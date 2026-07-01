@@ -6,7 +6,13 @@ export type JesseContextKind =
   | "token-overview"
   | "top-session"
   | "model-breakdown"
-  | "quota-snapshot";
+  | "quota-snapshot"
+  | "skill"
+  | "project"
+  | "memory-entry"
+  | "history-session"
+  | "hub-item"
+  | "app";
 
 export type JesseMetricValue = string | number | boolean | null;
 
@@ -25,7 +31,16 @@ export interface JesseContextBase {
 }
 
 export interface JesseMetricsContext extends JesseContextBase {
-  kind: "token-overview" | "top-session" | "quota-snapshot";
+  kind:
+    | "token-overview"
+    | "top-session"
+    | "quota-snapshot"
+    | "skill"
+    | "project"
+    | "memory-entry"
+    | "history-session"
+    | "hub-item"
+    | "app";
   metrics: Record<string, JesseMetricValue>;
   rows?: never;
 }

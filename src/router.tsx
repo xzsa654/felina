@@ -5,7 +5,9 @@ import Sidebar from "$lib/components/layout/Sidebar";
 import CommandPalette from "$lib/components/shared/CommandPalette";
 import OnboardingWelcome from "$lib/components/shared/OnboardingWelcome";
 import ShapeGrid from "$lib/components/shared/ShapeGrid/ShapeGrid";
+import JesseTokenAssistant from "$lib/components/tokens/components/JesseTokenAssistant";
 import { useThemeStore } from "$lib/stores/theme";
+import { useLocaleStore } from "$lib/stores/locale";
 
 const SkillsPage = lazy(() => import("$lib/components/skills/SkillsPage"));
 const ProjectsPage = lazy(() => import("$lib/components/projects/ProjectsPage"));
@@ -26,6 +28,7 @@ function LazyPage({ Component }: { Component: React.ComponentType }) {
 function AppLayout() {
   const resolvedTheme = useThemeStore((s) => s.resolvedTheme);
   const isLight = resolvedTheme === "light";
+  const locale = useLocaleStore((s) => s.locale);
   return (
     <>
       <CommandPalette />
@@ -52,6 +55,7 @@ function AppLayout() {
           </div>
         </main>
       </div>
+      <JesseTokenAssistant locale={locale} />
     </>
   );
 }

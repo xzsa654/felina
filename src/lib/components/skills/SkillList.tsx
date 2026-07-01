@@ -9,6 +9,7 @@ import {
 } from "$lib/types";
 import { useLocaleStore } from "$lib/stores/locale";
 import { t } from "$lib/i18n";
+import JesseFood from "$lib/components/shared/JesseFood";
 import {
   glassListRowClass,
   glassListSelectedRowClass,
@@ -246,12 +247,33 @@ export default function SkillList({
           const isSelected = selectedName === canonicalId;
           const isPushing = pushingNames.has(canonicalId);
           const scopeMap = agentScopeMap(skill.targets);
+          const enabledTargets = skill.targets.filter((target) => target.enabled).length;
+          const foodPayload = {
+            kind: "skill" as const,
+            title: skill.name,
+            source: canonicalId,
+            capturedAt: new Date().toISOString(),
+            summary: `Skill "${skill.name}"${
+              skill.description ? ` — ${skill.description}` : ""
+            }. ${skill.dirty ? "Has unpushed changes." : "In sync."}${
+              drifted ? " Drifted from the agent side." : ""
+            } ${enabledTargets} enabled target(s).`,
+            metrics: {
+              dirty: skill.dirty,
+              drifted,
+              targets: skill.targets.length,
+              enabledTargets,
+            },
+          };
 
           return (
             <Fragment key={canonicalId}>
               {header}
               <li>
-                <button
+                <JesseFood
+                  as="button"
+                  payload={foodPayload}
+                  label={skill.name}
                   type="button"
                   onClick={() => onSelect(canonicalId)}
                   className={`group w-[calc(100%-1rem)] flex items-center gap-2 mx-2 rounded-lg border px-3 py-2 text-left transition-colors ${
@@ -326,7 +348,7 @@ export default function SkillList({
                     <Send size={12} />
                     {isPushing ? t(locale, "skills.list.pushing") : t(locale, "skills.list.push")}
                   </button>
-                </button>
+                </JesseFood>
               </li>
             </Fragment>
           );

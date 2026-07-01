@@ -10,6 +10,7 @@ import {
 } from "$lib/components/shared/PageScaffold";
 import MarkdownPreview from "$lib/components/shared/MarkdownPreview";
 import ErrorNotice from "$lib/components/shared/ErrorNotice";
+import JesseFood from "$lib/components/shared/JesseFood";
 import { api } from "$lib/tauri/commands";
 import { t, type Locale } from "$lib/i18n";
 import { useLocaleStore } from "$lib/stores/locale";
@@ -254,9 +255,33 @@ export default function HistoryPage() {
                 const active =
                   selected?.agent === session.agent &&
                   selected?.session_id === session.session_id;
+                const foodPayload = {
+                  kind: "history-session" as const,
+                  title: shortSession(session.session_id),
+                  source: `${session.agent}/${session.session_id}`,
+                  capturedAt: new Date().toISOString(),
+                  summary: `${session.agent} session ${session.session_id}${
+                    session.model ? ` (${session.model})` : ""
+                  }${session.project ? ` in ${session.project}` : ""}. ${formatNumber(
+                    session.tokens,
+                    locale,
+                  )} tokens across ${formatNumber(session.messages, locale)} messages.`,
+                  metrics: {
+                    agent: session.agent,
+                    sessionId: session.session_id,
+                    model: session.model,
+                    project: session.project,
+                    tokens: session.tokens,
+                    messages: session.messages,
+                    timestamp: session.timestamp,
+                  },
+                };
                 return (
-                  <button
+                  <JesseFood
+                    as="button"
                     key={`${session.agent}:${session.session_id}`}
+                    payload={foodPayload}
+                    label={shortSession(session.session_id)}
                     type="button"
                     onClick={() => selectSession(session)}
                     className={`mx-2 mb-1 w-[calc(100%-1rem)] rounded-lg border px-3 py-2.5 text-left transition-colors ${
@@ -291,7 +316,7 @@ export default function HistoryPage() {
                     {!session.transcript_available && (
                       <p className="mt-1 text-[10px] text-warning">{t(locale, "history.transcriptUnavailable")}</p>
                     )}
-                  </button>
+                  </JesseFood>
                 );
               })}
               {sessionsQuery.hasNextPage && (

@@ -4,7 +4,7 @@ import { api } from "$lib/tauri/commands";
 import { t } from "$lib/i18n";
 import { useLocaleStore } from "$lib/stores/locale";
 
-const DEFAULT_URL = "http://localhost:3100";
+const DEFAULT_URL = "https://felina-server.duckdns.org";
 
 export default function MarketServerSection() {
   const locale = useLocaleStore((s) => s.locale);

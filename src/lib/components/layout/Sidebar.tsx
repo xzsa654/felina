@@ -40,6 +40,10 @@ import {
   Store,
 } from "lucide-react";
 import logoUrl from "$lib/assets/logo.png";
+import {
+  buildJesseContextDragData,
+  setJesseContextDragData,
+} from "$lib/components/tokens/jesse-context";
 
 const ICON_MAP: Record<string, React.ComponentType<{ size?: number; className?: string }>> = {
   sparkles: Sparkles,
@@ -144,6 +148,20 @@ export default function Sidebar() {
     })();
   }, []);
 
+  const logoFood = buildJesseContextDragData({
+    kind: "app",
+    title: "Felina",
+    source: "app.logo",
+    capturedAt: new Date().toISOString(),
+    summary: `Felina — a local control plane for AI coding agents. This is the desktop app you (Jesse) live inside; it manages skills, projects, memory, token usage, chat history, and a skill hub across Claude, Codex, and Gemini. Version ${appVersion}.`,
+    metrics: {
+      name: "Felina",
+      tagline: "Local agent CLI control plane",
+      version: appVersion,
+      manages: "skills, projects, memory, tokens, history, hub",
+    },
+  });
+
   return (
     <aside className={`relative flex flex-col h-full bg-bg-secondary border-r border-border shrink-0 transition-[width] duration-200 ${collapsed ? "w-14" : "w-60"}`}>
       {/* Logo */}
@@ -151,7 +169,13 @@ export default function Sidebar() {
         className={`flex items-center border-b border-border w-full hover:bg-bg-hover transition-colors ${collapsed ? "justify-center px-0 py-[13.5px]" : "gap-2 px-4 py-[13.5px] text-left"}`}
         onClick={() => setShowAbout(true)}
       >
-        <img src={logoUrl} alt="Felina" className="w-8 h-8 rounded-lg shrink-0" />
+        <img
+          src={logoUrl}
+          alt="Felina"
+          className="w-8 h-8 rounded-lg shrink-0"
+          draggable
+          onDragStart={(event) => setJesseContextDragData(event.dataTransfer, logoFood, "Felina")}
+        />
         {!collapsed && (
           <div>
             <h1 className="text-sm font-semibold text-text-primary">Felina</h1>

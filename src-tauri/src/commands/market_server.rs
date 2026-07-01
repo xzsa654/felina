@@ -1,15 +1,15 @@
 //! Market server URL setting (persisted in `~/.felina/settings.json`).
 //!
 //! Read by Hub UI (`HubPage`) and the `install_market_skill` command. The
-//! default `http://localhost:3100` keeps dev environments zero-config; users
-//! configure a different host via Settings → Market Server.
+//! default points at the shared Felina market server; users configure a
+//! different host via Settings → Market Server.
 
 use crate::paths;
 use serde_json::Value;
 use std::fs;
 
 const SETTINGS_KEY: &str = "marketServerUrl";
-pub const DEFAULT_URL: &str = "http://192.168.16.72:9100";
+pub const DEFAULT_URL: &str = "https://felina-server.duckdns.org";
 
 /// Return the persisted market server base URL, or the default if unset.
 /// Always returns a value with no trailing slash so callers can concatenate
